@@ -1,0 +1,59 @@
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const path = require('path');
+
+// Load .env if present
+try { dotenv.config(); } catch {}
+
+const { connectMongo } = require('./mongo');
+const { createMongoEntityStore } = require('./store.mongo');
+const { authMiddleware, createAuthRouter } = require('./auth');
+const { createEntitiesRouter } = require('./routes.entities');
+const { createPaymentsRouter } = require('./routes.payments');
+const { createStripeWebhookHandler } = require('./stripeWebhook');
+
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:5001';
+const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
+
+const app = express();
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '10mb' }));
+
+
+let store;
+let mongoDb;
+let routesRegistered = false;
+
+app.use(async (req, res, next) => {
+  if (!mongoDb) {
+    mongoDb = await connectMongo();
+    store = createMongoEntityStore({ db: mongoDb });
+  }
+  req.store = store;
+
+  // Register routes only once, after db is ready
+  if (!routesRegistered) {
+    app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+    const auth = createAuthRouter({ db: mongoDb });
+    app.post('/api/auth/login', (req, res, next) => auth.login(req, res).catch(next));
+      app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
+    app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
+
+    app.use('/api/entities', authMiddleware, (req, res, next) => createEntitiesRouter({ store: req.store })(req, res, next));
+    app.use('/api/payments', authMiddleware, (req, res, next) => createPaymentsRouter({ store: req.store, publicBaseUrl: PUBLIC_BASE_URL, frontendBaseUrl: FRONTEND_BASE_URL })(req, res, next));
+    app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
+
+    routesRegistered = true;
+  }
+  next();
+});
+
+// Error handler
+app.use((err, _req, res, _next) => {
+  const status = err?.status || 500;
+  res.status(status).json({ message: err?.message || 'Server error' });
+});
+
+module.exports = app;
