@@ -26,7 +26,7 @@ export default function Layout({ children, currentPageName }) {
         {/* Logo/Header */}
         <div className="p-6 border-b border-blue-800">
           <div>
-            <h1 className="text-xl font-bold">Shtiebel48</h1>
+            <h1 className="text-xl font-bold">Shtiebel 48</h1>
             <h2 className="text-lg font-semibold text-blue-100">Manager</h2>
             <p className="text-xs text-blue-200 mt-1">Member & Billing System</p>
           </div>
