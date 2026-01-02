@@ -37,8 +37,9 @@ app.use(async (req, res, next) => {
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
     const auth = createAuthRouter({ db: mongoDb });
+    //app.post('/api/auth/signup', (req, res, next) => auth.signup(req, res).catch(next));
     app.post('/api/auth/login', (req, res, next) => auth.login(req, res).catch(next));
-      app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
+    app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
     app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
 
     app.use('/api/entities', authMiddleware, (req, res, next) => createEntitiesRouter({ store: req.store })(req, res, next));

@@ -201,12 +201,10 @@ export default function Members() {
 
     setUploading(true);
     try {
-      // Upload file first
       const { file_url } = await base44.integrations.Core.UploadFile({ file: uploadFile });
-      
-      // Extract data from file
+
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
-        file_url: file_url,
+        file_url,
         json_schema: {
           type: "object",
           properties: {
@@ -215,27 +213,50 @@ export default function Members() {
               items: {
                 type: "object",
                 properties: {
-                  member_id: { type: "string" },
-                  full_name: { type: "string" },
-                  email: { type: "string" },
-                  phone: { type: "string" },
-                  address: { type: "string" }
-                }
-              }
-            }
-          }
-        }
+                  member_id: { type: ["string", "number", "null"] },
+                  full_name: { type: ["string", "null"] },
+                  email: { type: ["string", "null"] },
+                  phone: { type: ["string", "null"] },
+                  address: { type: ["string", "null"] },
+                },
+              },
+            },
+          },
+        },
       });
 
-      if (result.status === "success" && result.output) {
-        const membersData = result.output.members || result.output;
-        await base44.entities.Member.bulkCreate(Array.isArray(membersData) ? membersData : [membersData]);
-        queryClient.invalidateQueries({ queryKey: ['members'] });
-        setUploadDialogOpen(false);
-        setUploadFile(null);
+      if (result?.status !== "success" || !result?.output) {
+        throw new Error(result?.message || "Could not extract members from file");
       }
+
+      const raw = result.output.members || result.output;
+      const arr = Array.isArray(raw) ? raw : [raw];
+      const cleaned = arr
+        .map((m) => ({
+          member_id: m?.member_id ? String(m.member_id).trim() : undefined,
+          full_name: m?.full_name ? String(m.full_name).trim() : "",
+          email: m?.email ? String(m.email).trim() : undefined,
+          phone: m?.phone ? String(m.phone).trim() : undefined,
+          address: m?.address ? String(m.address).trim() : undefined,
+        }))
+        .filter((m) => m.full_name);
+
+      if (cleaned.length === 0) {
+        throw new Error("No member rows found. Make sure your file has a 'full_name' column.");
+      }
+
+      // Fill missing member_id with generated values to keep API happy
+      const withIds = cleaned.map((m) => ({
+        member_id: m.member_id || Math.floor(100000 + Math.random() * 900000).toString(),
+        ...m,
+      }));
+
+      await base44.entities.Member.bulkCreate(withIds);
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setUploadDialogOpen(false);
+      setUploadFile(null);
     } catch (error) {
-      alert("Upload failed: " + error.message);
+      alert("Upload failed: " + (error?.message || error));
     }
     setUploading(false);
   };

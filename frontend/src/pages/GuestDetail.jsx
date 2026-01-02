@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2 } from "lucide-react";
+import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2, CreditCard, Repeat } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
@@ -23,11 +23,18 @@ export default function GuestDetail() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [chargeDialogOpen, setChargeDialogOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [onlinePaymentDialogOpen, setOnlinePaymentDialogOpen] = useState(false);
+  const [donationDialogOpen, setDonationDialogOpen] = useState(false);
+  const [payoffDialogOpen, setPayoffDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDescription, setPaymentDescription] = useState("");
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeDescription, setChargeDescription] = useState("");
   const [chargeDate, setChargeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [onlinePaymentAmount, setOnlinePaymentAmount] = useState("");
+  const [onlinePaymentDescription, setOnlinePaymentDescription] = useState("");
+  const [donationAmount, setDonationAmount] = useState("");
+  const [payoffAmount, setPayoffAmount] = useState("");
   const invoiceRef = useRef();
 
   const queryClient = useQueryClient();
@@ -106,6 +113,55 @@ export default function GuestDetail() {
       amount: parseFloat(paymentAmount),
       date: new Date().toISOString().split('T')[0]
     });
+  };
+
+  const handleStripePayment = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(onlinePaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const out = await base44.payments.createGuestCheckout({
+      guestId,
+      amount,
+      description: onlinePaymentDescription || `Donation - ${guest.full_name}`,
+      successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+      cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+    });
+    if (out?.url) window.location.href = out.url;
+  };
+
+  const handleMonthlyDonationSubmit = (e) => {
+    e.preventDefault();
+    const amountPerMonth = parseFloat(donationAmount);
+    if (!Number.isFinite(amountPerMonth) || amountPerMonth <= 0) return;
+    base44.payments
+      .createGuestSubscriptionCheckout({
+        guestId,
+        paymentType: "guest_monthly_donation",
+        amountPerMonth,
+        successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+        cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+      })
+      .then((out) => {
+        if (out?.url) window.location.href = out.url;
+      });
+  };
+
+  const handleMonthlyPayoffSubmit = (e) => {
+    e.preventDefault();
+    const amountPerMonth = parseFloat(payoffAmount);
+    if (!Number.isFinite(amountPerMonth) || amountPerMonth <= 0) return;
+    base44.payments
+      .createGuestSubscriptionCheckout({
+        guestId,
+        paymentType: "guest_balance_payoff",
+        amountPerMonth,
+        payoffTotal: guest.total_owed || 0,
+        successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+        cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
+      })
+      .then((out) => {
+        if (out?.url) window.location.href = out.url;
+      });
   };
 
   const handleChargeSubmit = (e) => {
@@ -291,6 +347,129 @@ export default function GuestDetail() {
                           </Button>
                           <Button type="submit" className="bg-green-600 hover:bg-green-700">
                             Record Payment
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={onlinePaymentDialogOpen} onOpenChange={setOnlinePaymentDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="border-blue-200 text-blue-900 hover:bg-blue-50">
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Pay Online
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Pay Online (No Base Charge)</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleStripePayment} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="onlineAmount">Amount *</Label>
+                          <Input
+                            id="onlineAmount"
+                            type="number"
+                            step="0.01"
+                            value={onlinePaymentAmount}
+                            onChange={(e) => setOnlinePaymentAmount(e.target.value)}
+                            required
+                            placeholder="0.00"
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="onlineDescription">Description</Label>
+                          <Input
+                            id="onlineDescription"
+                            value={onlinePaymentDescription}
+                            onChange={(e) => setOnlinePaymentDescription(e.target.value)}
+                            placeholder="Donation or payoff"
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setOnlinePaymentDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                            Checkout
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={donationDialogOpen} onOpenChange={setDonationDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="border-green-200 text-green-700 hover:bg-green-50">
+                        <Repeat className="w-4 h-4 mr-2" />
+                        Monthly Donation
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Set Monthly Donation</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleMonthlyDonationSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="donationAmount">Monthly Amount *</Label>
+                          <Input
+                            id="donationAmount"
+                            type="number"
+                            step="0.01"
+                            value={donationAmount}
+                            onChange={(e) => setDonationAmount(e.target.value)}
+                            required
+                            placeholder="50.00"
+                            className="h-11"
+                          />
+                        </div>
+                        <p className="text-sm text-slate-500">Guests can donate monthly with no base charge.</p>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setDonationDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                            Start Monthly Donation
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={payoffDialogOpen} onOpenChange={setPayoffDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="border-amber-200 text-amber-700 hover:bg-amber-50">
+                        <Repeat className="w-4 h-4 mr-2" />
+                        Pay Off Monthly
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Monthly Payoff Plan</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleMonthlyPayoffSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="payoffAmount">Monthly Amount *</Label>
+                          <Input
+                            id="payoffAmount"
+                            type="number"
+                            step="0.01"
+                            value={payoffAmount}
+                            onChange={(e) => setPayoffAmount(e.target.value)}
+                            required
+                            placeholder={guest.total_owed ? guest.total_owed.toFixed(2) : "100.00"}
+                            className="h-11"
+                          />
+                        </div>
+                        <p className="text-sm text-slate-500">We will only charge the monthly amount you set until the balance is paid. No base charge is applied.</p>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setPayoffDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
+                            Start Payoff Plan
                           </Button>
                         </div>
                       </form>

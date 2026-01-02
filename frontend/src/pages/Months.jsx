@@ -3,13 +3,13 @@ import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Printer, ChevronRight, Users, UserPlus, Mail, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
 export default function Months() {
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState(null);
   const printRef = useRef();
 
@@ -55,23 +55,11 @@ export default function Months() {
     show_footer: true
   };
 
-  // Generate year options (current year and last 5 years)
-  const generateYearOptions = () => {
-    const years = [];
-    const currentYear = new Date().getFullYear();
-    for (let i = 0; i < 6; i++) {
-      years.push(currentYear - i);
-    }
-    return years;
-  };
-
-  const yearOptions = generateYearOptions();
-
   // Generate 12 months for selected year
-  const generateMonthsForYear = () => {
+  const generateMonthsForYear = (year) => {
     const months = [];
     for (let i = 0; i < 12; i++) {
-      const date = new Date(selectedYear, i, 1);
+      const date = new Date(year, i, 1);
       months.push({
         value: format(date, 'yyyy-MM'),
         label: format(date, 'MMMM'),
@@ -81,7 +69,9 @@ export default function Months() {
     return months;
   };
 
-  const monthsForYear = generateMonthsForYear();
+  const parsedYear = Number(selectedYear);
+  const validYear = Number.isFinite(parsedYear);
+  const monthsForYear = validYear ? generateMonthsForYear(parsedYear) : [];
 
   // Get transactions for a specific month
   const getMonthlyTransactions = (monthValue, entityTransactions, idField) => {
@@ -101,6 +91,8 @@ export default function Months() {
     const guestTrans = getMonthlyTransactions(monthValue, guestTransactions, 'guest_id');
     return memberTrans.length > 0 || guestTrans.length > 0;
   };
+
+  const monthsWithActivity = monthsForYear.filter((month) => hasMonthActivity(month.value));
 
   // Get member data for selected month
   const getMemberMonthlyData = (member, monthValue) => {
@@ -514,16 +506,18 @@ export default function Months() {
             </div>
             <div className="flex items-center gap-3">
               <label className="text-sm font-semibold text-slate-700">Year:</label>
-              <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
-                <SelectTrigger className="w-32 h-11">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {yearOptions.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                type="number"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="YYYY"
+                value={selectedYear}
+                onChange={(e) => {
+                  setSelectedYear(e.target.value);
+                  setSelectedMonth(null);
+                }}
+                className="w-32 h-11"
+              />
             </div>
           </div>
 
@@ -532,35 +526,28 @@ export default function Months() {
               <CardTitle>{selectedYear} - Select Month</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="divide-y divide-slate-100">
-                {monthsForYear.map((month) => {
-                  const hasActivity = hasMonthActivity(month.value);
-                  return (
+              {!validYear && (
+                <div className="p-6 text-sm text-amber-700 bg-amber-50">Enter a year to see months.</div>
+              )}
+              {validYear && monthsWithActivity.length === 0 && (
+                <div className="p-6 text-sm text-slate-500">No months with activity for {selectedYear}.</div>
+              )}
+              {validYear && monthsWithActivity.length > 0 && (
+                <div className="divide-y divide-slate-100">
+                  {monthsWithActivity.map((month) => (
                     <button
                       key={month.value}
-                      onClick={() => hasActivity && setSelectedMonth(month.value)}
-                      disabled={!hasActivity}
-                      className={`w-full px-6 py-5 flex items-center justify-between transition-all ${
-                        hasActivity
-                          ? 'hover:bg-blue-50 cursor-pointer'
-                          : 'opacity-40 cursor-not-allowed'
-                      }`}
+                      onClick={() => setSelectedMonth(month.value)}
+                      className="w-full px-6 py-5 flex items-center justify-between transition-all hover:bg-blue-50 cursor-pointer"
                     >
                       <div className="flex items-center gap-4">
-                        <div className={`text-lg font-bold ${hasActivity ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {month.label}
-                        </div>
-                        {!hasActivity && (
-                          <span className="text-sm text-slate-400">No activity</span>
-                        )}
+                        <div className="text-lg font-bold text-slate-900">{month.label}</div>
                       </div>
-                      {hasActivity && (
-                        <ChevronRight className="w-5 h-5 text-slate-400" />
-                      )}
+                      <ChevronRight className="w-5 h-5 text-slate-400" />
                     </button>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

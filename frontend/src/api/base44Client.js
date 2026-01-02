@@ -117,6 +117,21 @@ export const base44 = {
         method: "POST",
         body: { memberId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath },
       }),
+    createGuestCheckout: async ({ guestId, amount, description, successPath, cancelPath }) =>
+      requestJson(`/payments/guest/checkout`, {
+        method: "POST",
+        body: { guestId, amount, description, successPath, cancelPath },
+      }),
+    createGuestSubscriptionCheckout: async ({ guestId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath }) =>
+      requestJson(`/payments/guest/subscription-checkout`, {
+        method: "POST",
+        body: { guestId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath },
+      }),
+    createSaveCardCheckout: async ({ memberId, successPath, cancelPath }) =>
+      requestJson(`/payments/save-card-checkout`, {
+        method: "POST",
+        body: { memberId, successPath, cancelPath },
+      }),
     getConfig: async () => requestJson(`/payments/config`),
   },
 };

@@ -137,6 +137,16 @@ export default function MemberDetail() {
     if (out?.url) window.location.href = out.url;
   };
 
+  const handleSaveCard = async (e) => {
+    e.preventDefault();
+    const out = await base44.payments.createSaveCardCheckout({
+      memberId,
+      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+    });
+    if (out?.url) window.location.href = out.url;
+  };
+
   const handleRecurringPaymentSubmit = (e) => {
     e.preventDefault();
     const amountPerMonth = parseFloat(monthlyAmount);
@@ -276,6 +286,15 @@ export default function MemberDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-blue-900 text-blue-900 hover:bg-blue-50"
+                    onClick={handleSaveCard}
+                  >
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Save Card on File
+                  </Button>
                   <Dialog open={recurringDialogOpen} onOpenChange={setRecurringDialogOpen}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="border-blue-900 text-blue-900 hover:bg-blue-50">

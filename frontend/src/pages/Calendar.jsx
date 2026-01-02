@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, X, Plus, Trash2, Check } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, getDay } from "date-fns";
-import { getHebrewDate, isShabbat, isErevShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, isHebrewLeap } from "../components/calendar/hebrewDateConverter";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { getHebrewDate, isShabbat, isErevShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, isHebrewLeap, getHolidaysByDate } from "../components/calendar/hebrewDateConverter";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -66,6 +66,15 @@ export default function Calendar() {
   const calendarEnd = endOfWeek(monthEnd);
   
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+
+  const [holidayMap, setHolidayMap] = useState({});
+
+  useEffect(() => {
+    const start = startOfMonth(currentMonth);
+    const end = endOfMonth(currentMonth);
+    const map = getHolidaysByDate(start, end);
+    setHolidayMap(map);
+  }, [currentMonth]);
 
   const handleDateClick = (date) => {
     setSelectedDate(format(date, 'yyyy-MM-dd'));
@@ -317,6 +326,7 @@ export default function Calendar() {
                 const isFriday = isErevShabbat(day);
                 const hebrewDay = getHebrewDate(day);
                 const parsha = isSaturday ? getParsha(day) : null;
+                const holidayNames = holidayMap[format(day, 'yyyy-MM-dd')];
                 
                 return (
                   <button
@@ -350,6 +360,11 @@ export default function Calendar() {
                         <span className="text-xs font-semibold text-blue-700">{parsha}</span>
                       </div>
                     )}
+                    {isCurrentMonth && holidayNames?.length ? (
+                      <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
+                        {holidayNames.join(', ')}
+                      </div>
+                    ) : null}
                   </button>
                 );
               })}
@@ -382,16 +397,18 @@ export default function Calendar() {
         {/* Transaction Dialog */}
         <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Transactions</DialogTitle>
+              {selectedDate && (
+                <DialogDescription>
+                  {format(new Date(selectedDate), 'MMMM d, yyyy')} • {format(new Date(selectedDate), 'EEEE')} - {getWeekParsha(new Date(selectedDate))}
+                </DialogDescription>
+              )}
+            </DialogHeader>
             <div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-1">Add Transactions</h2>
-              <p className="text-slate-600 mb-6">
-                {selectedDate && format(new Date(selectedDate), 'MMMM d, yyyy')}
-                {selectedDate && (
-                  <span className="ml-2 text-blue-700 font-medium">
-                    • {format(new Date(selectedDate), 'EEEE')} - {getWeekParsha(new Date(selectedDate))}
-                  </span>
-                )}
-              </p>
+              <div className="mb-6" aria-hidden>
+                {/* spacing retained */}
+              </div>
 
               {/* Event Selection */}
               <div className="mb-6 space-y-4">
@@ -407,7 +424,10 @@ export default function Calendar() {
                       Add New Event
                     </Button>
                     <DialogContent className="max-w-2xl">
-                      <h3 className="text-2xl font-bold mb-4">Create New Event</h3>
+                      <DialogHeader>
+                        <DialogTitle>Create New Event</DialogTitle>
+                        <DialogDescription>Set an event name and its honors/roles.</DialogDescription>
+                      </DialogHeader>
                       <form onSubmit={handleCreateEvent} className="space-y-6">
                         <div className="space-y-2">
                           <Label htmlFor="eventName">Event Name *</Label>
