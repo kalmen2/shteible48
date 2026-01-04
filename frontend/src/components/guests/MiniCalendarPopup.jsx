@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Check } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
-import { getHebrewDate, isShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, isHebrewLeap } from "../calendar/hebrewDateConverter";
+import { getHebrewDate, isShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList } from "../calendar/hebrewDateConverter";
 
 export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -34,7 +34,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   
   const currentHebrewDate = getHebrewDate(currentMonth);
   const hebrewYears = Array.from({ length: 10 }, (_, i) => currentHebrewDate.year - 2 + i);
-  const hebrewMonthsList = getHebrewMonthsList(isHebrewLeap(currentHebrewDate.year));
+  const hebrewMonthsList = getHebrewMonthsList(currentHebrewDate.year);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -229,7 +229,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                       {format(day, 'd')}
                     </span>
                     <span className={`text-xs ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
-                      {hebrewDay.day} {hebrewDay.month}
+                      {(hebrewDay.dayHebrew || hebrewDay.day)} {hebrewDay.month}
                     </span>
                   </div>
                   {isSaturday && isCurrentMonth && parsha && (
@@ -251,7 +251,10 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                 {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
               </div>
               <div className="text-sm text-slate-600">
-                {getHebrewDate(new Date(selectedDate)).day} {getHebrewDate(new Date(selectedDate)).month} {getHebrewDate(new Date(selectedDate)).year}
+                {(() => {
+                  const hebrew = getHebrewDate(new Date(selectedDate));
+                  return `${hebrew.dayHebrew || hebrew.day} ${hebrew.month} ${hebrew.year}`;
+                })()}
               </div>
               {isShabbat(new Date(selectedDate)) && (
                 <div className="text-sm text-blue-700 font-medium">

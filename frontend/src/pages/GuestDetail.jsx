@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2, CreditCard, Repeat, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
+import { toLocalDate, todayISO } from "@/utils/dates";
 import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
 import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
 
@@ -30,7 +31,7 @@ export default function GuestDetail() {
   const [paymentDescription, setPaymentDescription] = useState("");
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeDescription, setChargeDescription] = useState("");
-  const [chargeDate, setChargeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [chargeDate, setChargeDate] = useState(todayISO());
   const [donationAmount, setDonationAmount] = useState("");
   const [payoffAmount, setPayoffAmount] = useState("");
   const invoiceRef = useRef();
@@ -83,7 +84,7 @@ export default function GuestDetail() {
       setChargeDialogOpen(false);
       setChargeAmount("");
       setChargeDescription("");
-      setChargeDate(new Date().toISOString().split('T')[0]);
+      setChargeDate(todayISO());
     },
   });
 
@@ -109,7 +110,7 @@ export default function GuestDetail() {
       type: "payment",
       description: paymentDescription || "Payment received",
       amount: parseFloat(paymentAmount),
-      date: new Date().toISOString().split('T')[0]
+      date: todayISO()
     });
   };
 
@@ -520,7 +521,10 @@ export default function GuestDetail() {
                     {transactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-blue-50/50 transition-colors">
                         <td className="py-4 px-6 text-slate-600">
-                          {transaction.date ? format(new Date(transaction.date), 'MMM d, yyyy') : 'N/A'}
+                          {(() => {
+                            const txDate = toLocalDate(transaction.date);
+                            return txDate ? format(txDate, 'MMM d, yyyy') : 'N/A';
+                          })()}
                         </td>
                         <td className="py-4 px-6">
                           <div className="font-medium text-slate-900">{transaction.description}</div>

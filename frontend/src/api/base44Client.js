@@ -2,6 +2,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001
 
 import { getToken, setToken, clearToken } from "@/lib/auth";
 
+const clientOrigin = typeof window !== "undefined" ? window.location.origin : undefined;
+
 async function requestJson(path, { method = "GET", body, headers, rawBody } = {}) {
   const token = getToken();
   // If sending FormData (rawBody), do NOT set Content-Type header; browser will set it automatically
@@ -117,27 +119,27 @@ export const base44 = {
     createCheckout: async ({ memberId, amount, description, successPath, cancelPath }) =>
       requestJson(`/payments/checkout`, {
         method: "POST",
-        body: { memberId, amount, description, successPath, cancelPath },
+        body: { memberId, amount, description, successPath, cancelPath, origin: clientOrigin },
       }),
     createSubscriptionCheckout: async ({ memberId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath }) =>
       requestJson(`/payments/subscription-checkout`, {
         method: "POST",
-        body: { memberId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath },
+        body: { memberId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath, origin: clientOrigin },
       }),
     createGuestCheckout: async ({ guestId, amount, description, successPath, cancelPath }) =>
       requestJson(`/payments/guest/checkout`, {
         method: "POST",
-        body: { guestId, amount, description, successPath, cancelPath },
+        body: { guestId, amount, description, successPath, cancelPath, origin: clientOrigin },
       }),
     createGuestSubscriptionCheckout: async ({ guestId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath }) =>
       requestJson(`/payments/guest/subscription-checkout`, {
         method: "POST",
-        body: { guestId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath },
+        body: { guestId, paymentType, amountPerMonth, payoffTotal, successPath, cancelPath, origin: clientOrigin },
       }),
     createSaveCardCheckout: async ({ memberId, successPath, cancelPath }) =>
       requestJson(`/payments/save-card-checkout`, {
         method: "POST",
-        body: { memberId, successPath, cancelPath },
+        body: { memberId, successPath, cancelPath, origin: clientOrigin },
       }),
     activateMembershipBulk: async ({ memberIds, amountPerMonth }) =>
       requestJson(`/payments/activate-memberships-bulk`, {

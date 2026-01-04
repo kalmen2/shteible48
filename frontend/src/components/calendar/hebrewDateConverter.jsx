@@ -1,42 +1,43 @@
 import { HDate, getSedra, HebrewCalendar, flags } from "@hebcal/core";
 import { isLeapYear as hebcalIsLeapYear } from "@hebcal/hdate";
 
-const MONTH_NAMES = [
-  "Nisan",
-  "Iyyar",
-  "Sivan",
-  "Tamuz",
-  "Av",
-  "Elul",
-  "Tishrei",
-  "Cheshvan",
-  "Kislev",
-  "Tevet",
-  "Sh'vat",
-  "Adar",
-];
+function formatHebrewNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  try {
+    const formatted = new Intl.NumberFormat("he-u-nu-hebr").format(n);
+    if (formatted && formatted !== String(n)) return formatted;
+  } catch {}
 
-const MONTH_NAMES_LEAP = [
-  "Nisan",
-  "Iyyar",
-  "Sivan",
-  "Tamuz",
-  "Av",
-  "Elul",
-  "Tishrei",
-  "Cheshvan",
-  "Kislev",
-  "Tevet",
-  "Sh'vat",
-  "Adar I",
-  "Adar II",
-];
+  const ones = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"];
+  const tens = ["", "י", "כ", "ל"];
+  if (n <= 9) return ones[n];
+  if (n === 10) return "י";
+  if (n === 15) return "טו";
+  if (n === 16) return "טז";
+  if (n < 20) return `י${ones[n - 10]}`;
+  if (n <= 30) {
+    const t = Math.floor(n / 10);
+    const o = n % 10;
+    return `${tens[t]}${ones[o]}`;
+  }
+  return String(n);
+}
+
+function getHebrewMonthName(year, month, locale = "he") {
+  const h = new HDate(1, month, year);
+  if (typeof h.getMonthName === "function") {
+    return h.getMonthName(locale) || h.getMonthName();
+  }
+  return h.getMonthName?.() || String(month);
+}
 
 export function getHebrewDate(date) {
   const h = new HDate(date);
   return {
     day: h.getDate(),
-    month: h.getMonthName(),
+    dayHebrew: formatHebrewNumber(h.getDate()),
+    month: getHebrewMonthName(h.getFullYear(), h.getMonth()),
     monthNum: h.getMonth(), // 1-based month number from Hebcal
     year: h.getFullYear(),
   };
@@ -65,8 +66,13 @@ export function isErevShabbat(date) {
   return date.getDay() === 5;
 }
 
-export function getHebrewMonthsList(isLeap) {
-  return isLeap ? MONTH_NAMES_LEAP : MONTH_NAMES;
+export function getHebrewMonthsList(hebrewYear) {
+  const monthsInYear = hebcalIsLeapYear(hebrewYear) ? 13 : 12;
+  const months = [];
+  for (let month = 1; month <= monthsInYear; month += 1) {
+    months.push(getHebrewMonthName(hebrewYear, month));
+  }
+  return months;
 }
 
 export function isHebrewLeap(year) {

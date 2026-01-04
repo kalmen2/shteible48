@@ -10,8 +10,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, CreditCard, Repeat, Trash2, ChevronDown, Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
+import { toLocalDate, todayISO } from "@/utils/dates";
 import InvoiceTemplate from "../components/member/InvoiceTemplate";
-import { getParsha, isShabbat } from "../components/calendar/hebrewDateConverter";
+import { getParsha, isShabbat, getHolidaysByDate, getHebrewDate } from "../components/calendar/hebrewDateConverter";
 import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
 
 const createPageUrl = (page) => {
@@ -37,7 +38,7 @@ export default function MemberDetail() {
   const [donationDescription, setDonationDescription] = useState("");
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeDescription, setChargeDescription] = useState("");
-  const [chargeDate, setChargeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [chargeDate, setChargeDate] = useState(todayISO());
   const [editMember, setEditMember] = useState({
     english_name: "",
     hebrew_name: "",
@@ -101,7 +102,7 @@ export default function MemberDetail() {
       setChargeDialogOpen(false);
       setChargeAmount("");
       setChargeDescription("");
-      setChargeDate(new Date().toISOString().split('T')[0]);
+      setChargeDate(todayISO());
     },
   });
 
@@ -322,6 +323,37 @@ export default function MemberDetail() {
     printWindow.document.write('</body></html>');
     printWindow.document.close();
     printWindow.print();
+  };
+
+  const holidayMap = React.useMemo(() => {
+    if (!transactions.length) return {};
+    const dates = transactions.map((t) => toLocalDate(t.date)).filter(Boolean);
+    if (dates.length === 0) return {};
+    const min = new Date(Math.min(...dates.map((d) => d.getTime())));
+    const max = new Date(Math.max(...dates.map((d) => d.getTime())));
+    return getHolidaysByDate(min, max);
+  }, [transactions]);
+
+  const getSpecialDayLabel = (date) => {
+    if (!date) return "";
+    const key = format(date, "yyyy-MM-dd");
+    const holidays = holidayMap[key];
+    if (holidays && holidays.length > 0) {
+      return holidays.join(", ");
+    }
+    if (isShabbat(date)) {
+      const parsha = getParsha(date);
+      return parsha ? `Shabbat - ${parsha}` : "Shabbat";
+    }
+    return "";
+  };
+
+  const getHebrewDateLabel = (date) => {
+    if (!date) return "";
+    const hebrew = getHebrewDate(date);
+    if (!hebrew) return "";
+    const dayLabel = hebrew.dayHebrew || hebrew.day;
+    return `${dayLabel} ${hebrew.month}`;
   };
 
   if (memberLoading || !member) {
@@ -858,18 +890,25 @@ export default function MemberDetail() {
                     {transactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-blue-50/50 transition-colors">
                         <td className="py-4 px-6 text-slate-600">
-                          <div>{format(new Date(transaction.date), 'MMM d, yyyy')}</div>
-                          {isShabbat(new Date(transaction.date)) && (
-                            <div className="text-xs text-blue-700 font-medium mt-1">
-                              Shabbat - {getParsha(new Date(transaction.date))}
-                            </div>
-                          )}
+                          {(() => {
+                            const txDate = toLocalDate(transaction.date);
+                            return (
+                              <>
+                                <div>{txDate ? format(txDate, 'MMM d, yyyy') : 'N/A'}</div>
+                                {txDate && (
+                                  <div className="text-xs text-slate-500 mt-1">{getHebrewDateLabel(txDate)}</div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </td>
                         <td className="py-4 px-6">
                           <div className="font-medium text-slate-900">{transaction.description}</div>
-                          {transaction.category && (
-                            <div className="text-sm text-slate-500 mt-1">{transaction.category}</div>
-                          )}
+                          {(() => {
+                            const txDate = toLocalDate(transaction.date);
+                            const label = getSpecialDayLabel(txDate);
+                            return label ? <div className="text-sm text-slate-500 mt-1">{label}</div> : null;
+                          })()}
                         </td>
                         <td className="py-4 px-6">
                           <span

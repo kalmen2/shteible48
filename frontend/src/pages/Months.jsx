@@ -8,6 +8,26 @@ import { Printer, ChevronRight, Users, UserPlus, Mail, ChevronDown } from "lucid
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
+// Parse YYYY-MM-DD as a local date (midnight local) to avoid timezone shifts
+const toLocalDate = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = String(dateStr).split("-").map(Number);
+  if (parts.length < 3) return null;
+  const [y, m, d] = parts;
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  return new Date(y, m - 1, d);
+};
+
+// Parse YYYY-MM as a local month (not UTC) to avoid shifting into prior/next month on some browsers (e.g., Safari, chrome and some users in other timezones)
+const toLocalMonthDate = (monthStr) => {
+  if (!monthStr) return null;
+  const parts = String(monthStr).split("-").map(Number);
+  if (parts.length < 2) return null;
+  const [y, m] = parts;
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+  return new Date(y, m - 1, 1);
+};
+
 export default function Months() {
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()));
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -92,12 +112,15 @@ export default function Months() {
 
   // Get transactions for a specific month
   const getMonthlyTransactions = (monthValue, entityTransactions, idField) => {
-    const monthStart = startOfMonth(new Date(monthValue));
-    const monthEnd = endOfMonth(new Date(monthValue));
+    const baseMonth = toLocalMonthDate(monthValue);
+    if (!baseMonth) return [];
+    const monthStart = startOfMonth(baseMonth);
+    const monthEnd = endOfMonth(baseMonth);
     
     return entityTransactions.filter(t => {
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
   };
@@ -109,7 +132,17 @@ export default function Months() {
     return memberTrans.length > 0 || guestTrans.length > 0;
   };
 
-  const monthsWithActivity = monthsForYear.filter((month) => hasMonthActivity(month.value));
+  const now = new Date();
+  const currentMonthIndex = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthsWithActivity =
+    validYear && parsedYear === currentYear
+      ? monthsForYear.filter(
+          (month) =>
+            month.date.getMonth() === currentMonthIndex ||
+            (month.date.getMonth() < currentMonthIndex && hasMonthActivity(month.value))
+        )
+      : monthsForYear.filter((month) => hasMonthActivity(month.value));
 
   const getMemberCharges = (memberId) => {
     return membershipCharges.filter(c => c.member_id === memberId && c.is_active);
@@ -141,13 +174,16 @@ export default function Months() {
 
   // Get member data for selected month
   const getMemberMonthlyData = (member, monthValue) => {
-    const monthStart = startOfMonth(new Date(monthValue));
-    const monthEnd = endOfMonth(new Date(monthValue));
+    const baseMonth = toLocalMonthDate(monthValue);
+    if (!baseMonth) return { transactions: [], charges: 0, payments: 0, balanceAsOfEndOfMonth: 0 };
+    const monthStart = startOfMonth(baseMonth);
+    const monthEnd = endOfMonth(baseMonth);
     
     const transactions = memberTransactions.filter(t => {
       if (t.member_id !== member.id) return false;
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
     
@@ -162,7 +198,8 @@ export default function Months() {
     const allTransactionsUpToMonth = memberTransactions.filter(t => {
       if (t.member_id !== member.id) return false;
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate <= monthEnd;
     });
     
@@ -176,13 +213,16 @@ export default function Months() {
 
   // Get guest data for selected month
   const getGuestMonthlyData = (guest, monthValue) => {
-    const monthStart = startOfMonth(new Date(monthValue));
-    const monthEnd = endOfMonth(new Date(monthValue));
+    const baseMonth = toLocalMonthDate(monthValue);
+    if (!baseMonth) return { transactions: [], charges: 0, payments: 0, balanceAsOfEndOfMonth: 0 };
+    const monthStart = startOfMonth(baseMonth);
+    const monthEnd = endOfMonth(baseMonth);
     
     const transactions = guestTransactions.filter(t => {
       if (t.guest_id !== guest.id) return false;
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
     
@@ -193,7 +233,8 @@ export default function Months() {
     const allTransactionsUpToMonth = guestTransactions.filter(t => {
       if (t.guest_id !== guest.id) return false;
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate <= monthEnd;
     });
     
@@ -606,8 +647,8 @@ export default function Months() {
   }
 
   // Show selected month detail view
-  const membersWithActivity = members.filter(m => getMemberMonthlyData(m, selectedMonth).transactions.length > 0);
-  const guestsWithActivity = guests.filter(g => getGuestMonthlyData(g, selectedMonth).transactions.length > 0);
+  const membersWithActivity = members;
+  const guestsWithActivity = guests;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
@@ -882,9 +923,9 @@ export default function Months() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {membersWithActivity.length === 0 ? (
+            {members.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                No member activity for this month
+                No members yet
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -947,9 +988,9 @@ export default function Months() {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {guestsWithActivity.length === 0 ? (
+            {guests.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                No guest activity for this month
+                No guests yet
               </div>
             ) : (
               <div className="overflow-x-auto">

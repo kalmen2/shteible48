@@ -1,5 +1,6 @@
 import React from "react";
 import { format } from "date-fns";
+import { toLocalDate } from "@/utils/dates";
 
 const GuestInvoiceTemplate = React.forwardRef(({ guest, transactions, totalCharges, totalPayments }, ref) => {
   const charges = transactions.filter(t => t.type === 'charge');
@@ -44,7 +45,7 @@ const GuestInvoiceTemplate = React.forwardRef(({ guest, transactions, totalCharg
               {charges.map((charge, index) => (
                 <tr key={index}>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0' }}>
-                    {charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}
+                    {charge.date ? format(toLocalDate(charge.date), 'MMM d, yyyy') : 'N/A'}
                   </td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0' }}>{charge.description}</td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0', textAlign: 'right', color: '#d97706' }}>
@@ -81,7 +82,7 @@ const GuestInvoiceTemplate = React.forwardRef(({ guest, transactions, totalCharg
               {payments.map((payment, index) => (
                 <tr key={index}>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0' }}>
-                    {payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}
+                    {payment.date ? format(toLocalDate(payment.date), 'MMM d, yyyy') : 'N/A'}
                   </td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0' }}>{payment.description}</td>
                   <td style={{ padding: '12px', borderBottom: '1px solid #e2e8f0', textAlign: 'right', color: '#16a34a' }}>

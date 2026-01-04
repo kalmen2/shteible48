@@ -18,6 +18,12 @@ const fs = require('fs');
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:5001';
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
+const FRONTEND_ORIGIN_ALLOWLIST = process.env.FRONTEND_ORIGIN_ALLOWLIST || '';
+const frontendOrigins = FRONTEND_ORIGIN_ALLOWLIST
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+const allowedFrontendOrigins = frontendOrigins.length > 0 ? frontendOrigins : [FRONTEND_BASE_URL];
 
 const uploadsDirAbs = path.resolve(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDirAbs)) {
@@ -65,7 +71,17 @@ app.use(async (req, res, next) => {
     app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
 
     app.use('/api/entities', authMiddleware, (req, res, next) => createEntitiesRouter({ store: req.store })(req, res, next));
-    app.use('/api/payments', authMiddleware, (req, res, next) => createPaymentsRouter({ store: req.store, publicBaseUrl: PUBLIC_BASE_URL, frontendBaseUrl: FRONTEND_BASE_URL })(req, res, next));
+    app.use(
+      '/api/payments',
+      authMiddleware,
+      (req, res, next) =>
+        createPaymentsRouter({
+          store: req.store,
+          publicBaseUrl: PUBLIC_BASE_URL,
+          frontendBaseUrl: FRONTEND_BASE_URL,
+          allowedFrontendOrigins,
+        })(req, res, next)
+    );
     app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
 
     // Add integrations router for file upload and related endpoints

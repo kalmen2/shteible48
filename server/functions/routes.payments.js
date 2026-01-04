@@ -66,12 +66,34 @@ async function ensureGuestCustomer({ stripe, store, guestId }) {
   return { guest: updated ?? guest, customerId: customer.id };
 }
 
+function normalizeOrigin(origin) {
+  if (!origin || typeof origin !== "string") return null;
+  try {
+    const url = new URL(origin);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Auth-required endpoints that create Stripe Checkout sessions.
- * @param {{ store: any, publicBaseUrl: string, frontendBaseUrl: string }} deps
+ * @param {{ store: any, publicBaseUrl: string, frontendBaseUrl: string, allowedFrontendOrigins?: string[] }} deps
  */
-function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
+function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFrontendOrigins = [] }) {
   const router = express.Router();
+  const normalizedAllowlist = allowedFrontendOrigins
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean);
+  const fallbackOrigin = normalizeOrigin(frontendBaseUrl) || frontendBaseUrl;
+
+  const resolveFrontendBaseUrl = (req) => {
+    const origin = normalizeOrigin(req.body?.origin);
+    if (origin && normalizedAllowlist.includes(origin)) {
+      return origin;
+    }
+    return fallbackOrigin;
+  };
 
   router.post("/checkout", async (req, res) => {
     const stripe = getStripe();
@@ -84,8 +106,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
 
-    const successUrl = `${frontendBaseUrl}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendBaseUrl}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
+    const frontendOrigin = resolveFrontendBaseUrl(req);
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -127,8 +150,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
 
     const { guest, customerId } = await ensureGuestCustomer({ stripe, store, guestId });
 
-    const successUrl = `${frontendBaseUrl}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendBaseUrl}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
+    const frontendOrigin = resolveFrontendBaseUrl(req);
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -180,8 +204,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
       amountCents = Math.min(amountCents, payoffTotalCents);
     }
 
-    const successUrl = `${frontendBaseUrl}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendBaseUrl}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
+    const frontendOrigin = resolveFrontendBaseUrl(req);
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -241,8 +266,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
       amountCents = Math.min(amountCents, payoffTotalCents);
     }
 
-    const successUrl = `${frontendBaseUrl}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendBaseUrl}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
+    const frontendOrigin = resolveFrontendBaseUrl(req);
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -302,8 +328,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
 
-    const successUrl = `${frontendBaseUrl}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=card_saved`;
-    const cancelUrl = `${frontendBaseUrl}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
+    const frontendOrigin = resolveFrontendBaseUrl(req);
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=card_saved`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "setup",

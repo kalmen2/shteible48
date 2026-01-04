@@ -223,7 +223,7 @@ export default function Guests() {
                       id="full_name"
                       value={newGuest.full_name}
                       onChange={(e) => setNewGuest({...newGuest, full_name: e.target.value})}
-                      placeholder="John Doe"
+                      //placeholder="John Doe"
                       required
                       className="h-11"
                     />
@@ -235,7 +235,7 @@ export default function Guests() {
                       type="email"
                       value={newGuest.email}
                       onChange={(e) => setNewGuest({...newGuest, email: e.target.value})}
-                      placeholder="john@example.com"
+                      //placeholder="john@example.com"
                       className="h-11"
                     />
                   </div>
@@ -245,7 +245,7 @@ export default function Guests() {
                       id="phone"
                       value={newGuest.phone}
                       onChange={(e) => setNewGuest({...newGuest, phone: e.target.value})}
-                      placeholder="123-456-7890"
+                      //placeholder="123-456-7890"
                       className="h-11"
                     />
                   </div>
@@ -255,7 +255,7 @@ export default function Guests() {
                       id="address"
                       value={newGuest.address}
                       onChange={(e) => setNewGuest({...newGuest, address: e.target.value})}
-                      placeholder="123 Main St"
+                      //placeholder="123 Main St"
                       className="h-11"
                     />
                   </div>

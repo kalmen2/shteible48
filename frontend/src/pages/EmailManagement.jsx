@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Mail, Send, AlertCircle, FileText, Clock, Zap, Printer, Calendar as CalendarIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, startOfMonth, endOfMonth } from "date-fns";
+import { toLocalDate, toLocalMonthDate } from "@/utils/dates";
 
 export default function EmailManagement() {
   const [emailSubject, setEmailSubject] = useState("Monthly Balance Statement");
@@ -80,13 +81,16 @@ export default function EmailManagement() {
 
   // Get transactions for selected month
   const getMonthlyTransactions = (memberId) => {
-    const monthStart = startOfMonth(new Date(selectedMonth));
-    const monthEnd = endOfMonth(new Date(selectedMonth));
+    const baseMonth = toLocalMonthDate(selectedMonth);
+    if (!baseMonth) return [];
+    const monthStart = startOfMonth(baseMonth);
+    const monthEnd = endOfMonth(baseMonth);
     
     return allTransactions.filter(t => {
       if (t.member_id !== memberId) return false;
       if (!t.date) return false;
-      const transDate = new Date(t.date);
+      const transDate = toLocalDate(t.date);
+      if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
   };
@@ -673,7 +677,6 @@ export default function EmailManagement() {
                       {members.map((member) => {
                         const monthlyData = getMemberMonthlyData(member);
                         if (monthlyData.transactions.length === 0) return null;
-                        
                         return (
                           <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
                             <td className="py-4 px-6">

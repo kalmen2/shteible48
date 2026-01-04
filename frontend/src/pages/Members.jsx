@@ -542,22 +542,22 @@ export default function Members() {
                     A unique 4-digit member ID will be automatically generated.
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="english_name">English Name (optional)</Label>
+                    <Label htmlFor="english_name">English Name</Label>
                     <Input
                       id="english_name"
                       value={newMember.english_name}
                       onChange={(e) => setNewMember({...newMember, english_name: e.target.value})}
-                      placeholder="Harav Moshe Fogel"
+                      //placeholder="Harav Moshe Fogel"
                       className="h-11"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="hebrew_name">Hebrew Name (optional)</Label>
+                    <Label htmlFor="hebrew_name">Hebrew Name</Label>
                     <Input
                       id="hebrew_name"
                       value={newMember.hebrew_name}
                       onChange={(e) => setNewMember({...newMember, hebrew_name: e.target.value})}
-                      placeholder="הרב משה פוגל"
+                      //placeholder="הרב משה פוגל"
                       className="h-11"
                     />
                   </div>
@@ -568,7 +568,7 @@ export default function Members() {
                       type="email"
                       value={newMember.email}
                       onChange={(e) => setNewMember({...newMember, email: e.target.value})}
-                      placeholder="john@example.com"
+                      //placeholder="john@example.com"
                       className="h-11"
                     />
                   </div>
@@ -578,7 +578,7 @@ export default function Members() {
                       id="phone"
                       value={newMember.phone}
                       onChange={(e) => setNewMember({...newMember, phone: e.target.value})}
-                      placeholder="123-456-7890"
+                      //placeholder="123-456-7890"
                       className="h-11"
                     />
                   </div>
@@ -588,7 +588,7 @@ export default function Members() {
                       id="address"
                       value={newMember.address}
                       onChange={(e) => setNewMember({...newMember, address: e.target.value})}
-                      placeholder="123 Main St"
+                      //placeholder="123 Main St"
                       className="h-11"
                     />
                   </div>
@@ -647,6 +647,7 @@ export default function Members() {
                       const memberCharges = getMemberCharges(member.id);
                       const memberRecurring = getMemberRecurringPayments(member.id);
                       const totalMonthly = getMemberTotalMonthly(member.id);
+                      const displayBalance = (member.total_owed || 0) + totalMonthly;
                       const primaryName = member.english_name || member.full_name || member.hebrew_name || "Unnamed";
                       const secondaryName =
                         member.hebrew_name && member.hebrew_name !== primaryName ? member.hebrew_name : null;
@@ -742,9 +743,9 @@ export default function Members() {
                           </td>
                           <td className="py-4 px-6 text-right">
                             <div className={`text-lg font-bold ${
-                              (member.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
+                              displayBalance > 0 ? 'text-amber-600' : 'text-green-600'
                             }`}>
-                              ${(member.total_owed || 0).toFixed(2)}
+                              ${displayBalance.toFixed(2)}
                             </div>
                           </td>
                           <td className="py-4 px-6 text-center">

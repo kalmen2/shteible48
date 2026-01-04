@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, X, Plus, Trash2, Check } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, getDay } from "date-fns";
-import { getHebrewDate, isShabbat, isErevShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, isHebrewLeap, getHolidaysByDate } from "../components/calendar/hebrewDateConverter";
+import { getHebrewDate, isShabbat, isErevShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, getHolidaysByDate } from "../components/calendar/hebrewDateConverter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +58,7 @@ export default function Calendar() {
   // Hebrew calendar navigation
   const currentHebrewDate = getHebrewDate(currentMonth);
   const hebrewYears = Array.from({ length: 10 }, (_, i) => currentHebrewDate.year - 2 + i);
-  const hebrewMonthsList = getHebrewMonthsList(isHebrewLeap(currentHebrewDate.year));
+  const hebrewMonthsList = getHebrewMonthsList(currentHebrewDate.year);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -354,7 +354,7 @@ export default function Calendar() {
                         {format(day, 'd')}
                       </span>
                       <span className="text-xs text-slate-500 mt-1">
-                        {hebrewDay.day} {hebrewDay.month}
+                        {(hebrewDay.dayHebrew || hebrewDay.day)} {hebrewDay.month}
                       </span>
                     </div>
                     {isSaturday && isCurrentMonth && parsha && (

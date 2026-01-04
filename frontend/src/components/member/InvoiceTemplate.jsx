@@ -1,7 +1,40 @@
 import React from "react";
 import { format } from "date-fns";
+import { toLocalDate } from "@/utils/dates";
+import { getParsha, getHolidaysByDate, isShabbat, getHebrewDate } from "../calendar/hebrewDateConverter";
 
 const InvoiceTemplate = React.forwardRef(({ member, charges, payments, totalCharges, totalPayments }, ref) => {
+  const holidayMap = React.useMemo(() => {
+    if (!charges.length) return {};
+    const dates = charges.map((charge) => toLocalDate(charge.date)).filter(Boolean);
+    if (dates.length === 0) return {};
+    const min = new Date(Math.min(...dates.map((d) => d.getTime())));
+    const max = new Date(Math.max(...dates.map((d) => d.getTime())));
+    return getHolidaysByDate(min, max);
+  }, [charges]);
+
+  const getSpecialDayLabel = (date) => {
+    if (!date) return "";
+    const key = format(date, "yyyy-MM-dd");
+    const holidays = holidayMap[key];
+    if (holidays && holidays.length > 0) {
+      return holidays.join(", ");
+    }
+    if (isShabbat(date)) {
+      const parsha = getParsha(date);
+      return parsha ? `Shabbat - ${parsha}` : "Shabbat";
+    }
+    return "";
+  };
+
+  const getHebrewDateLabel = (date) => {
+    if (!date) return "";
+    const hebrew = getHebrewDate(date);
+    if (!hebrew) return "";
+    const dayLabel = hebrew.dayHebrew || hebrew.day;
+    return `${dayLabel} ${hebrew.month}`;
+  };
+
   return (
     <div ref={ref} style={{ padding: '40px', fontFamily: 'Arial, sans-serif' }}>
       <div style={{ marginBottom: '40px', borderBottom: '3px solid #1e3a8a', paddingBottom: '20px' }}>
@@ -36,10 +69,20 @@ const InvoiceTemplate = React.forwardRef(({ member, charges, payments, totalChar
             <tbody>
               {charges.map((charge) => (
                 <tr key={charge.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                  <td style={{ padding: '12px' }}>{format(new Date(charge.date), 'MMM d, yyyy')}</td>
+                  <td style={{ padding: '12px' }}>
+                    {charge.date ? format(toLocalDate(charge.date), 'MMM d, yyyy') : 'N/A'}
+                    {charge.date && (
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                        {getHebrewDateLabel(toLocalDate(charge.date))}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '12px' }}>
                     {charge.description}
-                    {charge.category && <div style={{ fontSize: '12px', color: '#64748b' }}>{charge.category}</div>}
+                    {(() => {
+                      const label = getSpecialDayLabel(toLocalDate(charge.date));
+                      return label ? <div style={{ fontSize: '12px', color: '#64748b' }}>{label}</div> : null;
+                    })()}
                   </td>
                   <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
                     ${charge.amount.toFixed(2)}
@@ -71,7 +114,7 @@ const InvoiceTemplate = React.forwardRef(({ member, charges, payments, totalChar
             <tbody>
               {payments.map((payment) => (
                 <tr key={payment.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                  <td style={{ padding: '12px' }}>{format(new Date(payment.date), 'MMM d, yyyy')}</td>
+                  <td style={{ padding: '12px' }}>{payment.date ? format(toLocalDate(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
                   <td style={{ padding: '12px' }}>{payment.description}</td>
                   <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
                     ${payment.amount.toFixed(2)}

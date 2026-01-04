@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Check, Calendar as CalendarIcon } from "lucide-react";
 import { getParsha, isShabbat } from "../components/calendar/hebrewDateConverter";
+import { toLocalDate } from "@/utils/dates";
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -250,9 +251,15 @@ export default function Transactions() {
                   onChange={(e) => setEventDate(e.target.value)}
                   className="h-11"
                 />
-                {eventDate && isShabbat(new Date(eventDate)) && (
+                {(() => {
+                  const d = toLocalDate(eventDate);
+                  return d && isShabbat(d);
+                })() && (
                   <div className="text-xs text-blue-700 font-medium mt-1">
-                    Shabbat - {getParsha(new Date(eventDate))}
+                    {(() => {
+                      const d = toLocalDate(eventDate);
+                      return d ? `Shabbat - ${getParsha(d)}` : "";
+                    })()}
                   </div>
                 )}
               </div>
