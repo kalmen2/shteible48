@@ -13,6 +13,7 @@ const ENTITY_NAMES = [
   "Guest",
   "GuestTransaction",
   "StatementTemplate",
+  "EmailSchedule",
 ];
 
 function assertEntityName(entity) {

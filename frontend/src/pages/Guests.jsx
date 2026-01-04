@@ -24,6 +24,7 @@ export default function Guests() {
   const [editGuestDialogOpen, setEditGuestDialogOpen] = useState(false);
   const [editingGuest, setEditingGuest] = useState(null);
   const [printGuest, setPrintGuest] = useState(null);
+  const [selectedGuestIds, setSelectedGuestIds] = useState([]);
   const invoiceRef = useRef();
   
   const [newGuest, setNewGuest] = useState({
@@ -73,6 +74,18 @@ export default function Guests() {
       queryClient.invalidateQueries({ queryKey: ['guests'] });
       setEditGuestDialogOpen(false);
       setEditingGuest(null);
+    },
+  });
+
+  const deleteGuestsMutation = useMutation({
+    mutationFn: async (ids) => {
+      for (const id of ids) {
+        await base44.entities.Guest.delete(id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+      setSelectedGuestIds([]);
     },
   });
 
@@ -130,6 +143,33 @@ export default function Guests() {
     return guestTransactions.filter(t => t.guest_id === guestId);
   };
 
+  const toggleGuestSelection = (id) => {
+    setSelectedGuestIds((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllGuests = (checked) => {
+    if (!checked) {
+      setSelectedGuestIds([]);
+      return;
+    }
+    setSelectedGuestIds(filteredGuests.map((g) => g.id));
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedGuestIds.length === 0) return;
+    const ok = window.confirm(`Delete ${selectedGuestIds.length} guest(s)? This cannot be undone.`);
+    if (!ok) return;
+    deleteGuestsMutation.mutate(selectedGuestIds);
+  };
+
+  const handleDeleteGuest = (guest) => {
+    const ok = window.confirm(`Delete ${guest.full_name || "this guest"}? This cannot be undone.`);
+    if (!ok) return;
+    deleteGuestsMutation.mutate([guest.id]);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -155,6 +195,16 @@ export default function Guests() {
                 <SelectItem value="balance">Highest Balance</SelectItem>
               </SelectContent>
             </Select>
+            <Button
+              variant="outline"
+              disabled={selectedGuestIds.length === 0 || deleteGuestsMutation.isPending}
+              onClick={handleDeleteSelected}
+              className="border-red-200 text-red-700 hover:bg-red-50"
+            >
+              {deleteGuestsMutation.isPending
+                ? "Deleting..."
+                : `Delete Selected (${selectedGuestIds.length})`}
+            </Button>
             <Dialog open={addGuestDialogOpen} onOpenChange={setAddGuestDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-blue-900 hover:bg-blue-800">
@@ -238,6 +288,17 @@ export default function Guests() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={
+                            filteredGuests.length > 0 &&
+                            selectedGuestIds.length === filteredGuests.length
+                          }
+                          onChange={(e) => toggleAllGuests(e.target.checked)}
+                          className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                        />
+                      </th>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Guest</th>
                       <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance Owed</th>
                       <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Transactions</th>
@@ -249,6 +310,14 @@ export default function Guests() {
                       const transactions = getGuestTransactions(guest.id);
                       return (
                         <tr key={guest.id} className="hover:bg-blue-50/30 transition-colors">
+                          <td className="py-4 px-6 align-top">
+                            <input
+                              type="checkbox"
+                              checked={selectedGuestIds.includes(guest.id)}
+                              onChange={() => toggleGuestSelection(guest.id)}
+                              className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                            />
+                          </td>
                           <td className="py-4 px-6">
                             <Link
                               to={createPageUrl(`GuestDetail?id=${guest.id}`)}
@@ -288,6 +357,15 @@ export default function Guests() {
                                 title="Print invoice"
                               >
                                 <Printer className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteGuest(guest)}
+                                className="h-8 w-8 text-red-600 hover:text-red-700"
+                                title="Delete guest"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
                           </td>

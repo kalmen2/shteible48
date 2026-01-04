@@ -17,6 +17,11 @@ const GuestInvoiceTemplate = React.forwardRef(({ guest, transactions, totalCharg
       <div style={{ marginBottom: '30px', backgroundColor: '#f8fafc', padding: '20px', borderRadius: '8px' }}>
         <h3 style={{ margin: '0 0 10px 0', color: '#334155' }}>Guest Information</h3>
         <p style={{ margin: '5px 0', color: '#475569' }}><strong>Name:</strong> {guest.full_name}</p>
+        {(guest.guest_id || guest.id) && (
+          <p style={{ margin: '5px 0', color: '#475569' }}>
+            <strong>Guest ID:</strong> {guest.guest_id || guest.id}
+          </p>
+        )}
         {guest.email && <p style={{ margin: '5px 0', color: '#475569' }}><strong>Email:</strong> {guest.email}</p>}
         {guest.phone && <p style={{ margin: '5px 0', color: '#475569' }}><strong>Phone:</strong> {guest.phone}</p>}
         {guest.address && <p style={{ margin: '5px 0', color: '#475569' }}><strong>Address:</strong> {guest.address}</p>}

@@ -15,6 +15,7 @@ const InvoiceTemplate = React.forwardRef(({ member, charges, payments, totalChar
         <h2 style={{ fontSize: '18px', marginBottom: '15px', color: '#1e3a8a' }}>Member Information</h2>
         <div style={{ fontSize: '14px', lineHeight: '1.8', color: '#334155' }}>
           <div><strong>Name:</strong> {member.full_name}</div>
+          {(member.member_id || member.id) && <div><strong>Member ID:</strong> {member.member_id || member.id}</div>}
           {member.email && <div><strong>Email:</strong> {member.email}</div>}
           {member.phone && <div><strong>Phone:</strong> {member.phone}</div>}
           {member.address && <div><strong>Address:</strong> {member.address}</div>}

@@ -321,6 +321,100 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
     return res.json({ url: session.url });
   });
 
+  router.post("/activate-memberships-bulk", async (req, res) => {
+    const stripe = getStripe();
+    const memberIds = Array.isArray(req.body?.memberIds)
+      ? req.body.memberIds.map((id) => String(id)).filter(Boolean)
+      : [];
+    if (memberIds.length === 0) {
+      return res.status(400).json({ message: "memberIds are required" });
+    }
+
+    let amountCents = dollarsToCents(req.body?.amountPerMonth);
+    if (!amountCents) {
+      const plans = await store.list("MembershipPlan", "-created_date", 1);
+      const plan = plans[0];
+      amountCents = dollarsToCents(plan?.standard_amount);
+    }
+    if (!amountCents) {
+      return res.status(400).json({ message: "Valid amountPerMonth is required" });
+    }
+
+    const missing = [];
+    const alreadyActive = [];
+    const toActivate = [];
+
+    for (const memberId of memberIds) {
+      const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+      if (!member) {
+        missing.push({ id: memberId, name: "Unknown", reason: "Member not found" });
+        continue;
+      }
+      if (member.membership_active) {
+        alreadyActive.push({ id: member.id, name: member.full_name || member.english_name || member.hebrew_name });
+        continue;
+      }
+      if (!member.stripe_customer_id || !member.stripe_default_payment_method_id) {
+        missing.push({
+          id: member.id,
+          name: member.full_name || member.english_name || member.hebrew_name || "Member",
+          reason: "Missing saved card",
+        });
+        continue;
+      }
+      toActivate.push(member);
+    }
+
+    if (missing.length > 0) {
+      return res.status(400).json({ message: "Some members are missing saved cards", missing });
+    }
+
+    const activated = [];
+    const errors = [];
+
+    for (const member of toActivate) {
+      try {
+        const subscription = await stripe.subscriptions.create({
+          customer: member.stripe_customer_id,
+          default_payment_method: member.stripe_default_payment_method_id,
+          items: [
+            {
+              price_data: {
+                currency: process.env.STRIPE_CURRENCY || "usd",
+                product_data: { name: "Monthly Membership" },
+                recurring: { interval: "month" },
+                unit_amount: amountCents,
+              },
+              quantity: 1,
+            },
+          ],
+          metadata: {
+            kind: "membership",
+            memberId: String(member.id),
+            memberName: safeString(member.full_name || member.english_name || "", 200),
+            paymentType: "membership",
+            amountCents: String(amountCents),
+          },
+        });
+
+        await store.update("Member", member.id, {
+          membership_active: true,
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: member.stripe_customer_id,
+        });
+        activated.push({ id: member.id, name: member.full_name || member.english_name || member.hebrew_name });
+      } catch (err) {
+        errors.push({
+          id: member.id,
+          name: member.full_name || member.english_name || member.hebrew_name,
+          message: err?.message || "Failed to activate membership",
+        });
+      }
+    }
+
+    return res.json({ ok: true, activated, alreadyActive, errors });
+  });
+
     // Admin endpoint to update a member's monthly bill (e.g., add donation or payment plan)
     router.post("/update-monthly-bill", async (req, res) => {
       const memberId = safeString(req.body?.memberId, 200);

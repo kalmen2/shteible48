@@ -8,8 +8,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, DollarSign, Settings, CreditCard, AlertCircle, Upload, Download, UserPlus, ChevronDown, FileSpreadsheet, Search, Pencil } from "lucide-react";
+import { Plus, DollarSign, Settings, CreditCard, AlertCircle, Upload, Download, UserPlus, ChevronDown, FileSpreadsheet, Search, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
+
+const generateUniqueMemberId = (existingIds = new Set()) => {
+  let attempt = 0;
+  while (attempt < 10000) {
+    const candidate = Math.floor(1000 + Math.random() * 9000).toString();
+    if (!existingIds.has(candidate)) return candidate;
+    attempt += 1;
+  }
+  // Fallback to timestamp-based if extremely dense
+  return `${Date.now()}`.slice(-4);
+};
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -24,6 +35,8 @@ export default function Members() {
   const [editMemberDialogOpen, setEditMemberDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [newMember, setNewMember] = useState({
+    english_name: "",
+    hebrew_name: "",
     full_name: "",
     email: "",
     phone: "",
@@ -32,6 +45,8 @@ export default function Members() {
   const [uploading, setUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
+  const [bulkActivating, setBulkActivating] = useState(false);
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeType, setChargeType] = useState("standard_donation");
   // Stripe Checkout handles secure card entry.
@@ -49,6 +64,8 @@ export default function Members() {
   const filteredMembers = members
     .filter(m => 
       m.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.english_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.hebrew_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.member_id?.includes(searchQuery)
     )
@@ -56,64 +73,15 @@ export default function Members() {
       if (sortBy === "balance") {
         return (b.total_owed || 0) - (a.total_owed || 0);
       }
-      return (a.full_name || "").localeCompare(b.full_name || "");
+      const nameA = a.english_name || a.full_name || a.hebrew_name || "";
+      const nameB = b.english_name || b.full_name || b.hebrew_name || "";
+      return nameA.localeCompare(nameB);
     });
 
   const { data: plans = [] } = useQuery({
     queryKey: ['membershipPlans'],
     queryFn: () => base44.entities.MembershipPlan.list('-created_date', 1),
   });
-
-  // Process monthly charges for active members on mount
-  React.useEffect(() => {
-    const processMonthlyCharges = async () => {
-      const currentPlan = plans[0];
-      if (!currentPlan) return;
-
-      const today = new Date();
-      const isFirstOfMonth = today.getDate() === 1;
-
-      if (!isFirstOfMonth) return;
-
-      // Check each active member
-      for (const member of members) {
-        if (!member.membership_active) continue;
-
-        // Check if they already have a charge for this month
-        const thisMonth = today.toISOString().slice(0, 7); // YYYY-MM
-        const transactions = await base44.entities.Transaction.filter({
-          member_id: member.id,
-          type: "charge",
-          description: "Monthly Membership"
-        });
-
-        const hasChargeThisMonth = transactions.some(t => 
-          t.date && t.date.startsWith(thisMonth)
-        );
-
-        if (!hasChargeThisMonth) {
-          // Add monthly charge
-          const newBalance = (member.total_owed || 0) + currentPlan.standard_amount;
-          await base44.entities.Member.update(member.id, { total_owed: newBalance });
-          await base44.entities.Transaction.create({
-            member_id: member.id,
-            member_name: member.full_name,
-            type: "charge",
-            description: "Monthly Membership",
-            amount: currentPlan.standard_amount,
-            date: today.toISOString().split('T')[0]
-          });
-        }
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['members'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    };
-
-    if (members.length > 0 && plans.length > 0) {
-      processMonthlyCharges();
-    }
-  }, [members, plans]);
 
   const { data: charges = [] } = useQuery({
     queryKey: ['membershipCharges'],
@@ -142,6 +110,8 @@ export default function Members() {
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setAddMemberDialogOpen(false);
       setNewMember({
+        english_name: "",
+        hebrew_name: "",
         full_name: "",
         email: "",
         phone: "",
@@ -156,6 +126,26 @@ export default function Members() {
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
+    },
+  });
+
+  const deleteMembersMutation = useMutation({
+    mutationFn: async (ids) => {
+      for (const id of ids) {
+        await base44.entities.Member.delete(id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setSelectedMemberIds([]);
+    },
+  });
+
+  const deleteMemberMutation = useMutation({
+    mutationFn: (id) => base44.entities.Member.delete(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setSelectedMemberIds((prev) => prev.filter((memberId) => memberId !== id));
     },
   });
 
@@ -179,13 +169,18 @@ export default function Members() {
 
   const handleAddMember = (e) => {
     e.preventDefault();
-    // Generate 6-digit member ID
-    const member_id = Math.floor(100000 + Math.random() * 900000).toString();
-    createMemberMutation.mutate({ ...newMember, member_id });
+    const existingIds = new Set((members || []).map((m) => m.member_id).filter(Boolean));
+    const member_id = generateUniqueMemberId(existingIds);
+    const full_name = newMember.english_name?.trim() || newMember.hebrew_name?.trim() || newMember.full_name?.trim();
+    createMemberMutation.mutate({
+      ...newMember,
+      full_name,
+      member_id,
+    });
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "member_id,full_name,email,phone,address\n123456,John Doe,john@example.com,123-456-7890,123 Main St";
+    const csvContent = "english_name,hebrew_name,email,phone,address\nHarav Moshe Fogel,הרב משה פוגל,john@example.com,123-456-7890,123 Main St";
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -193,6 +188,79 @@ export default function Members() {
     a.download = 'member_template.csv';
     a.click();
     window.URL.revokeObjectURL(url);
+  };
+
+  const handleActivateSelected = async () => {
+    if (!currentPlan?.standard_amount) {
+      alert("Please set a monthly plan amount in Settings first.");
+      return;
+    }
+    const selectedMembers = members.filter((m) => selectedMemberIds.includes(m.id));
+    const inactiveMembers = selectedMembers.filter((m) => !m.membership_active);
+    if (inactiveMembers.length === 0) {
+      alert("No inactive members selected.");
+      return;
+    }
+
+    const missingCards = inactiveMembers.filter((m) => !m.stripe_default_payment_method_id);
+    if (missingCards.length > 0) {
+      const lines = missingCards.map((m) => {
+        const name = m.english_name || m.full_name || m.hebrew_name || "Member";
+        const id = m.member_id || m.id;
+        return `${name} (ID: ${id})`;
+      });
+      alert(`Missing saved card on file for:\n${lines.join("\n")}`);
+      return;
+    }
+
+    const ok = window.confirm(`Activate membership for ${inactiveMembers.length} member(s)?`);
+    if (!ok) return;
+    setBulkActivating(true);
+    try {
+      const out = await base44.payments.activateMembershipBulk({
+        memberIds: inactiveMembers.map((m) => m.id),
+        amountPerMonth: currentPlan.standard_amount,
+      });
+      if (out?.errors?.length) {
+        const lines = out.errors.map((e) => `${e.name || e.id}: ${e.message}`).join("\n");
+        alert(`Some activations failed:\n${lines}`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
+      setSelectedMemberIds([]);
+    } catch (err) {
+      alert(err?.message || "Failed to activate memberships.");
+    } finally {
+      setBulkActivating(false);
+    }
+  };
+
+  const toggleMemberSelection = (id) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllMembers = (checked) => {
+    if (!checked) {
+      setSelectedMemberIds([]);
+      return;
+    }
+    setSelectedMemberIds(filteredMembers.map((m) => m.id));
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedMemberIds.length === 0) return;
+    const ok = window.confirm(`Delete ${selectedMemberIds.length} member(s)? This cannot be undone.`);
+    if (!ok) return;
+    deleteMembersMutation.mutate(selectedMemberIds);
+  };
+
+  const handleDeleteMember = (member) => {
+    const name = member.english_name || member.full_name || member.hebrew_name || "this member";
+    const ok = window.confirm(`Delete ${name}? This cannot be undone.`);
+    if (!ok) return;
+    deleteMemberMutation.mutate(member.id);
   };
 
   const handleFileUpload = async (e) => {
@@ -213,7 +281,8 @@ export default function Members() {
               items: {
                 type: "object",
                 properties: {
-                  member_id: { type: ["string", "number", "null"] },
+                  english_name: { type: ["string", "null"] },
+                  hebrew_name: { type: ["string", "null"] },
                   full_name: { type: ["string", "null"] },
                   email: { type: ["string", "null"] },
                   phone: { type: ["string", "null"] },
@@ -232,24 +301,31 @@ export default function Members() {
       const raw = result.output.members || result.output;
       const arr = Array.isArray(raw) ? raw : [raw];
       const cleaned = arr
-        .map((m) => ({
-          member_id: m?.member_id ? String(m.member_id).trim() : undefined,
-          full_name: m?.full_name ? String(m.full_name).trim() : "",
-          email: m?.email ? String(m.email).trim() : undefined,
-          phone: m?.phone ? String(m.phone).trim() : undefined,
-          address: m?.address ? String(m.address).trim() : undefined,
-        }))
-        .filter((m) => m.full_name);
+        .map((m) => {
+          const english_name = m?.english_name ? String(m.english_name).trim() : "";
+          const hebrew_name = m?.hebrew_name ? String(m.hebrew_name).trim() : "";
+          const full_name = m?.full_name ? String(m.full_name).trim() : english_name || hebrew_name;
+          return {
+            english_name,
+            hebrew_name,
+            full_name,
+            email: m?.email ? String(m.email).trim() : undefined,
+            phone: m?.phone ? String(m.phone).trim() : undefined,
+            address: m?.address ? String(m.address).trim() : undefined,
+          };
+        })
+        .filter((m) => m.full_name || m.english_name || m.hebrew_name);
 
       if (cleaned.length === 0) {
-        throw new Error("No member rows found. Make sure your file has a 'full_name' column.");
+        throw new Error("No member rows found. Make sure your file has English or Hebrew name columns.");
       }
 
-      // Fill missing member_id with generated values to keep API happy
-      const withIds = cleaned.map((m) => ({
-        member_id: m.member_id || Math.floor(100000 + Math.random() * 900000).toString(),
-        ...m,
-      }));
+      const existingIds = new Set((members || []).map((m) => m.member_id).filter(Boolean));
+      const withIds = cleaned.map((m) => {
+        const member_id = generateUniqueMemberId(existingIds);
+        existingIds.add(member_id);
+        return { ...m, member_id };
+      });
 
       await base44.entities.Member.bulkCreate(withIds);
       queryClient.invalidateQueries({ queryKey: ['members'] });
@@ -317,10 +393,15 @@ export default function Members() {
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
+    const englishName = selectedMember.english_name?.trim() || "";
+    const hebrewName = selectedMember.hebrew_name?.trim() || "";
+    const full_name = englishName || hebrewName || selectedMember.full_name || "";
     updateMemberMutation.mutate({
       id: selectedMember.id,
       data: {
-        full_name: selectedMember.full_name,
+        full_name,
+        english_name: englishName || undefined,
+        hebrew_name: hebrewName || undefined,
         email: selectedMember.email || undefined,
         phone: selectedMember.phone || undefined,
         address: selectedMember.address || undefined
@@ -390,6 +471,30 @@ export default function Members() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            {selectedMemberIds.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    Selected Actions ({selectedMemberIds.length})
+                    <ChevronDown className="w-4 h-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={deleteMembersMutation.isPending}
+                    onClick={handleDeleteSelected}
+                  >
+                    {deleteMembersMutation.isPending ? "Deleting..." : "Delete Selected"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={bulkActivating}
+                    onClick={handleActivateSelected}
+                  >
+                    {bulkActivating ? "Activating..." : "Activate Selected"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
               <DialogContent>
                 <DialogHeader>
@@ -407,7 +512,7 @@ export default function Members() {
                       required
                     />
                     <p className="text-xs text-slate-500">
-                      Upload a CSV or Excel file with columns: member_id, full_name, email, phone, address
+                      Upload a CSV or Excel file with columns: english_name, hebrew_name, email, phone, address. Member IDs are generated automatically.
                     </p>
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
@@ -434,16 +539,25 @@ export default function Members() {
                 </DialogHeader>
                 <form onSubmit={handleAddMember} className="space-y-4 mt-4">
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-slate-600">
-                    A unique 6-digit member ID will be automatically generated
+                    A unique 4-digit member ID will be automatically generated.
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="full_name">Full Name *</Label>
+                    <Label htmlFor="english_name">English Name (optional)</Label>
                     <Input
-                      id="full_name"
-                      value={newMember.full_name}
-                      onChange={(e) => setNewMember({...newMember, full_name: e.target.value})}
-                      placeholder="John Doe"
-                      required
+                      id="english_name"
+                      value={newMember.english_name}
+                      onChange={(e) => setNewMember({...newMember, english_name: e.target.value})}
+                      placeholder="Harav Moshe Fogel"
+                      className="h-11"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="hebrew_name">Hebrew Name (optional)</Label>
+                    <Input
+                      id="hebrew_name"
+                      value={newMember.hebrew_name}
+                      onChange={(e) => setNewMember({...newMember, hebrew_name: e.target.value})}
+                      placeholder="הרב משה פוגל"
                       className="h-11"
                     />
                   </div>
@@ -507,7 +621,19 @@ export default function Members() {
                                   <table className="w-full">
                                     <thead className="bg-slate-50 border-b border-slate-200">
                                       <tr>
-                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
+                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                                          <input
+                                            type="checkbox"
+                                            checked={
+                                              filteredMembers.length > 0 &&
+                                              selectedMemberIds.length === filteredMembers.length
+                                            }
+                                            onChange={(e) => toggleAllMembers(e.target.checked)}
+                                            className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                                          />
+                                        </th>
+                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">ID</th>
+                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Full Name</th>
                                         <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Status</th>
                                         <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Standard Amount</th>
                                         <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Additional Charges</th>
@@ -521,19 +647,33 @@ export default function Members() {
                       const memberCharges = getMemberCharges(member.id);
                       const memberRecurring = getMemberRecurringPayments(member.id);
                       const totalMonthly = getMemberTotalMonthly(member.id);
+                      const primaryName = member.english_name || member.full_name || member.hebrew_name || "Unnamed";
+                      const secondaryName =
+                        member.hebrew_name && member.hebrew_name !== primaryName ? member.hebrew_name : null;
                       return (
                         <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
-                          <td className="py-4 px-6">
+                          <td className="py-4 px-6 align-top">
+                            <input
+                              type="checkbox"
+                              checked={selectedMemberIds.includes(member.id)}
+                              onChange={() => toggleMemberSelection(member.id)}
+                              className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                            />
+                          </td>
+                          <td className="py-4 px-6 text-sm font-mono text-slate-700 align-top">{member.member_id || "—"}</td>
+                          <td className="py-4 px-6 align-top">
                             <Link
                               to={createPageUrl(`MemberDetail?id=${member.id}`)}
                               className="font-semibold text-blue-900 hover:text-blue-700"
                             >
-                              {member.full_name}
+                              {primaryName}
                             </Link>
-                            {member.member_id && <div className="text-xs text-slate-500 font-mono">ID: {member.member_id}</div>}
+                            {secondaryName && (
+                              <div className="text-sm text-purple-800 font-medium">{secondaryName}</div>
+                            )}
                             {member.email && <div className="text-sm text-slate-500">{member.email}</div>}
                           </td>
-                          <td className="py-4 px-6 text-center">
+                        <td className="py-4 px-6 text-center">
                             <div className="flex items-center justify-center gap-2">
                               <div className={`w-3 h-3 rounded-full ${
                                 member.membership_active ? 'bg-green-500' : 'bg-red-500'
@@ -543,6 +683,13 @@ export default function Members() {
                               }`}>
                                 {member.membership_active ? 'Active' : 'Inactive'}
                               </span>
+                            </div>
+                            <div className="mt-1 text-xs">
+                              {member.stripe_default_payment_method_id ? (
+                                <span className="text-green-700">Card on file</span>
+                              ) : (
+                                <span className="text-slate-400">No card</span>
+                              )}
                             </div>
                           </td>
                           <td className="py-4 px-6 text-right">
@@ -609,6 +756,15 @@ export default function Members() {
                               >
                                 <Pencil className="w-4 h-4" />
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteMember(member)}
+                                className="text-red-600 hover:text-red-700"
+                                title="Delete member"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                               {!member.membership_active ? (
                                 <Button
                                   size="sm"
@@ -667,6 +823,13 @@ export default function Members() {
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="text-sm text-slate-600 mb-1">Activating membership for:</div>
                   <div className="font-semibold text-slate-900">{selectedMember.full_name}</div>
+                  <div className="text-xs mt-1">
+                    {selectedMember.stripe_default_payment_method_id ? (
+                      <span className="text-green-700">Card on file</span>
+                    ) : (
+                      <span className="text-amber-700">No card on file</span>
+                    )}
+                  </div>
                   {currentPlan && (
                     <div className="text-sm text-slate-600 mt-2">
                       Monthly Amount: <span className="font-semibold">${currentPlan.standard_amount.toFixed(2)}</span>
@@ -732,7 +895,7 @@ export default function Members() {
         </Dialog>
 
         {/* Edit Member Dialog */}
-        <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
+            <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Member</DialogTitle>
@@ -740,12 +903,20 @@ export default function Members() {
             {selectedMember && (
               <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit_name">Full Name *</Label>
+                  <Label htmlFor="edit_english_name">English Name</Label>
                   <Input
-                    id="edit_name"
-                    value={selectedMember.full_name}
-                    onChange={(e) => setSelectedMember({...selectedMember, full_name: e.target.value})}
-                    required
+                    id="edit_english_name"
+                    value={selectedMember.english_name || ""}
+                    onChange={(e) => setSelectedMember({...selectedMember, english_name: e.target.value})}
+                    className="h-11"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_hebrew_name">Hebrew Name</Label>
+                  <Input
+                    id="edit_hebrew_name"
+                    value={selectedMember.hebrew_name || ""}
+                    onChange={(e) => setSelectedMember({...selectedMember, hebrew_name: e.target.value})}
                     className="h-11"
                   />
                 </div>

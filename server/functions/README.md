@@ -21,3 +21,14 @@ Data is stored in MongoDB.
 Required env vars:
 - `MONGODB_URI`
 - `MONGODB_DB_NAME` (optional)
+
+## Email (SMTP)
+
+Set these env vars to enable `POST /api/integrations/Core/SendEmail`:
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+- `SMTP_SECURE` (optional, set to `true` for port 465)

@@ -4,13 +4,19 @@ import { getToken, setToken, clearToken } from "@/lib/auth";
 
 async function requestJson(path, { method = "GET", body, headers, rawBody } = {}) {
   const token = getToken();
+  // If sending FormData (rawBody), do NOT set Content-Type header; browser will set it automatically
+  const computedHeaders = {
+    ...(rawBody ? {} : { "Content-Type": "application/json" }),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(headers || {})
+  };
+  // Remove Content-Type if rawBody is FormData and user accidentally set it
+  if (rawBody && computedHeaders["Content-Type"]) {
+    delete computedHeaders["Content-Type"];
+  }
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: {
-      ...(rawBody ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(headers || {})
-    },
+    headers: computedHeaders,
     body: rawBody ? rawBody : body === undefined ? undefined : JSON.stringify(body),
   });
 
@@ -68,6 +74,7 @@ export const base44 = {
     Guest: entityClient("Guest"),
     GuestTransaction: entityClient("GuestTransaction"),
     StatementTemplate: entityClient("StatementTemplate"),
+    EmailSchedule: entityClient("EmailSchedule"),
   },
   integrations: {
     Core: {
@@ -131,6 +138,11 @@ export const base44 = {
       requestJson(`/payments/save-card-checkout`, {
         method: "POST",
         body: { memberId, successPath, cancelPath },
+      }),
+    activateMembershipBulk: async ({ memberIds, amountPerMonth }) =>
+      requestJson(`/payments/activate-memberships-bulk`, {
+        method: "POST",
+        body: { memberIds, amountPerMonth },
       }),
     getConfig: async () => requestJson(`/payments/config`),
   },

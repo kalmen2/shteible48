@@ -100,17 +100,19 @@ export default function Calendar() {
     const transactions = [];
     Object.entries(honorData).forEach(([honorName, rolesData]) => {
       Object.entries(rolesData).forEach(([roleIndex, data]) => {
-        if (data.memberId && data.amount) {
+        const honor = currentHonors.find(h => h.name === honorName);
+        const role = honor?.roles[roleIndex];
+        const rawAmount =
+          data.amount ?? (role?.payment_type === "fixed" ? role.fixed_amount : "");
+        const amount = Number(rawAmount);
+        if (data.memberId && Number.isFinite(amount) && amount > 0) {
           const member = members.find(m => m.id === data.memberId);
-          const honor = currentHonors.find(h => h.name === honorName);
-          const role = honor?.roles[roleIndex];
-          
           transactions.push({
             honor: honorName,
             role: role?.role_name || "",
             memberId: data.memberId,
-            memberName: member.full_name,
-            amount: data.amount
+            memberName: member?.full_name || "",
+            amount
           });
         }
       });

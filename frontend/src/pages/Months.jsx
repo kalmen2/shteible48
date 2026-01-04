@@ -33,6 +33,21 @@ export default function Months() {
     queryFn: () => base44.entities.GuestTransaction.list('-date', 10000),
   });
 
+  const { data: plans = [] } = useQuery({
+    queryKey: ['membershipPlans'],
+    queryFn: () => base44.entities.MembershipPlan.list('-created_date', 1),
+  });
+
+  const { data: membershipCharges = [] } = useQuery({
+    queryKey: ['membershipCharges'],
+    queryFn: () => base44.entities.MembershipCharge.list('-created_date', 10000),
+  });
+
+  const { data: recurringPayments = [] } = useQuery({
+    queryKey: ['recurringPayments'],
+    queryFn: () => base44.entities.RecurringPayment.filter({ is_active: true }),
+  });
+
   const { data: templates = [] } = useQuery({
     queryKey: ['statementTemplates'],
     queryFn: () => base44.entities.StatementTemplate.list('-created_date', 1),
@@ -54,6 +69,8 @@ export default function Months() {
     footer_text: "Thank you for your support",
     show_footer: true
   };
+
+  const currentPlan = plans[0];
 
   // Generate 12 months for selected year
   const generateMonthsForYear = (year) => {
@@ -94,6 +111,34 @@ export default function Months() {
 
   const monthsWithActivity = monthsForYear.filter((month) => hasMonthActivity(month.value));
 
+  const getMemberCharges = (memberId) => {
+    return membershipCharges.filter(c => c.member_id === memberId && c.is_active);
+  };
+
+  const getMemberRecurringPayments = (memberId) => {
+    return recurringPayments.filter(p => p.member_id === memberId && p.is_active);
+  };
+
+  const getMemberTotalMonthly = (memberId) => {
+    const standardAmount = Number(currentPlan?.standard_amount || 0);
+    const memberCharges = getMemberCharges(memberId);
+    const memberRecurring = getMemberRecurringPayments(memberId);
+
+    const chargesTotal = memberCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
+    const recurringTotal = memberRecurring.reduce((sum, p) => sum + (p.amount_per_month || 0), 0);
+
+    return standardAmount + chargesTotal + recurringTotal;
+  };
+
+  const isMonthlyChargeDescription = (description) => {
+    const value = String(description || "").toLowerCase();
+    return (
+      value.includes("monthly membership") ||
+      value.includes("additional monthly payment") ||
+      value.includes("balance payoff plan")
+    );
+  };
+
   // Get member data for selected month
   const getMemberMonthlyData = (member, monthValue) => {
     const monthStart = startOfMonth(new Date(monthValue));
@@ -108,6 +153,10 @@ export default function Months() {
     
     const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
     const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalMonthly = getMemberTotalMonthly(member.id);
+    const monthlyChargesThisMonth = transactions
+      .filter(t => t.type === 'charge' && isMonthlyChargeDescription(t.description))
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     
     // Calculate balance as of end of month
     const allTransactionsUpToMonth = memberTransactions.filter(t => {
@@ -119,7 +168,8 @@ export default function Months() {
     
     const totalCharges = allTransactionsUpToMonth.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
     const totalPayments = allTransactionsUpToMonth.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const balanceAsOfEndOfMonth = totalCharges - totalPayments;
+    const missingMonthly = Math.max(0, totalMonthly - monthlyChargesThisMonth);
+    const balanceAsOfEndOfMonth = totalCharges - totalPayments + missingMonthly;
     
     return { transactions, charges, payments, balanceAsOfEndOfMonth };
   };

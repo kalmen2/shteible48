@@ -13,11 +13,32 @@ const { createEntitiesRouter } = require('./routes.entities');
 const { createPaymentsRouter } = require('./routes.payments');
 const { createStripeWebhookHandler } = require('./stripeWebhook');
 
+const { createIntegrationsRouter } = require('./routes.integrations');
+const fs = require('fs');
+
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:5001';
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
 
+const uploadsDirAbs = path.resolve(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDirAbs)) {
+  fs.mkdirSync(uploadsDirAbs, { recursive: true });
+}
+
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
+const rawMultipart = express.raw({ type: 'multipart/form-data', limit: '20mb' });
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.startsWith('multipart/form-data')) {
+    return rawMultipart(req, res, (err) => {
+      if (!err && req.body && !req.rawBody) {
+        req.rawBody = req.body;
+      }
+      next(err);
+    });
+  }
+  return next();
+});
 app.use(express.json({ limit: '10mb' }));
 
 
@@ -35,6 +56,7 @@ app.use(async (req, res, next) => {
   // Register routes only once, after db is ready
   if (!routesRegistered) {
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
+    app.use('/uploads', express.static(uploadsDirAbs));
 
     const auth = createAuthRouter({ db: mongoDb });
     //app.post('/api/auth/signup', (req, res, next) => auth.signup(req, res).catch(next));
@@ -45,6 +67,16 @@ app.use(async (req, res, next) => {
     app.use('/api/entities', authMiddleware, (req, res, next) => createEntitiesRouter({ store: req.store })(req, res, next));
     app.use('/api/payments', authMiddleware, (req, res, next) => createPaymentsRouter({ store: req.store, publicBaseUrl: PUBLIC_BASE_URL, frontendBaseUrl: FRONTEND_BASE_URL })(req, res, next));
     app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
+
+    // Add integrations router for file upload and related endpoints
+    app.use(
+      '/api/integrations',
+      (req, res, next) =>
+        createIntegrationsRouter({
+          uploadsDirAbs,
+          publicBaseUrl: PUBLIC_BASE_URL,
+        })(req, res, next)
+    );
 
     routesRegistered = true;
   }

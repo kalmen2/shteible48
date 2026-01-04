@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2, CreditCard, Repeat } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2, CreditCard, Repeat, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
@@ -23,7 +24,6 @@ export default function GuestDetail() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [chargeDialogOpen, setChargeDialogOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [onlinePaymentDialogOpen, setOnlinePaymentDialogOpen] = useState(false);
   const [donationDialogOpen, setDonationDialogOpen] = useState(false);
   const [payoffDialogOpen, setPayoffDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -31,8 +31,6 @@ export default function GuestDetail() {
   const [chargeAmount, setChargeAmount] = useState("");
   const [chargeDescription, setChargeDescription] = useState("");
   const [chargeDate, setChargeDate] = useState(new Date().toISOString().split('T')[0]);
-  const [onlinePaymentAmount, setOnlinePaymentAmount] = useState("");
-  const [onlinePaymentDescription, setOnlinePaymentDescription] = useState("");
   const [donationAmount, setDonationAmount] = useState("");
   const [payoffAmount, setPayoffAmount] = useState("");
   const invoiceRef = useRef();
@@ -117,12 +115,12 @@ export default function GuestDetail() {
 
   const handleStripePayment = async (e) => {
     e.preventDefault();
-    const amount = parseFloat(onlinePaymentAmount);
+    const amount = parseFloat(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
     const out = await base44.payments.createGuestCheckout({
       guestId,
       amount,
-      description: onlinePaymentDescription || `Donation - ${guest.full_name}`,
+      description: paymentDescription || `Payment - ${guest.full_name}`,
       successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
       cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
     });
@@ -244,13 +242,27 @@ export default function GuestDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
-                    <DialogTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button className="bg-amber-600 hover:bg-amber-700">
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Charge
+                        Charges
+                        <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
-                    </DialogTrigger>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Charge
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Add from Event
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Add Charge</DialogTitle>
@@ -301,16 +313,11 @@ export default function GuestDetail() {
                     </DialogContent>
                   </Dialog>
                   
-                  <Button variant="outline" onClick={() => setCalendarOpen(true)}>
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Add from Event
-                  </Button>
-                  
                   <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
                     <DialogTrigger asChild>
                       <Button className="bg-green-600 hover:bg-green-700">
                         <Plus className="w-4 h-4 mr-2" />
-                        Record Payment
+                        Payment
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
@@ -348,65 +355,35 @@ export default function GuestDetail() {
                           <Button type="submit" className="bg-green-600 hover:bg-green-700">
                             Record Payment
                           </Button>
-                        </div>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Dialog open={onlinePaymentDialogOpen} onOpenChange={setOnlinePaymentDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="border-blue-200 text-blue-900 hover:bg-blue-50">
-                        <CreditCard className="w-4 h-4 mr-2" />
-                        Pay Online
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Pay Online (No Base Charge)</DialogTitle>
-                      </DialogHeader>
-                      <form onSubmit={handleStripePayment} className="space-y-4 mt-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="onlineAmount">Amount *</Label>
-                          <Input
-                            id="onlineAmount"
-                            type="number"
-                            step="0.01"
-                            value={onlinePaymentAmount}
-                            onChange={(e) => setOnlinePaymentAmount(e.target.value)}
-                            required
-                            placeholder="0.00"
-                            className="h-11"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="onlineDescription">Description</Label>
-                          <Input
-                            id="onlineDescription"
-                            value={onlinePaymentDescription}
-                            onChange={(e) => setOnlinePaymentDescription(e.target.value)}
-                            placeholder="Donation or payoff"
-                            className="h-11"
-                          />
-                        </div>
-                        <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setOnlinePaymentDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                            Checkout
+                          <Button type="button" className="bg-blue-900 hover:bg-blue-800" onClick={handleStripePayment}>
+                            Pay with Card (Stripe)
                           </Button>
                         </div>
                       </form>
                     </DialogContent>
                   </Dialog>
 
-                  <Dialog open={donationDialogOpen} onOpenChange={setDonationDialogOpen}>
-                    <DialogTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button variant="outline" className="border-green-200 text-green-700 hover:bg-green-50">
                         <Repeat className="w-4 h-4 mr-2" />
-                        Monthly Donation
+                        Monthly
+                        <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
-                    </DialogTrigger>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => setDonationDialogOpen(true)}>
+                        <Repeat className="w-4 h-4 mr-2" />
+                        Monthly Donation
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setPayoffDialogOpen(true)}>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Pay Off Monthly
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog open={donationDialogOpen} onOpenChange={setDonationDialogOpen}>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Set Monthly Donation</DialogTitle>
@@ -439,12 +416,6 @@ export default function GuestDetail() {
                   </Dialog>
 
                   <Dialog open={payoffDialogOpen} onOpenChange={setPayoffDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="border-amber-200 text-amber-700 hover:bg-amber-50">
-                        <Repeat className="w-4 h-4 mr-2" />
-                        Pay Off Monthly
-                      </Button>
-                    </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Monthly Payoff Plan</DialogTitle>

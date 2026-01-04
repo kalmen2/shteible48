@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, CreditCard, Repeat, Trash2 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, CreditCard, Repeat, Trash2, ChevronDown, Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import InvoiceTemplate from "../components/member/InvoiceTemplate";
 import { getParsha, isShabbat } from "../components/calendar/hebrewDateConverter";
+import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -23,10 +25,26 @@ export default function MemberDetail() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [recurringDialogOpen, setRecurringDialogOpen] = useState(false);
   const [payoffDialogOpen, setPayoffDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [chargeDialogOpen, setChargeDialogOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDescription, setPaymentDescription] = useState("");
   const [monthlyAmount, setMonthlyAmount] = useState("");
   const [payoffAmount, setPayoffAmount] = useState("");
+  const [donationDialogOpen, setDonationDialogOpen] = useState(false);
+  const [donationAmount, setDonationAmount] = useState("");
+  const [donationDescription, setDonationDescription] = useState("");
+  const [chargeAmount, setChargeAmount] = useState("");
+  const [chargeDescription, setChargeDescription] = useState("");
+  const [chargeDate, setChargeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editMember, setEditMember] = useState({
+    english_name: "",
+    hebrew_name: "",
+    email: "",
+    phone: "",
+    address: "",
+  });
   const invoiceRef = useRef();
 
   const queryClient = useQueryClient();
@@ -69,14 +87,47 @@ export default function MemberDetail() {
     },
   });
 
+  const addChargeMutation = useMutation({
+    mutationFn: async (chargeData) => {
+      const transaction = await base44.entities.Transaction.create(chargeData);
+      const newBalance = (member.total_owed || 0) + chargeData.amount;
+      await base44.entities.Member.update(memberId, { total_owed: newBalance });
+      return transaction;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setChargeDialogOpen(false);
+      setChargeAmount("");
+      setChargeDescription("");
+      setChargeDate(new Date().toISOString().split('T')[0]);
+    },
+  });
+
+  const addDonationMutation = useMutation({
+    mutationFn: async (donationData) => {
+      return await base44.entities.Transaction.create(donationData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
+      setDonationDialogOpen(false);
+      setDonationAmount("");
+      setDonationDescription("");
+    },
+  });
+
   const deleteTransactionMutation = useMutation({
     mutationFn: async (transaction) => {
       await base44.entities.Transaction.delete(transaction.id);
       
       // Reverse the transaction effect on member balance
-      const adjustment = transaction.type === 'charge' ? -transaction.amount : transaction.amount;
+      const adjustment =
+        transaction.type === 'charge' ? -transaction.amount : transaction.type === 'payment' ? transaction.amount : 0;
       const newBalance = (member.total_owed || 0) + adjustment;
-      await base44.entities.Member.update(memberId, { total_owed: newBalance });
+      if (adjustment !== 0) {
+        await base44.entities.Member.update(memberId, { total_owed: newBalance });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
@@ -111,6 +162,15 @@ export default function MemberDetail() {
     },
   });
 
+  const updateMemberMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Member.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setEditDialogOpen(false);
+    },
+  });
+
   const handlePaymentSubmit = (e) => {
     e.preventDefault();
     addPaymentMutation.mutate({
@@ -121,6 +181,47 @@ export default function MemberDetail() {
       amount: parseFloat(paymentAmount),
       date: new Date().toISOString().split('T')[0]
     });
+  };
+
+  const handleDonationSubmit = (e) => {
+    e.preventDefault();
+    const amount = parseFloat(donationAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    addDonationMutation.mutate({
+      member_id: memberId,
+      member_name: member.full_name,
+      type: "donation",
+      description: donationDescription || "Donation",
+      amount,
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  const handleChargeSubmit = (e) => {
+    e.preventDefault();
+    const amount = parseFloat(chargeAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    addChargeMutation.mutate({
+      member_id: memberId,
+      member_name: member.full_name,
+      type: "charge",
+      description: chargeDescription || "Manual charge",
+      amount,
+      date: chargeDate,
+    });
+  };
+
+  const handleEventSelected = (eventData) => {
+    addChargeMutation.mutate({
+      member_id: memberId,
+      member_name: member.full_name,
+      type: "charge",
+      description: eventData.description,
+      amount: parseFloat(eventData.amount),
+      date: eventData.date,
+      category: eventData.category,
+    });
+    setCalendarOpen(false);
   };
 
   const handleStripePayment = async (e) => {
@@ -182,6 +283,35 @@ export default function MemberDetail() {
       });
   };
 
+  const openEditDialog = () => {
+    setEditMember({
+      english_name: member?.english_name || "",
+      hebrew_name: member?.hebrew_name || "",
+      email: member?.email || "",
+      phone: member?.phone || "",
+      address: member?.address || "",
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = (e) => {
+    e.preventDefault();
+    const englishName = editMember.english_name.trim();
+    const hebrewName = editMember.hebrew_name.trim();
+    const full_name = englishName || hebrewName || member.full_name || "";
+    updateMemberMutation.mutate({
+      id: memberId,
+      data: {
+        full_name,
+        english_name: englishName || undefined,
+        hebrew_name: hebrewName || undefined,
+        email: editMember.email.trim() || undefined,
+        phone: editMember.phone.trim() || undefined,
+        address: editMember.address.trim() || undefined,
+      },
+    });
+  };
+
   const handlePrint = () => {
     const printContent = invoiceRef.current;
     const printWindow = window.open('', '', 'height=800,width=800');
@@ -239,13 +369,97 @@ export default function MemberDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-                    <DialogTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button className="bg-amber-600 hover:bg-amber-700">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Charges
+                        <ChevronDown className="w-4 h-4 ml-2" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Charge
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Add from Event
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add Charge</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleChargeSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="chargeAmount">Amount *</Label>
+                          <Input
+                            id="chargeAmount"
+                            type="number"
+                            step="0.01"
+                            value={chargeAmount}
+                            onChange={(e) => setChargeAmount(e.target.value)}
+                            required
+                            placeholder="0.00"
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="chargeDescription">Description</Label>
+                          <Input
+                            id="chargeDescription"
+                            value={chargeDescription}
+                            onChange={(e) => setChargeDescription(e.target.value)}
+                            placeholder="Enter description..."
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="chargeDate">Date</Label>
+                          <Input
+                            id="chargeDate"
+                            type="date"
+                            value={chargeDate}
+                            onChange={(e) => setChargeDate(e.target.value)}
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setChargeDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-amber-600 hover:bg-amber-700" disabled={addChargeMutation.isPending}>
+                            {addChargeMutation.isPending ? "Saving..." : "Add Charge"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button className="bg-green-600 hover:bg-green-700">
                         <Plus className="w-4 h-4 mr-2" />
-                        Record Payment
+                        Payment
+                        <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
-                    </DialogTrigger>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => setPaymentDialogOpen(true)}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Record Payment
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setDonationDialogOpen(true)}>
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Donation
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Record Payment</DialogTitle>
@@ -286,22 +500,90 @@ export default function MemberDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-blue-900 text-blue-900 hover:bg-blue-50"
-                    onClick={handleSaveCard}
-                  >
-                    <CreditCard className="w-4 h-4 mr-2" />
-                    Save Card on File
-                  </Button>
-                  <Dialog open={recurringDialogOpen} onOpenChange={setRecurringDialogOpen}>
-                    <DialogTrigger asChild>
+                  <Dialog open={donationDialogOpen} onOpenChange={setDonationDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Record Donation</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleDonationSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="donationAmount">Amount *</Label>
+                          <Input
+                            id="donationAmount"
+                            type="number"
+                            step="0.01"
+                            value={donationAmount}
+                            onChange={(e) => setDonationAmount(e.target.value)}
+                            required
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="donationDescription">Description</Label>
+                          <Input
+                            id="donationDescription"
+                            value={donationDescription}
+                            onChange={(e) => setDonationDescription(e.target.value)}
+                            placeholder="Donation note (optional)"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setDonationDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={addDonationMutation.isPending}>
+                            {addDonationMutation.isPending ? "Saving..." : "Record Donation"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button variant="outline" className="border-blue-900 text-blue-900 hover:bg-blue-50">
                         <Repeat className="w-4 h-4 mr-2" />
-                        Add Monthly Payment
+                        Monthly
+                        <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
-                    </DialogTrigger>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => setRecurringDialogOpen(true)}>
+                        <Repeat className="w-4 h-4 mr-2" />
+                        Add Monthly Payment
+                      </DropdownMenuItem>
+                      {(member.total_owed || 0) > 0 && (
+                        <DropdownMenuItem onSelect={() => setPayoffDialogOpen(true)}>
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Pay Balance Over Time
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                        Actions
+                        <ChevronDown className="w-4 h-4 ml-2" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={handleSaveCard}>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Save Card on File
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={openEditDialog}>
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit Member
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={handlePrint}>
+                        <Printer className="w-4 h-4 mr-2" />
+                        Print Invoice
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog open={recurringDialogOpen} onOpenChange={setRecurringDialogOpen}>
                     <DialogContent className="max-w-md">
                       <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
@@ -346,21 +628,14 @@ export default function MemberDetail() {
                     </DialogContent>
                   </Dialog>
                   
-                  {(member.total_owed || 0) > 0 && (
-                    <Dialog open={payoffDialogOpen} onOpenChange={setPayoffDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" className="border-amber-600 text-amber-600 hover:bg-amber-50">
-                          <CreditCard className="w-4 h-4 mr-2" />
-                          Pay Balance Over Time
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-md">
-                        <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2">
-                            <CreditCard className="w-5 h-5" />
-                            Set Up Balance Payoff Plan
-                          </DialogTitle>
-                        </DialogHeader>
+                  <Dialog open={payoffDialogOpen} onOpenChange={setPayoffDialogOpen}>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <CreditCard className="w-5 h-5" />
+                          Set Up Balance Payoff Plan
+                        </DialogTitle>
+                      </DialogHeader>
                         <form onSubmit={handlePayoffSubmit} className="space-y-4 mt-4">
                           <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
                             <div className="text-sm font-semibold text-slate-900 mb-1">
@@ -403,17 +678,76 @@ export default function MemberDetail() {
                             </Button>
                             <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
                               Set Up Payment Plan
-                            </Button>
-                          </div>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
-                  )}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                    <DialogContent className="max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>Edit Member Details</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="editEnglishName">English Name</Label>
+                          <Input
+                            id="editEnglishName"
+                            value={editMember.english_name}
+                            onChange={(e) => setEditMember({ ...editMember, english_name: e.target.value })}
+                            placeholder="English name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="editHebrewName">Hebrew Name</Label>
+                          <Input
+                            id="editHebrewName"
+                            value={editMember.hebrew_name}
+                            onChange={(e) => setEditMember({ ...editMember, hebrew_name: e.target.value })}
+                            placeholder="Hebrew name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="editEmail">Email</Label>
+                          <Input
+                            id="editEmail"
+                            type="email"
+                            value={editMember.email}
+                            onChange={(e) => setEditMember({ ...editMember, email: e.target.value })}
+                            placeholder="email@example.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="editPhone">Phone</Label>
+                          <Input
+                            id="editPhone"
+                            value={editMember.phone}
+                            onChange={(e) => setEditMember({ ...editMember, phone: e.target.value })}
+                            placeholder="(555) 555-5555"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="editAddress">Address</Label>
+                          <Input
+                            id="editAddress"
+                            value={editMember.address}
+                            onChange={(e) => setEditMember({ ...editMember, address: e.target.value })}
+                            placeholder="123 Main St"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-2">
+                          <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800" disabled={updateMemberMutation.isPending}>
+                            {updateMemberMutation.isPending ? "Saving..." : "Save Changes"}
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                   
-                  <Button onClick={handlePrint} variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">
-                    <Printer className="w-4 h-4 mr-2" />
-                    Print Invoice
-                  </Button>
                 </div>
               </div>
             </div>
@@ -538,19 +872,34 @@ export default function MemberDetail() {
                           )}
                         </td>
                         <td className="py-4 px-6">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                            transaction.type === 'charge'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}>
-                            {transaction.type === 'charge' ? 'Charge' : 'Payment'}
+                          <span
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                              transaction.type === 'charge'
+                                ? 'bg-amber-100 text-amber-800'
+                                : transaction.type === 'donation'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-green-100 text-green-800'
+                            }`}
+                          >
+                            {transaction.type === 'charge'
+                              ? 'Charge'
+                              : transaction.type === 'donation'
+                                ? 'Donation'
+                                : 'Payment'}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-right">
-                          <span className={`text-lg font-bold ${
-                            transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'
-                          }`}>
-                            {transaction.type === 'charge' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                          <span
+                            className={`text-lg font-bold ${
+                              transaction.type === 'charge'
+                                ? 'text-amber-600'
+                                : transaction.type === 'donation'
+                                  ? 'text-blue-600'
+                                  : 'text-green-600'
+                            }`}
+                          >
+                            {transaction.type === 'charge' ? '+' : transaction.type === 'donation' ? '+' : '-'}$
+                            {transaction.amount.toFixed(2)}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-center">
@@ -559,7 +908,11 @@ export default function MemberDetail() {
                             variant="ghost"
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => {
-                              if (confirm('Delete this transaction? This will adjust the member balance.')) {
+                              const needsBalanceChange = transaction.type === 'charge' || transaction.type === 'payment';
+                              const message = needsBalanceChange
+                                ? 'Delete this transaction? This will adjust the member balance.'
+                                : 'Delete this donation?';
+                              if (confirm(message)) {
                                 deleteTransactionMutation.mutate(transaction);
                               }
                             }}
@@ -587,6 +940,11 @@ export default function MemberDetail() {
             totalPayments={totalPayments}
           />
         </div>
+        <MiniCalendarPopup
+          open={calendarOpen}
+          onClose={() => setCalendarOpen(false)}
+          onEventSelected={handleEventSelected}
+        />
       </div>
     </div>
   );

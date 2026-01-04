@@ -13,6 +13,20 @@ function isoDateFromUnixSeconds(sec) {
   return d.toISOString().split("T")[0];
 }
 
+function monthLabelFromUnixSeconds(sec) {
+  const ms = Number(sec) * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return new Date().toLocaleString("en-US", { month: "short", year: "numeric" });
+  return d.toLocaleString("en-US", { month: "short", year: "numeric" });
+}
+
+function monthLabelFromUnixSeconds(sec) {
+  const ms = Number(sec) * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "Unknown Month";
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 async function recordOneTimePayment({ store, memberId, memberName, amountCents, description, stripePaymentIntentId }) {
   const amount = centsToDollars(amountCents);
 
@@ -114,11 +128,12 @@ async function upsertGuestRecurringFromCheckout({ store, guestId, guestName, pay
 async function recordSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, memberId, paymentType }) {
   const amount = centsToDollars(amountPaidCents);
   const date = isoDateFromUnixSeconds(periodStart);
+  const monthLabel = monthLabelFromUnixSeconds(periodStart);
 
   // Create a matching charge + payment so reporting stays consistent.
   const descBase =
     paymentType === "membership"
-      ? "Monthly Membership"
+      ? `Monthly Membership - ${monthLabel}`
       : paymentType === "balance_payoff"
         ? "Balance Payoff Plan"
         : "Additional Monthly Payment";
@@ -410,6 +425,51 @@ function createStripeWebhookHandler({ store }) {
               if (rec && Number(rec.remaining_amount ?? 0) <= 0) {
                 await stripe.subscriptions.cancel(String(subscriptionId));
               }
+            }
+          }
+        }
+      }
+
+      // If a membership invoice fails, accrue it to the member's balance with a month label.
+      if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object;
+        const subscriptionId = invoice.subscription;
+        if (subscriptionId && invoice.lines?.data?.length) {
+          const firstLine = invoice.lines.data[0];
+          const md = firstLine.metadata || invoice.metadata || {};
+          let memberId = md.memberId;
+          let paymentType = md.paymentType || "additional_monthly";
+
+          if (!memberId) {
+            const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
+            if (sub?.metadata) {
+              memberId = memberId || sub.metadata.memberId;
+              paymentType = paymentType || sub.metadata.paymentType || "additional_monthly";
+            }
+          }
+
+          // Only accrue unpaid monthly memberships
+          if (memberId && paymentType === "membership") {
+            const amount = centsToDollars(invoice.amount_due ?? firstLine.amount ?? 0);
+            const periodStart = firstLine.period?.start || invoice.created;
+            const monthLabel = monthLabelFromUnixSeconds(periodStart);
+            const date = isoDateFromUnixSeconds(periodStart);
+
+            await store.create("Transaction", {
+              member_id: String(memberId),
+              type: "charge",
+              description: `Unpaid Monthly Membership - ${monthLabel}`,
+              amount,
+              date,
+              provider: "stripe",
+              stripe_subscription_id: subscriptionId,
+              stripe_customer_id: invoice.customer,
+            });
+
+            const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+            if (member) {
+              const newBalance = (member.total_owed || 0) + amount;
+              await store.update("Member", member.id, { total_owed: newBalance });
             }
           }
         }

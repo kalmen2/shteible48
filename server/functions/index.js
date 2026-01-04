@@ -9,7 +9,10 @@
 
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/v2/https");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const app = require("./app");
+const { runMonthlyEmailScheduler } = require("./emailScheduler");
+const { runMonthlyMembershipCharges } = require("./monthlyMembershipCharges");
 
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
@@ -24,6 +27,22 @@ const app = require("./app");
 setGlobalOptions({ maxInstances: 10 });
 
 exports.api = onRequest(app);
+
+exports.monthlyEmailScheduler = onSchedule("every 1 minutes", async () => {
+  try {
+    await runMonthlyEmailScheduler();
+  } catch (err) {
+    console.error("Monthly email scheduler failed:", err?.message || err);
+  }
+});
+
+exports.monthlyMembershipCharges = onSchedule("0 2 * * *", async () => {
+  try {
+    await runMonthlyMembershipCharges();
+  } catch (err) {
+    console.error("Monthly membership charge scheduler failed:", err?.message || err);
+  }
+});
 
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started

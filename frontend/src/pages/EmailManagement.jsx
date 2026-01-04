@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,14 @@ export default function EmailManagement() {
   const [attachInvoice, setAttachInvoice] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendLog, setSendLog] = useState([]);
+  const [scheduleDay, setScheduleDay] = useState(1);
+  const [scheduleTime, setScheduleTime] = useState("09:00");
+  const [scheduleTimezone, setScheduleTimezone] = useState("America/New_York");
+  const [scheduleRecipientMode, setScheduleRecipientMode] = useState("all");
+  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
+  const [scheduleMessage, setScheduleMessage] = useState(null);
+
+  const queryClient = useQueryClient();
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
@@ -30,6 +38,27 @@ export default function EmailManagement() {
     queryKey: ['allTransactions'],
     queryFn: () => base44.entities.Transaction.list('-date', 10000),
   });
+
+  const { data: schedules = [] } = useQuery({
+    queryKey: ['emailSchedule'],
+    queryFn: () => base44.entities.EmailSchedule.list('-created_date', 1),
+  });
+
+  const schedule = schedules[0];
+
+  useEffect(() => {
+    if (!schedule) return;
+    setScheduleDay(Number(schedule.day_of_month ?? 1));
+    const hour = Number(schedule.hour ?? 9);
+    const minute = Number(schedule.minute ?? 0);
+    setScheduleTime(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+    setScheduleTimezone(schedule.time_zone || "America/New_York");
+    setScheduleRecipientMode(schedule.send_to === "selected" ? "selected" : "all");
+    setSelectedMemberIds(Array.isArray(schedule.selected_member_ids) ? schedule.selected_member_ids : []);
+    if (schedule.subject) setEmailSubject(schedule.subject);
+    if (schedule.body) setEmailBody(schedule.body);
+    if (typeof schedule.attach_invoice === "boolean") setAttachInvoice(schedule.attach_invoice);
+  }, [schedule]);
 
   const membersWithBalance = members.filter(m => (m.total_owed || 0) > 0);
 
@@ -69,7 +98,50 @@ export default function EmailManagement() {
     return { transactions, charges, payments, balance: charges - payments };
   };
 
-  const sendMonthlyEmails = async () => {
+  const saveScheduleMutation = useMutation({
+    mutationFn: async (payload) => {
+      if (schedule?.id) {
+        return base44.entities.EmailSchedule.update(schedule.id, payload);
+      }
+      return base44.entities.EmailSchedule.create({ id: "default", ...payload });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
+      setScheduleMessage({ type: "success", text: "Monthly schedule saved." });
+    },
+    onError: (error) => {
+      setScheduleMessage({ type: "error", text: error?.message || "Failed to save schedule." });
+    },
+  });
+
+  const handleSaveSchedule = () => {
+    setScheduleMessage(null);
+    const [hourStr, minuteStr] = String(scheduleTime || "09:00").split(":");
+    const hour = Number(hourStr);
+    const minute = Number(minuteStr);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) {
+      setScheduleMessage({ type: "error", text: "Please choose a valid time." });
+      return;
+    }
+    if (scheduleRecipientMode === "selected" && selectedMemberIds.length === 0) {
+      setScheduleMessage({ type: "error", text: "Select at least one member." });
+      return;
+    }
+    saveScheduleMutation.mutate({
+      enabled: true,
+      day_of_month: scheduleDay,
+      hour,
+      minute,
+      time_zone: scheduleTimezone,
+      send_to: scheduleRecipientMode,
+      selected_member_ids: scheduleRecipientMode === "selected" ? selectedMemberIds : [],
+      subject: emailSubject,
+      body: emailBody,
+      attach_invoice: attachInvoice,
+    });
+  };
+
+  const handleSendNow = async () => {
     setSending(true);
     setSendLog([]);
     const log = [];
@@ -111,6 +183,8 @@ export default function EmailManagement() {
     setSendLog(log);
     setSending(false);
   };
+
+  const savingSchedule = saveScheduleMutation.isPending;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
@@ -263,19 +337,150 @@ export default function EmailManagement() {
               </label>
             </div>
 
+            {sendType === "monthly" && (
+              <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Day of Month</Label>
+                    <Select value={String(scheduleDay)} onValueChange={(value) => setScheduleDay(Number(value))}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                          <SelectItem key={day} value={String(day)}>
+                            {day}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Short months send on the last day.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="scheduleTime">Time</Label>
+                    <input
+                      id="scheduleTime"
+                      type="time"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Timezone</Label>
+                    <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="America/New_York">America/New_York</SelectItem>
+                        <SelectItem value="America/Chicago">America/Chicago</SelectItem>
+                        <SelectItem value="America/Denver">America/Denver</SelectItem>
+                        <SelectItem value="America/Los_Angeles">America/Los_Angeles</SelectItem>
+                        <SelectItem value="UTC">UTC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Recipients</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleRecipientMode("all")}
+                      className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        scheduleRecipientMode === "all"
+                          ? "border-blue-900 bg-blue-50 text-blue-900"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      <Mail className="w-4 h-4" />
+                      <div className="text-left">
+                        <div className="font-semibold">All Members</div>
+                        <div className="text-xs">Send to everyone with email</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleRecipientMode("selected")}
+                      className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        scheduleRecipientMode === "selected"
+                          ? "border-blue-900 bg-blue-50 text-blue-900"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      <AlertCircle className="w-4 h-4" />
+                      <div className="text-left">
+                        <div className="font-semibold">Selected Members</div>
+                        <div className="text-xs">Pick specific recipients</div>
+                      </div>
+                    </button>
+                  </div>
+                  {scheduleRecipientMode === "selected" && (
+                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                      {members.map((member) => {
+                        const name = member.english_name || member.full_name || member.hebrew_name || "Member";
+                        return (
+                          <label
+                            key={member.id}
+                            className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMemberIds.includes(member.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedMemberIds([...selectedMemberIds, member.id]);
+                                } else {
+                                  setSelectedMemberIds(selectedMemberIds.filter((id) => id !== member.id));
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-slate-900">{name}</div>
+                              <div className="text-xs text-slate-500">{member.email || "No email"}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <Button
-              onClick={sendMonthlyEmails}
-              disabled={sending || membersWithBalance.length === 0}
+              onClick={sendType === "monthly" ? handleSaveSchedule : handleSendNow}
+              disabled={sendType === "monthly" ? savingSchedule : sending || membersWithBalance.length === 0}
               className="w-full h-12 bg-blue-900 hover:bg-blue-800"
             >
               <Send className="w-5 h-5 mr-2" />
-              {sending ? "Sending..." : sendType === "monthly" ? "Schedule Monthly Emails" : `Send to ${membersWithBalance.filter(m => m.email).length} Members`}
+              {sendType === "monthly"
+                ? savingSchedule
+                  ? "Saving..."
+                  : "Save Monthly Schedule"
+                : sending
+                  ? "Sending..."
+                  : `Send to ${membersWithBalance.filter(m => m.email).length} Members`}
             </Button>
 
             {sendType === "monthly" && (
-              <p className="text-sm text-amber-600 text-center">
-                Emails will be sent automatically on the 1st of each month
-              </p>
+              <>
+                <p className="text-sm text-amber-600 text-center">
+                  Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
+                </p>
+                {scheduleMessage && (
+                  <p
+                    className={`text-sm text-center ${
+                      scheduleMessage.type === "error" ? "text-red-600" : "text-green-700"
+                    }`}
+                  >
+                    {scheduleMessage.text}
+                  </p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

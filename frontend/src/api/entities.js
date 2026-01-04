@@ -21,6 +21,8 @@ export const GuestTransaction = base44.entities.GuestTransaction;
 
 export const StatementTemplate = base44.entities.StatementTemplate;
 
+export const EmailSchedule = base44.entities.EmailSchedule;
+
 
 
 // auth sdk:
