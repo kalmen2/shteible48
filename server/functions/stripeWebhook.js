@@ -16,21 +16,54 @@ function isoDateFromUnixSeconds(sec) {
 function monthLabelFromUnixSeconds(sec) {
   const ms = Number(sec) * 1000;
   const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return new Date().toLocaleString("en-US", { month: "short", year: "numeric" });
-  return d.toLocaleString("en-US", { month: "short", year: "numeric" });
-}
-
-function monthLabelFromUnixSeconds(sec) {
-  const ms = Number(sec) * 1000;
-  const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return "Unknown Month";
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function isDuplicateError(err) {
+  const code = err?.code || err?.errno || err?.sqlState;
+  const msg = err?.message || "";
+  return (
+    code === 11000 ||
+    code === 1062 ||
+    code === "23505" ||
+    code === "ER_DUP_ENTRY" ||
+    code === "SQLITE_CONSTRAINT" ||
+    /duplicate key/i.test(msg) ||
+    /duplicate entry/i.test(msg) ||
+    /unique constraint/i.test(msg)
+  );
+}
+
+async function createRecordOnce(store, entity, payload) {
+  try {
+    await store.create(entity, payload);
+    return true;
+  } catch (err) {
+    if (isDuplicateError(err)) return false;
+    throw err;
+  }
+}
+
+async function markEventProcessed({ store, event }) {
+  if (!event?.id) return false;
+  if (typeof store.ensureWebhookEventIndex === "function") {
+    await store.ensureWebhookEventIndex();
+  }
+  const created = await createRecordOnce(store, "WebhookEvent", {
+    id: String(event.id),
+    event_type: event.type,
+    stripe_created: event.created,
+    stripe_livemode: event.livemode,
+    stripe_request_id: event.request?.id || undefined,
+  });
+  return created;
 }
 
 async function recordOneTimePayment({ store, memberId, memberName, amountCents, description, stripePaymentIntentId }) {
   const amount = centsToDollars(amountCents);
 
-  await store.create("Transaction", {
+  const created = await createRecordOnce(store, "Transaction", {
     member_id: String(memberId),
     member_name: memberName || undefined,
     type: "payment",
@@ -40,6 +73,7 @@ async function recordOneTimePayment({ store, memberId, memberName, amountCents, 
     provider: "stripe",
     stripe_payment_intent_id: stripePaymentIntentId || undefined,
   });
+  if (!created) return;
 
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
   if (member) {
@@ -51,7 +85,7 @@ async function recordOneTimePayment({ store, memberId, memberName, amountCents, 
 async function recordGuestOneTimePayment({ store, guestId, guestName, amountCents, description, stripePaymentIntentId }) {
   const amount = centsToDollars(amountCents);
 
-  await store.create("GuestTransaction", {
+  const created = await createRecordOnce(store, "GuestTransaction", {
     guest_id: String(guestId),
     guest_name: guestName || undefined,
     type: "payment",
@@ -61,6 +95,7 @@ async function recordGuestOneTimePayment({ store, guestId, guestName, amountCent
     provider: "stripe",
     stripe_payment_intent_id: stripePaymentIntentId || undefined,
   });
+  if (!created) return;
 
   const [guest] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
   if (guest) {
@@ -138,7 +173,7 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
         ? "Balance Payoff Plan"
         : "Additional Monthly Payment";
 
-  await store.create("Transaction", {
+  const createdCharge = await createRecordOnce(store, "Transaction", {
     member_id: String(memberId),
     type: "charge",
     description: descBase,
@@ -149,7 +184,7 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     stripe_customer_id: customerId,
   });
 
-  await store.create("Transaction", {
+  await createRecordOnce(store, "Transaction", {
     member_id: String(memberId),
     type: "payment",
     description: `${descBase} (Stripe)` ,
@@ -159,6 +194,10 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
   });
+
+  if (!createdCharge) {
+    return;
+  }
 
   // Net effect is zero if we also update member.total_owed by +charge and -payment.
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
@@ -195,7 +234,7 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
 
   const descBase = paymentType === "guest_balance_payoff" ? "Guest Balance Payoff" : "Guest Monthly Donation";
 
-  await store.create("GuestTransaction", {
+  const createdCharge = await createRecordOnce(store, "GuestTransaction", {
     guest_id: String(guestId),
     type: "charge",
     description: descBase,
@@ -206,7 +245,7 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
     stripe_customer_id: customerId,
   });
 
-  await store.create("GuestTransaction", {
+  await createRecordOnce(store, "GuestTransaction", {
     guest_id: String(guestId),
     type: "payment",
     description: `${descBase} (Stripe)`,
@@ -216,6 +255,10 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
   });
+
+  if (!createdCharge) {
+    return;
+  }
 
   const [guest] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
   if (guest) {
@@ -253,6 +296,14 @@ function createStripeWebhookHandler({ store }) {
   const stripe = getStripe();
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
+  // Prefer a preserved raw body (set by middleware) for Stripe signature verification
+  const getRawBody = (req) => {
+    if (req.rawBody && (Buffer.isBuffer(req.rawBody) || typeof req.rawBody === "string")) return req.rawBody;
+    if (Buffer.isBuffer(req.body)) return req.body;
+    if (typeof req.body === "string") return req.body;
+    return null;
+  };
+
   if (!webhookSecret) {
     // Fail fast during development; without signature verification this is unsafe.
     const err = new Error("Missing STRIPE_WEBHOOK_SECRET");
@@ -263,14 +314,29 @@ function createStripeWebhookHandler({ store }) {
 
   return async function stripeWebhook(req, res) {
     const sig = req.headers["stripe-signature"];
+    const rawBody = getRawBody(req);
+    if (!rawBody) {
+      return res
+        .status(400)
+        .send("Webhook Error: raw body required. Mount route with express.raw({ type: 'application/json' }) or provide req.rawBody.");
+    }
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
     } catch (e) {
       return res.status(400).send(`Webhook Error: ${e?.message || e}`);
     }
 
     try {
+      if (!event?.id) {
+        return res.status(400).json({ message: "Missing event id" });
+      }
+
+      const recorded = await markEventProcessed({ store, event });
+      if (!recorded) {
+        return res.json({ received: true, duplicate: true });
+      }
+
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
 
@@ -455,7 +521,7 @@ function createStripeWebhookHandler({ store }) {
             const monthLabel = monthLabelFromUnixSeconds(periodStart);
             const date = isoDateFromUnixSeconds(periodStart);
 
-            await store.create("Transaction", {
+            const createdCharge = await createRecordOnce(store, "Transaction", {
               member_id: String(memberId),
               type: "charge",
               description: `Unpaid Monthly Membership - ${monthLabel}`,
@@ -466,10 +532,12 @@ function createStripeWebhookHandler({ store }) {
               stripe_customer_id: invoice.customer,
             });
 
-            const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
-            if (member) {
-              const newBalance = (member.total_owed || 0) + amount;
-              await store.update("Member", member.id, { total_owed: newBalance });
+            if (createdCharge) {
+              const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+              if (member) {
+                const newBalance = (member.total_owed || 0) + amount;
+                await store.update("Member", member.id, { total_owed: newBalance });
+              }
             }
           }
         }

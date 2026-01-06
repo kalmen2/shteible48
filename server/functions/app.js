@@ -19,6 +19,10 @@ const fs = require('fs');
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:5001';
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
 const FRONTEND_ORIGIN_ALLOWLIST = process.env.FRONTEND_ORIGIN_ALLOWLIST || '';
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 const frontendOrigins = FRONTEND_ORIGIN_ALLOWLIST
   .split(',')
   .map((v) => v.trim())
@@ -45,12 +49,28 @@ app.use((req, res, next) => {
   }
   return next();
 });
-app.use(express.json({ limit: '10mb' }));
+const jsonParser = express.json({ limit: '10mb' });
+const stripeRawParser = express.raw({ type: 'application/json' });
+app.use((req, res, next) => {
+  if (req.path === '/api/stripe/webhook') {
+    // Keep the raw body for Stripe signature verification
+    return stripeRawParser(req, res, (err) => {
+      if (!err && req.body && !req.rawBody) {
+        req.rawBody = req.body;
+      }
+      next(err);
+    });
+  }
+  return jsonParser(req, res, next);
+});
 
 
 let store;
 let mongoDb;
 let routesRegistered = false;
+
+const getUserById = async (id) => mongoDb.collection("User").findOne({ id: String(id) });
+let integrationsRouter;
 
 app.use(async (req, res, next) => {
   if (!mongoDb) {
@@ -70,7 +90,16 @@ app.use(async (req, res, next) => {
     app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
     app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
 
-    app.use('/api/entities', authMiddleware, (req, res, next) => createEntitiesRouter({ store: req.store })(req, res, next));
+    app.use(
+      '/api/entities',
+      authMiddleware,
+      (req, res, next) =>
+        createEntitiesRouter({
+          store: req.store,
+          getUserById,
+          adminEmails: ADMIN_EMAILS,
+        })(req, res, next)
+    );
     app.use(
       '/api/payments',
       authMiddleware,
@@ -85,13 +114,18 @@ app.use(async (req, res, next) => {
     app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
 
     // Add integrations router for file upload and related endpoints
+    if (!integrationsRouter) {
+      integrationsRouter = createIntegrationsRouter({
+        uploadsDirAbs,
+        publicBaseUrl: PUBLIC_BASE_URL,
+        getUserById,
+        adminEmails: ADMIN_EMAILS,
+      });
+    }
     app.use(
       '/api/integrations',
-      (req, res, next) =>
-        createIntegrationsRouter({
-          uploadsDirAbs,
-          publicBaseUrl: PUBLIC_BASE_URL,
-        })(req, res, next)
+      authMiddleware,
+      integrationsRouter
     );
 
     routesRegistered = true;
