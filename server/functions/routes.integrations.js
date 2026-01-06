@@ -3,7 +3,7 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const Busboy = require("busboy");
 const XLSX = require("xlsx");
-const { sendEmail } = require("./emailService");
+const { sendEmail, createBalancePdf } = require("./emailService");
 
 function safeBaseName(name) {
   return String(name ?? "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -125,13 +125,30 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
 
   // POST /api/integrations/Core/SendEmail
   router.post("/Core/SendEmail", async (req, res) => {
-    const { to, subject, body, html } = req.body ?? {};
+    const { to, subject, body, html, pdf } = req.body ?? {};
     if (!to || !subject || (!body && !html)) {
       return res.status(400).json({ status: "error", message: "to, subject, and body are required" });
     }
 
     try {
-      const info = await sendEmail({ to, subject, text: body, html });
+      let attachments;
+      if (pdf && typeof pdf === "object") {
+        const pdfBuffer = await createBalancePdf({
+          memberName: pdf.memberName,
+          memberId: pdf.memberId,
+          balance: pdf.balance,
+          statementDate: pdf.statementDate,
+          note: pdf.note,
+        });
+        attachments = [
+          {
+            filename: pdf.filename || `Statement-${(pdf.memberName || "member").replace(/\s+/g, "_")}.pdf`,
+            content: pdfBuffer,
+          },
+        ];
+      }
+
+      const info = await sendEmail({ to, subject, text: body, html, attachments });
       return res.json({ status: "success", messageId: info.messageId });
     } catch (err) {
       return res.status(500).json({ status: "error", message: err?.message || "Failed to send email" });

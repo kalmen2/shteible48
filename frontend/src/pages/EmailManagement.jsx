@@ -25,14 +25,38 @@ export default function EmailManagement() {
   const [scheduleTime, setScheduleTime] = useState("09:00");
   const [scheduleTimezone, setScheduleTimezone] = useState("America/New_York");
   const [scheduleRecipientMode, setScheduleRecipientMode] = useState("all");
-  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState([]);
   const [scheduleMessage, setScheduleMessage] = useState(null);
+
+  // One-time send recipient selection
+  const [sendRecipientMode, setSendRecipientMode] = useState("all"); // "all" or "selected"
+  const [sendSelectedRecipientIds, setSendSelectedRecipientIds] = useState([]);
 
   const queryClient = useQueryClient();
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => base44.entities.Member.list('-full_name', 1000),
+  });
+
+  const { data: guests = [] } = useQuery({
+    queryKey: ['guests'],
+    queryFn: () => base44.entities.Guest.list('-full_name', 1000),
+  });
+
+  const { data: plans = [] } = useQuery({
+    queryKey: ['membershipPlans'],
+    queryFn: () => base44.entities.MembershipPlan.list('-created_date', 1),
+  });
+
+  const { data: membershipCharges = [] } = useQuery({
+    queryKey: ['membershipCharges'],
+    queryFn: () => base44.entities.MembershipCharge.list('-created_date', 10000),
+  });
+
+  const { data: recurringPayments = [] } = useQuery({
+    queryKey: ['recurringPayments'],
+    queryFn: () => base44.entities.RecurringPayment.filter({ is_active: true }),
   });
 
   const { data: allTransactions = [] } = useQuery({
@@ -46,6 +70,16 @@ export default function EmailManagement() {
   });
 
   const schedule = schedules[0];
+  const currentPlan = plans[0];
+
+  const getMemberCharges = (memberId) => membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
+  const getMemberRecurringPayments = (memberId) => recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
+  const getMemberTotalMonthly = (memberId) => {
+    const standardAmount = currentPlan?.standard_amount || 0;
+    const chargesTotal = getMemberCharges(memberId).reduce((sum, c) => sum + (c.amount || 0), 0);
+    const recurringTotal = getMemberRecurringPayments(memberId).reduce((sum, p) => sum + (p.amount_per_month || 0), 0);
+    return standardAmount + chargesTotal + recurringTotal;
+  };
 
   useEffect(() => {
     if (!schedule) return;
@@ -55,13 +89,44 @@ export default function EmailManagement() {
     setScheduleTime(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
     setScheduleTimezone(schedule.time_zone || "America/New_York");
     setScheduleRecipientMode(schedule.send_to === "selected" ? "selected" : "all");
-    setSelectedMemberIds(Array.isArray(schedule.selected_member_ids) ? schedule.selected_member_ids : []);
+    const normalizedSelected = Array.isArray(schedule.selected_member_ids)
+      ? schedule.selected_member_ids.map((id) => {
+          if (typeof id === "string" && id.includes(":")) return id;
+          const matchMember = members.find((m) => String(m.id) === String(id));
+          if (matchMember) return `member:${matchMember.id}`;
+          const matchGuest = guests.find((g) => String(g.id) === String(id));
+          if (matchGuest) return `guest:${matchGuest.id}`;
+          return String(id);
+        })
+      : [];
+    setSelectedRecipientIds(normalizedSelected);
     if (schedule.subject) setEmailSubject(schedule.subject);
     if (schedule.body) setEmailBody(schedule.body);
     if (typeof schedule.attach_invoice === "boolean") setAttachInvoice(schedule.attach_invoice);
-  }, [schedule]);
+  }, [schedule, members, guests]);
 
-  const membersWithBalance = members.filter(m => (m.total_owed || 0) > 0);
+  const allRecipients = [
+    ...members.map((m) => ({
+      kind: 'member',
+      id: m.id,
+      key: `member:${m.id}`,
+      name: m.full_name || m.english_name || m.hebrew_name || 'Member',
+      email: m.email,
+      balance: (m.total_owed || 0) + getMemberTotalMonthly(m.id),
+      ref: m,
+    })),
+    ...guests.map((g) => ({
+      kind: 'guest',
+      id: g.id,
+      key: `guest:${g.id}`,
+      name: g.full_name || g.english_name || g.hebrew_name || 'Guest',
+      email: g.email,
+      balance: g.total_owed || 0,
+      ref: g,
+    })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  const recipientsWithBalance = allRecipients.filter((r) => (r.balance || 0) > 0);
 
   // Generate list of last 12 months
   const generateMonthOptions = () => {
@@ -127,8 +192,8 @@ export default function EmailManagement() {
       setScheduleMessage({ type: "error", text: "Please choose a valid time." });
       return;
     }
-    if (scheduleRecipientMode === "selected" && selectedMemberIds.length === 0) {
-      setScheduleMessage({ type: "error", text: "Select at least one member." });
+    if (scheduleRecipientMode === "selected" && selectedRecipientIds.length === 0) {
+      setScheduleMessage({ type: "error", text: "Select at least one recipient." });
       return;
     }
     saveScheduleMutation.mutate({
@@ -138,7 +203,7 @@ export default function EmailManagement() {
       minute,
       time_zone: scheduleTimezone,
       send_to: scheduleRecipientMode,
-      selected_member_ids: scheduleRecipientMode === "selected" ? selectedMemberIds : [],
+      selected_member_ids: scheduleRecipientMode === "selected" ? selectedRecipientIds : [],
       subject: emailSubject,
       body: emailBody,
       attach_invoice: attachInvoice,
@@ -150,37 +215,54 @@ export default function EmailManagement() {
     setSendLog([]);
     const log = [];
 
-    for (const member of membersWithBalance) {
-      if (!member.email) {
-        log.push({ member: member.full_name, status: "skipped", reason: "No email" });
+    const recipients = sendRecipientMode === "selected"
+      ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+      : allRecipients;
+
+    if (recipients.length === 0) {
+      setSendLog([{ member: "", status: "skipped", reason: "No recipients selected" }]);
+      setSending(false);
+      return;
+    }
+
+    for (const rec of recipients) {
+      if (!rec.email) {
+        log.push({ member: rec.name, status: "skipped", reason: "No email" });
         continue;
       }
 
       try {
-        let personalizedBody = emailBody
-          .replace(/{member_name}/g, member.full_name)
-          .replace(/{balance}/g, `$${(member.total_owed || 0).toFixed(2)}`)
-          .replace(/{id}/g, member.member_id || 'N/A');
+        const personalizedBody = emailBody
+          .replace(/{member_name}/g, rec.name)
+          .replace(/{balance}/g, `$${(rec.balance || 0).toFixed(2)}`)
+          .replace(/{id}/g, rec.ref?.member_id || rec.ref?.guest_id || rec.id || 'N/A');
 
-        // Add invoice attachment note if enabled
-        if (attachInvoice) {
-          personalizedBody += "\n\n[PDF Invoice will be attached - Feature coming soon]";
-        }
+        const pdfPayload = attachInvoice
+          ? {
+              memberName: rec.name,
+              memberId: rec.ref?.member_id || rec.ref?.guest_id || rec.id,
+              balance: rec.balance || 0,
+              statementDate: format(new Date(), 'yyyy-MM-dd'),
+              note: 'Please remit payment at your earliest convenience.',
+            }
+          : undefined;
 
         await base44.integrations.Core.SendEmail({
-          to: member.email,
+          to: rec.email,
           subject: emailSubject,
-          body: personalizedBody
+          body: personalizedBody,
+          pdf: pdfPayload,
         });
 
         log.push({ 
-          member: member.full_name, 
+          member: rec.name, 
           status: "sent", 
-          email: member.email,
-          type: sendType 
+          email: rec.email,
+          type: sendType,
+          kind: rec.kind
         });
       } catch (error) {
-        log.push({ member: member.full_name, status: "failed", reason: error.message });
+        log.push({ member: rec.name, status: "failed", reason: error.message });
       }
     }
 
@@ -235,23 +317,23 @@ export default function EmailManagement() {
               <div className="flex items-center gap-4">
                 <Mail className="w-8 h-8 text-blue-900" />
                 <div>
-                  <div className="text-sm text-slate-600">Total Members</div>
-                  <div className="text-2xl font-bold text-slate-900">{members.length}</div>
+                  <div className="text-sm text-slate-600">Total Members & Guests</div>
+                  <div className="text-2xl font-bold text-slate-900">{allRecipients.length}</div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
                 <AlertCircle className="w-8 h-8 text-amber-600" />
                 <div>
-                  <div className="text-sm text-slate-600">Members with Balance</div>
-                  <div className="text-2xl font-bold text-amber-600">{membersWithBalance.length}</div>
+                  <div className="text-sm text-slate-600">With Balance</div>
+                  <div className="text-2xl font-bold text-amber-600">{recipientsWithBalance.length}</div>
                 </div>
               </div>
               <div className="flex items-center gap-4">
                 <Mail className="w-8 h-8 text-green-600" />
                 <div>
-                  <div className="text-sm text-slate-600">Members with Email</div>
+                  <div className="text-sm text-slate-600">With Email</div>
                   <div className="text-2xl font-bold text-green-600">
-                    {membersWithBalance.filter(m => m.email).length}
+                    {allRecipients.filter(r => r.email).length}
                   </div>
                 </div>
               </div>
@@ -341,6 +423,77 @@ export default function EmailManagement() {
               </label>
             </div>
 
+            {sendType === "now" && (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
+                <Label>Recipients (one-time send)</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSendRecipientMode("all")}
+                    className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                      sendRecipientMode === "all"
+                        ? "border-blue-900 bg-blue-50 text-blue-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    <Mail className="w-4 h-4" />
+                    <div className="text-left">
+                      <div className="font-semibold">All Recipients</div>
+                      <div className="text-xs">Send to every member & guest (skips missing email)</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendRecipientMode("selected")}
+                    className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                      sendRecipientMode === "selected"
+                        ? "border-blue-900 bg-blue-50 text-blue-900"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    <AlertCircle className="w-4 h-4" />
+                    <div className="text-left">
+                      <div className="font-semibold">Selected Recipients</div>
+                      <div className="text-xs">Pick specific members or guests</div>
+                    </div>
+                  </button>
+                </div>
+                {sendRecipientMode === "selected" && (
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                    {allRecipients.map((rec) => (
+                      <label
+                        key={`${rec.kind}-${rec.id}`}
+                        className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={sendSelectedRecipientIds.includes(rec.key)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSendSelectedRecipientIds([...sendSelectedRecipientIds, rec.key]);
+                            } else {
+                              setSendSelectedRecipientIds(sendSelectedRecipientIds.filter((id) => id !== rec.key));
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-slate-900">{rec.name}</div>
+                          <div className="text-xs text-slate-500 flex items-center gap-2">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-700 uppercase">
+                              {rec.kind}
+                            </span>
+                            <span>{rec.email || "No email"}</span>
+                          </div>
+                        </div>
+                        <div className="text-sm font-semibold text-amber-600">${rec.balance.toFixed(2)}</div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {sendType === "monthly" && (
               <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -401,8 +554,8 @@ export default function EmailManagement() {
                     >
                       <Mail className="w-4 h-4" />
                       <div className="text-left">
-                        <div className="font-semibold">All Members</div>
-                        <div className="text-xs">Send to everyone with email</div>
+                        <div className="font-semibold">All Recipients</div>
+                        <div className="text-xs">Send to every member or guest (skips missing email)</div>
                       </div>
                     </button>
                     <button
@@ -416,35 +569,34 @@ export default function EmailManagement() {
                     >
                       <AlertCircle className="w-4 h-4" />
                       <div className="text-left">
-                        <div className="font-semibold">Selected Members</div>
-                        <div className="text-xs">Pick specific recipients</div>
+                        <div className="font-semibold">Selected Recipients</div>
+                        <div className="text-xs">Pick specific members or guests</div>
                       </div>
                     </button>
                   </div>
                   {scheduleRecipientMode === "selected" && (
                     <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
-                      {members.map((member) => {
-                        const name = member.english_name || member.full_name || member.hebrew_name || "Member";
+                      {allRecipients.map((person) => {
                         return (
                           <label
-                            key={member.id}
+                            key={person.key}
                             className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
                           >
                             <input
                               type="checkbox"
-                              checked={selectedMemberIds.includes(member.id)}
+                              checked={selectedRecipientIds.includes(person.key)}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setSelectedMemberIds([...selectedMemberIds, member.id]);
+                                  setSelectedRecipientIds([...selectedRecipientIds, person.key]);
                                 } else {
-                                  setSelectedMemberIds(selectedMemberIds.filter((id) => id !== member.id));
+                                  setSelectedRecipientIds(selectedRecipientIds.filter((id) => id !== person.key));
                                 }
                               }}
                               className="w-4 h-4 text-blue-900 rounded border-slate-300"
                             />
                             <div className="flex-1">
-                              <div className="text-sm font-medium text-slate-900">{name}</div>
-                              <div className="text-xs text-slate-500">{member.email || "No email"}</div>
+                              <div className="text-sm font-medium text-slate-900">{person.name}</div>
+                              <div className="text-xs text-slate-500">{person.email || "No email"}</div>
                             </div>
                           </label>
                         );
@@ -457,7 +609,7 @@ export default function EmailManagement() {
 
             <Button
               onClick={sendType === "monthly" ? handleSaveSchedule : handleSendNow}
-              disabled={sendType === "monthly" ? savingSchedule : sending || membersWithBalance.length === 0}
+              disabled={sendType === "monthly" ? savingSchedule : sending || recipientsWithBalance.length === 0}
               className="w-full h-12 bg-blue-900 hover:bg-blue-800"
             >
               <Send className="w-5 h-5 mr-2" />
@@ -465,9 +617,14 @@ export default function EmailManagement() {
                 ? savingSchedule
                   ? "Saving..."
                   : "Save Monthly Schedule"
-                : sending
-                  ? "Sending..."
-                  : `Send to ${membersWithBalance.filter(m => m.email).length} Members`}
+                : (() => {
+                    if (sending) return "Sending...";
+                    const baseList = sendRecipientMode === "selected"
+                      ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+                      : allRecipients;
+                    const count = baseList.filter((r) => r.email).length;
+                    return `Send to ${count} Recipients`;
+                  })()}
             </Button>
 
             {sendType === "monthly" && (
@@ -489,42 +646,48 @@ export default function EmailManagement() {
           </CardContent>
         </Card>
 
-        {/* Members Preview */}
+        {/* Members/Guests Preview */}
         <Card className="mb-6 border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-slate-50">
-            <CardTitle>Members with Balance</CardTitle>
-          </CardHeader>
+            <CardHeader className="border-b border-slate-200 bg-slate-50">
+              <CardTitle>Members & Guests (balance shown)</CardTitle>
+            </CardHeader>
           <CardContent className="p-0">
-            {membersWithBalance.length === 0 ? (
+            {allRecipients.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                No members with outstanding balance
+                No members or guests
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Name</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Type</th>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Email</th>
                       <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {membersWithBalance.map((member) => (
-                      <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
+                    {allRecipients.map((rec) => (
+                      <tr key={`${rec.kind}-${rec.id}`} className="hover:bg-blue-50/30 transition-colors">
                         <td className="py-4 px-6">
-                          <div className="font-semibold text-slate-900">{member.full_name}</div>
+                          <div className="font-semibold text-slate-900">{rec.name}</div>
                         </td>
                         <td className="py-4 px-6">
-                          {member.email ? (
-                            <div className="text-sm text-slate-600">{member.email}</div>
+                          <span className="inline-block px-2 py-1 rounded-full text-[11px] bg-slate-100 text-slate-700 uppercase font-semibold">
+                            {rec.kind}
+                          </span>
+                        </td>
+                        <td className="py-4 px-6">
+                          {rec.email ? (
+                            <div className="text-sm text-slate-600">{rec.email}</div>
                           ) : (
                             <div className="text-sm text-red-600">No email</div>
                           )}
                         </td>
                         <td className="py-4 px-6 text-right">
                           <span className="text-lg font-bold text-amber-600">
-                            ${(member.total_owed || 0).toFixed(2)}
+                            ${(rec.balance || 0).toFixed(2)}
                           </span>
                         </td>
                       </tr>
@@ -639,7 +802,16 @@ export default function EmailManagement() {
                             await base44.integrations.Core.SendEmail({
                               to: member.email,
                               subject: `Monthly Statement - ${monthOptions.find(m => m.value === selectedMonth)?.label}`,
-                              body: body
+                              body: body,
+                              pdf: attachInvoice
+                                ? {
+                                    memberName: member.full_name || member.english_name || member.hebrew_name || "Member",
+                                    memberId: member.member_id || member.id,
+                                    balance: monthlyData.balance,
+                                    statementDate: selectedMonth,
+                                    note: "This statement reflects your monthly activity.",
+                                  }
+                                : undefined,
                             });
 
                             log.push({ member: member.full_name, status: "sent", email: member.email });

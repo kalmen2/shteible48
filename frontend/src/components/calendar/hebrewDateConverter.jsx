@@ -106,7 +106,7 @@ export function getHolidaysByDate(startDate, endDate, { israel = false } = {}) {
     if (!g) continue;
     const key = g.toISOString().slice(0, 10);
     if (!map[key]) map[key] = [];
-    map[key].push(ev.render ? ev.render("en") : ev.getDesc());
+    map[key].push(ev.render ? ev.render("he") : ev.getDesc());
   }
   return map;
 }

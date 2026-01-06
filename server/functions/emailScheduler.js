@@ -1,6 +1,6 @@
 const { connectMongo } = require("./mongo");
 const { createMongoEntityStore } = require("./store.mongo");
-const { sendEmail } = require("./emailService");
+const { sendEmail, createBalancePdf } = require("./emailService");
 
 function getZonedParts(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -47,9 +47,18 @@ function normalizeSchedule(schedule) {
   };
 }
 
-function applyTemplate(template, member) {
+function computeMemberBalance(member, plan, charges, recurringPayments) {
+  const standardAmount = Number(plan?.standard_amount || 0);
+  const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
+  const memberRecurring = (recurringPayments || []).filter((p) => p.member_id === member.id && p.is_active);
+  const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const recurringTotal = memberRecurring.reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
+  return Number(member.total_owed || 0) + standardAmount + chargesTotal + recurringTotal;
+}
+
+function applyTemplate(template, member, balanceValue) {
   const name = member.english_name || member.full_name || member.hebrew_name || "Member";
-  const balance = Number(member.total_owed || 0).toFixed(2);
+  const balance = Number(balanceValue ?? member.total_owed || 0).toFixed(2);
   const memberId = member.member_id || member.id || "";
   return String(template)
     .replace(/{member_name}/g, name)
@@ -77,6 +86,10 @@ async function runMonthlyEmailScheduler() {
   }
 
   const members = await store.list("Member", "-created_date", 10000);
+  const plans = await store.list("MembershipPlan", "-created_date", 1);
+  const membershipCharges = await store.filter("MembershipCharge", { is_active: true }, "-created_date", 10000);
+  const recurringPayments = await store.filter("RecurringPayment", { is_active: true }, "-created_date", 10000);
+  const currentPlan = plans[0];
   const recipients =
     schedule.send_to === "selected"
       ? members.filter((m) => schedule.selected_member_ids.includes(m.id))
@@ -89,15 +102,32 @@ async function runMonthlyEmailScheduler() {
       skippedNoEmail += 1;
       continue;
     }
-    const body = applyTemplate(schedule.body, member);
+    const memberBalance = computeMemberBalance(member, currentPlan, membershipCharges, recurringPayments);
+    const body = applyTemplate(schedule.body, member, memberBalance);
     let finalBody = body;
+    let attachments;
+
     if (schedule.attach_invoice) {
-      finalBody += "\n\n[PDF Invoice will be attached - Feature coming soon]";
+      const pdfBuffer = await createBalancePdf({
+        memberName: member.full_name || member.english_name || member.hebrew_name || "Member",
+        memberId: member.member_id || member.id,
+        balance: memberBalance,
+        statementDate: currentMonth,
+        note: "This statement reflects your current balance.",
+      });
+      attachments = [
+        {
+          filename: `Statement-${(member.full_name || member.member_id || "member").replace(/\s+/g, "_")}.pdf`,
+          content: pdfBuffer,
+        },
+      ];
     }
+
     await sendEmail({
       to: member.email,
       subject: schedule.subject,
       text: finalBody,
+      attachments,
     });
     sent += 1;
   }

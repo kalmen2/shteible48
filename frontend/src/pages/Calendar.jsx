@@ -156,6 +156,20 @@ export default function Calendar() {
     },
   });
 
+  const deleteEventMutation = useMutation({
+    mutationFn: (eventId) => base44.entities.InputType.delete(eventId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
+      setSelectedEvent("");
+      setHonorData({});
+    },
+    onError: (error) => {
+      console.error("deleteEventMutation failed", error);
+      queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
+      alert(error?.message || "Failed to delete event. Please try again.");
+    },
+  });
+
   const saveTransactionsMutation = useMutation({
     mutationFn: async (transactions) => {
       for (const transaction of transactions) {
@@ -416,161 +430,179 @@ export default function Calendar() {
               <div className="mb-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <Label className="text-lg font-semibold">Select Event</Label>
-                  <Dialog open={newEventDialogOpen} onOpenChange={setNewEventDialogOpen}>
-                    <Button 
-                      onClick={() => setNewEventDialogOpen(true)}
-                      className="bg-blue-900 hover:bg-blue-800"
-                      size="sm"
-                    >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add New Event
-                    </Button>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Create New Event</DialogTitle>
-                        <DialogDescription>Set an event name and its honors/roles.</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleCreateEvent} className="space-y-6">
-                        <div className="space-y-2">
-                          <Label htmlFor="eventName">Event Name *</Label>
-                          <Input
-                            id="eventName"
-                            value={newEventName}
-                            onChange={(e) => setNewEventName(e.target.value)}
-                            placeholder="e.g., Chanukah, Bar Mitzvah, etc."
-                            required
-                            className="h-11"
-                          />
-                        </div>
-                        <div className="space-y-3">
-                          <Label>Honors & Roles *</Label>
-                          {newEventHonors.map((honor, honorIndex) => (
-                            <div key={honorIndex} className="border border-slate-200 rounded-lg p-4 space-y-3">
-                              <div className="flex gap-2">
-                                <Input
-                                  value={honor.name}
-                                  onChange={(e) => {
-                                    const updated = [...newEventHonors];
-                                    updated[honorIndex].name = e.target.value;
-                                    setNewEventHonors(updated);
-                                  }}
-                                  placeholder={`Honor Name ${honorIndex + 1}`}
-                                  className="h-11 flex-1"
-                                />
-                                {newEventHonors.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    {selectedEventData && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const ok = window.confirm(`Delete "${selectedEventData.name}" event?`);
+                          if (!ok) return;
+                          deleteEventMutation.mutate(selectedEventData.id);
+                        }}
+                        className="text-red-600 hover:text-red-700"
+                        disabled={deleteEventMutation.isPending}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        {deleteEventMutation.isPending ? "Deleting..." : "Delete Event"}
+                      </Button>
+                    )}
+                    <Dialog open={newEventDialogOpen} onOpenChange={setNewEventDialogOpen}>
+                      <Button 
+                        onClick={() => setNewEventDialogOpen(true)}
+                        className="bg-blue-900 hover:bg-blue-800"
+                        size="sm"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add New Event
+                      </Button>
+                      <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Create New Event</DialogTitle>
+                          <DialogDescription>Set an event name and its honors/roles.</DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleCreateEvent} className="space-y-6">
+                          <div className="space-y-2">
+                            <Label htmlFor="eventName">Event Name *</Label>
+                            <Input
+                              id="eventName"
+                              value={newEventName}
+                              onChange={(e) => setNewEventName(e.target.value)}
+                              placeholder="e.g., Chanukah, Bar Mitzvah, etc."
+                              required
+                              className="h-11"
+                            />
+                          </div>
+                          <div className="space-y-3">
+                            <Label>Honors & Roles *</Label>
+                            {newEventHonors.map((honor, honorIndex) => (
+                              <div key={honorIndex} className="border border-slate-200 rounded-lg p-4 space-y-3">
+                                <div className="flex gap-2">
+                                  <Input
+                                    value={honor.name}
+                                    onChange={(e) => {
+                                      const updated = [...newEventHonors];
+                                      updated[honorIndex].name = e.target.value;
+                                      setNewEventHonors(updated);
+                                    }}
+                                    placeholder={`Honor Name ${honorIndex + 1}`}
+                                    className="h-11 flex-1"
+                                  />
+                                  {newEventHonors.length > 1 && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => setNewEventHonors(newEventHonors.filter((_, i) => i !== honorIndex))}
+                                      className="h-11 w-11"
+                                    >
+                                      <Trash2 className="w-4 h-4 text-red-600" />
+                                    </Button>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2 pl-4 border-l-2 border-blue-200">
+                                  <Label className="text-sm text-slate-600">Roles</Label>
+                                  {honor.roles.map((role, roleIndex) => (
+                                    <div key={roleIndex} className="flex gap-2 items-end">
+                                      <div className="flex-1">
+                                        <Input
+                                          value={role.role_name}
+                                          onChange={(e) => {
+                                            const updated = [...newEventHonors];
+                                            updated[honorIndex].roles[roleIndex].role_name = e.target.value;
+                                            setNewEventHonors(updated);
+                                          }}
+                                          placeholder="Role (e.g., Buyer, Recipient)"
+                                          className="h-10"
+                                        />
+                                      </div>
+                                      <Select
+                                        value={role.payment_type}
+                                        onValueChange={(value) => {
+                                          const updated = [...newEventHonors];
+                                          updated[honorIndex].roles[roleIndex].payment_type = value;
+                                          setNewEventHonors(updated);
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-10 w-32">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="flexible">Flexible</SelectItem>
+                                          <SelectItem value="fixed">Fixed</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      {role.payment_type === "fixed" && (
+                                        <Input
+                                          type="number"
+                                          step="0.01"
+                                          value={role.fixed_amount || ""}
+                                          onChange={(e) => {
+                                            const updated = [...newEventHonors];
+                                            updated[honorIndex].roles[roleIndex].fixed_amount = parseFloat(e.target.value) || 0;
+                                            setNewEventHonors(updated);
+                                          }}
+                                          placeholder="Amount"
+                                          className="h-10 w-24"
+                                        />
+                                      )}
+                                      {honor.roles.length > 1 && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => {
+                                            const updated = [...newEventHonors];
+                                            updated[honorIndex].roles = updated[honorIndex].roles.filter((_, i) => i !== roleIndex);
+                                            setNewEventHonors(updated);
+                                          }}
+                                          className="h-10 w-10"
+                                        >
+                                          <Trash2 className="w-4 h-4 text-red-600" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  ))}
                                   <Button
                                     type="button"
                                     variant="outline"
-                                    size="icon"
-                                    onClick={() => setNewEventHonors(newEventHonors.filter((_, i) => i !== honorIndex))}
-                                    className="h-11 w-11"
+                                    size="sm"
+                                    onClick={() => {
+                                      const updated = [...newEventHonors];
+                                      updated[honorIndex].roles.push({ role_name: "", payment_type: "flexible", fixed_amount: 0 });
+                                      setNewEventHonors(updated);
+                                    }}
+                                    className="w-full border-dashed"
                                   >
-                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                    <Plus className="w-3 h-3 mr-2" />
+                                    Add Role
                                   </Button>
-                                )}
+                                </div>
                               </div>
-
-                              <div className="space-y-2 pl-4 border-l-2 border-blue-200">
-                                <Label className="text-sm text-slate-600">Roles</Label>
-                                {honor.roles.map((role, roleIndex) => (
-                                  <div key={roleIndex} className="flex gap-2 items-end">
-                                    <div className="flex-1">
-                                      <Input
-                                        value={role.role_name}
-                                        onChange={(e) => {
-                                          const updated = [...newEventHonors];
-                                          updated[honorIndex].roles[roleIndex].role_name = e.target.value;
-                                          setNewEventHonors(updated);
-                                        }}
-                                        placeholder="Role (e.g., Buyer, Recipient)"
-                                        className="h-10"
-                                      />
-                                    </div>
-                                    <Select
-                                      value={role.payment_type}
-                                      onValueChange={(value) => {
-                                        const updated = [...newEventHonors];
-                                        updated[honorIndex].roles[roleIndex].payment_type = value;
-                                        setNewEventHonors(updated);
-                                      }}
-                                    >
-                                      <SelectTrigger className="h-10 w-32">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="flexible">Flexible</SelectItem>
-                                        <SelectItem value="fixed">Fixed</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                    {role.payment_type === "fixed" && (
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={role.fixed_amount || ""}
-                                        onChange={(e) => {
-                                          const updated = [...newEventHonors];
-                                          updated[honorIndex].roles[roleIndex].fixed_amount = parseFloat(e.target.value) || 0;
-                                          setNewEventHonors(updated);
-                                        }}
-                                        placeholder="Amount"
-                                        className="h-10 w-24"
-                                      />
-                                    )}
-                                    {honor.roles.length > 1 && (
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => {
-                                          const updated = [...newEventHonors];
-                                          updated[honorIndex].roles = updated[honorIndex].roles.filter((_, i) => i !== roleIndex);
-                                          setNewEventHonors(updated);
-                                        }}
-                                        className="h-10 w-10"
-                                      >
-                                        <Trash2 className="w-4 h-4 text-red-600" />
-                                      </Button>
-                                    )}
-                                  </div>
-                                ))}
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    const updated = [...newEventHonors];
-                                    updated[honorIndex].roles.push({ role_name: "", payment_type: "flexible", fixed_amount: 0 });
-                                    setNewEventHonors(updated);
-                                  }}
-                                  className="w-full border-dashed"
-                                >
-                                  <Plus className="w-3 h-3 mr-2" />
-                                  Add Role
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setNewEventHonors([...newEventHonors, { name: "", roles: [{ role_name: "", payment_type: "flexible", fixed_amount: 0 }] }])}
-                            className="w-full border-dashed"
-                          >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Add Another Honor
-                          </Button>
-                        </div>
-                        <div className="flex justify-end gap-3">
-                          <Button type="button" variant="outline" onClick={() => setNewEventDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                            Create Event
-                          </Button>
-                        </div>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
+                            ))}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setNewEventHonors([...newEventHonors, { name: "", roles: [{ role_name: "", payment_type: "flexible", fixed_amount: 0 }] }])}
+                              className="w-full border-dashed"
+                            >
+                              <Plus className="w-4 h-4 mr-2" />
+                              Add Another Honor
+                            </Button>
+                          </div>
+                          <div className="flex justify-end gap-3">
+                            <Button type="button" variant="outline" onClick={() => setNewEventDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                              Create Event
+                            </Button>
+                          </div>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
 
                 <Select value={selectedEvent} onValueChange={(value) => {

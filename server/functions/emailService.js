@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const PDFDocument = require("pdfkit");
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
@@ -32,7 +33,43 @@ function getTransporter() {
   return cachedTransporter;
 }
 
-async function sendEmail({ to, subject, text, html }) {
+function createBalancePdf({ memberName, balance, statementDate, note, memberId }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const safeName = memberName || "Member";
+    const safeBalance = Number(balance || 0);
+    const dateLabel = statementDate || new Date().toLocaleDateString();
+
+    doc.fillColor("#1f2937").fontSize(20).text("Monthly Balance Statement", { align: "left" });
+    doc.moveDown();
+    doc.fontSize(12).fillColor("#111827").text(`Date: ${dateLabel}`);
+    doc.text(`Recipient: ${safeName}`);
+    if (memberId) doc.text(`ID: ${memberId}`);
+
+    doc.moveDown();
+    doc.fontSize(16).fillColor("#1f2937").text("Balance Due", { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(26).fillColor("#b45309").text(`$${safeBalance.toFixed(2)}`);
+
+    doc.moveDown();
+    doc.fontSize(12).fillColor("#111827").text(note || "Please remit payment at your earliest convenience.", {
+      align: "left",
+    });
+
+    doc.moveDown();
+    doc.fontSize(10).fillColor("#6b7280").text("Thank you for your continued support.");
+
+    doc.end();
+  });
+}
+
+async function sendEmail({ to, subject, text, html, attachments }) {
   const config = getSmtpConfig();
   const transporter = getTransporter();
   if (!config || !transporter) {
@@ -48,6 +85,7 @@ async function sendEmail({ to, subject, text, html }) {
     subject,
     text: text || undefined,
     html: html || undefined,
+    attachments: attachments && attachments.length ? attachments : undefined,
   });
 
   return info;
@@ -57,4 +95,5 @@ module.exports = {
   getSmtpConfig,
   getTransporter,
   sendEmail,
+  createBalancePdf,
 };
