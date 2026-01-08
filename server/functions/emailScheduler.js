@@ -58,7 +58,7 @@ function computeMemberBalance(member, plan, charges, recurringPayments) {
 
 function applyTemplate(template, member, balanceValue) {
   const name = member.english_name || member.full_name || member.hebrew_name || "Member";
-  const balance = Number(balanceValue ?? member.total_owed || 0).toFixed(2);
+  const balance = Number(balanceValue ?? member.total_owed ?? 0).toFixed(2);
   const memberId = member.member_id || member.id || "";
   return String(template)
     .replace(/{member_name}/g, name)

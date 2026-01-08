@@ -78,6 +78,7 @@ app.use(async (req, res, next) => {
     store = createMongoEntityStore({ db: mongoDb });
   }
   req.store = store;
+  req.getUserById = getUserById;
 
   // Register routes only once, after db is ready
   if (!routesRegistered) {

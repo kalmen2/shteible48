@@ -14,6 +14,7 @@ const ENTITY_NAMES = [
   "GuestTransaction",
   "StatementTemplate",
   "EmailSchedule",
+  "WebhookEvent",
 ];
 
 function assertEntityName(entity) {

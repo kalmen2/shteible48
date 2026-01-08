@@ -3,8 +3,15 @@ const bcrypt = require("bcryptjs");
 
 const { getFirebaseAdminAuth } = require("./firebaseAdmin.js");
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const isDevEnv = process.env.NODE_ENV === "development" || process.env.FUNCTIONS_EMULATOR === "true";
+const JWT_SECRET = process.env.JWT_SECRET || (isDevEnv ? process.env.JWT_DEV_SECRET : "secret");
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET is required");
+}
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map();
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -18,17 +25,53 @@ function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const header = req.headers.authorization || "";
   const [type, token] = header.split(" ");
   if (type !== "Bearer" || !token) return res.status(401).json({ message: "Unauthorized" });
   try {
     const payload = verifyToken(token);
     req.user = { id: payload.sub };
+    if (typeof req.getUserById === "function") {
+      const user = await req.getUserById(req.user.id);
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+    }
     next();
   } catch {
     return res.status(401).json({ message: "Unauthorized" });
   }
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.ip || req.connection?.remoteAddress || "unknown";
+}
+
+function getLoginAttemptKey(req, email) {
+  return `${getClientIp(req)}|${email || "unknown"}`;
+}
+
+function getLoginAttemptRecord(key) {
+  const now = Date.now();
+  const existing = loginAttempts.get(key);
+  if (!existing || now > existing.resetAt) {
+    return { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+  }
+  return existing;
+}
+
+function recordFailedLogin(key) {
+  const record = getLoginAttemptRecord(key);
+  record.count += 1;
+  loginAttempts.set(key, record);
+  return record;
+}
+
+function clearLoginAttempts(key) {
+  loginAttempts.delete(key);
 }
 
 /** @param {{ db: import('mongodb').Db }} deps */
@@ -75,12 +118,31 @@ function createAuthRouter({ db }) {
       const password = String(req.body?.password || "");
       if (!email || !password) return res.status(400).json({ message: "email and password are required" });
 
+      const attemptKey = getLoginAttemptKey(req, email);
+      const attemptRecord = getLoginAttemptRecord(attemptKey);
+      if (attemptRecord.count >= LOGIN_MAX_ATTEMPTS) {
+        return res.status(429).json({ message: "Too many login attempts. Try again later." });
+      }
+
       const user = await users.findOne({ email });
-      if (!user) return res.status(401).json({ message: "Invalid credentials" });
+      if (!user) {
+        const record = recordFailedLogin(attemptKey);
+        if (record.count >= LOGIN_MAX_ATTEMPTS) {
+          return res.status(429).json({ message: "Too many login attempts. Try again later." });
+        }
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
 
       const ok = await bcrypt.compare(password, user.passwordHash || "");
-      if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+      if (!ok) {
+        const record = recordFailedLogin(attemptKey);
+        if (record.count >= LOGIN_MAX_ATTEMPTS) {
+          return res.status(429).json({ message: "Too many login attempts. Try again later." });
+        }
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
 
+      clearLoginAttempts(attemptKey);
       const token = signToken(user);
       return res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
     },

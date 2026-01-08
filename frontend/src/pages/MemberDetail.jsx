@@ -65,6 +65,20 @@ export default function MemberDetail() {
     enabled: !!memberId,
   });
 
+  const sortedTransactions = React.useMemo(() => {
+    const dateValue = (tx) => {
+      const d = toLocalDate(tx?.date);
+      if (d) return d.getTime();
+      if (tx?.created_date) {
+        const c = new Date(tx.created_date);
+        if (!Number.isNaN(c.getTime())) return c.getTime();
+      }
+      return 0;
+    };
+
+    return [...transactions].sort((a, b) => dateValue(b) - dateValue(a));
+  }, [transactions]);
+
   const { data: recurringPayments = [] } = useQuery({
     queryKey: ['recurringPayments', memberId],
     queryFn: () => base44.entities.RecurringPayment.filter({ member_id: memberId, is_active: true }),
@@ -887,7 +901,7 @@ export default function MemberDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {transactions.map((transaction) => (
+                    {sortedTransactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-blue-50/50 transition-colors">
                         <td className="py-4 px-6 text-slate-600">
                           {(() => {
