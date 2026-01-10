@@ -87,12 +87,12 @@ export default function MemberDetail() {
 
   const addPaymentMutation = useMutation({
     mutationFn: async (paymentData) => {
-      const transaction = await base44.entities.Transaction.create(paymentData);
-      const newBalance = (member.total_owed || 0) - paymentData.amount;
-      await base44.entities.Member.update(memberId, { total_owed: newBalance });
-      return transaction;
+      return await base44.entities.Transaction.create(paymentData);
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("addPaymentMutation failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
@@ -104,12 +104,12 @@ export default function MemberDetail() {
 
   const addChargeMutation = useMutation({
     mutationFn: async (chargeData) => {
-      const transaction = await base44.entities.Transaction.create(chargeData);
-      const newBalance = (member.total_owed || 0) + chargeData.amount;
-      await base44.entities.Member.update(memberId, { total_owed: newBalance });
-      return transaction;
+      return await base44.entities.Transaction.create(chargeData);
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("addChargeMutation failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
@@ -135,16 +135,11 @@ export default function MemberDetail() {
   const deleteTransactionMutation = useMutation({
     mutationFn: async (transaction) => {
       await base44.entities.Transaction.delete(transaction.id);
-      
-      // Reverse the transaction effect on member balance
-      const adjustment =
-        transaction.type === 'charge' ? -transaction.amount : transaction.type === 'payment' ? transaction.amount : 0;
-      const newBalance = (member.total_owed || 0) + adjustment;
-      if (adjustment !== 0) {
-        await base44.entities.Member.update(memberId, { total_owed: newBalance });
-      }
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("deleteMemberTransaction failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
@@ -172,7 +167,21 @@ export default function MemberDetail() {
     mutationFn: async (id) => {
       return await base44.entities.RecurringPayment.update(id, { is_active: false });
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['recurringPayments', memberId] });
+      const previous = queryClient.getQueryData(['recurringPayments', memberId]);
+      queryClient.setQueryData(['recurringPayments', memberId], (old = []) =>
+        old.filter((payment) => payment.id !== id)
+      );
+      return { previous };
+    },
+    onError: (error, _id, context) => {
+      console.error("cancelRecurringPayment failed", error);
+      if (context?.previous) {
+        queryClient.setQueryData(['recurringPayments', memberId], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringPayments', memberId] });
     },
   });

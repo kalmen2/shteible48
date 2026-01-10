@@ -96,8 +96,7 @@ export default function Guests() {
         full_name: newGuest.full_name.trim(),
         email: newGuest.email.trim() || undefined,
         phone: newGuest.phone.trim() || undefined,
-        address: newGuest.address.trim() || undefined,
-        total_owed: 0
+        address: newGuest.address.trim() || undefined
       });
     }
   };

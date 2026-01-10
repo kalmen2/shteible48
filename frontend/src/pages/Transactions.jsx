@@ -71,10 +71,6 @@ export default function Transactions() {
           date: eventDate,
           category: selectedEvent
         });
-        
-        const member = members.find(m => m.id === transaction.memberId);
-        const newBalance = (member.total_owed || 0) + parseFloat(transaction.amount);
-        await base44.entities.Member.update(transaction.memberId, { total_owed: newBalance });
       }
     },
     onSuccess: () => {

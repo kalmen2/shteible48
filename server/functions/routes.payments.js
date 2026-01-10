@@ -14,6 +14,37 @@ function safeString(v, max = 500) {
   return s.length > max ? s.slice(0, max) : s;
 }
 
+function monthLabelFromUnixSeconds(sec) {
+  const ms = Number(sec) * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "Unknown Month";
+  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function isoDateFromUnixSeconds(sec) {
+  const ms = Number(sec) * 1000;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().split("T")[0];
+  return d.toISOString().split("T")[0];
+}
+
+async function hasInvoiceTransaction(store, entity, invoiceId, type) {
+  if (!invoiceId) return false;
+  const [existing] = await store.filter(
+    entity,
+    { stripe_invoice_id: String(invoiceId), type },
+    undefined,
+    1
+  );
+  return Boolean(existing);
+}
+
+async function createInvoiceTransactionIfMissing(store, entity, invoiceId, type, payload) {
+  if (await hasInvoiceTransaction(store, entity, invoiceId, type)) return false;
+  await store.create(entity, payload);
+  return true;
+}
+
 async function ensureCustomer({ stripe, store, memberId }) {
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
   if (!member) {
@@ -229,6 +260,15 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
           quantity: 1,
         },
       ],
+      subscription_data: {
+        metadata: {
+          memberId: String(memberId),
+          paymentType,
+          memberName: safeString(member.full_name || "", 200),
+          amountCents: String(amountCents),
+          payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
+        },
+      },
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: {
@@ -422,13 +462,95 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
             paymentType: "membership",
             amountCents: String(amountCents),
           },
+          expand: ["latest_invoice.payment_intent"],
         });
+
+        const today = new Date();
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        const recs = await store.filter(
+          "RecurringPayment",
+          { stripe_subscription_id: String(subscription.id) },
+          undefined,
+          1
+        );
+        const recPayload = {
+          member_id: String(member.id),
+          member_name: safeString(member.full_name || member.english_name || "", 200),
+          payment_type: "membership",
+          amount_per_month: Math.round(amountCents) / 100,
+          is_active: true,
+          start_date: today.toISOString().split("T")[0],
+          next_charge_date: nextMonth.toISOString().split("T")[0],
+          stripe_customer_id: member.stripe_customer_id,
+          stripe_subscription_id: subscription.id,
+        };
+        if (recs[0]?.id) {
+          await store.update("RecurringPayment", recs[0].id, recPayload);
+        } else {
+          await store.create("RecurringPayment", recPayload);
+        }
 
         await store.update("Member", member.id, {
           membership_active: true,
           stripe_subscription_id: subscription.id,
           stripe_customer_id: member.stripe_customer_id,
         });
+
+        const latestInvoice = subscription?.latest_invoice;
+        if (latestInvoice && typeof latestInvoice === "object" && latestInvoice.id) {
+          const paid =
+            latestInvoice.status === "paid" ||
+            latestInvoice.payment_intent?.status === "succeeded";
+          if (paid) {
+            const amountPaidCents =
+              Number(latestInvoice.amount_paid ?? latestInvoice.total ?? amountCents);
+            const periodStart =
+              latestInvoice.lines?.data?.[0]?.period?.start || latestInvoice.created;
+            const amount = Math.round(amountPaidCents) / 100;
+            const date = isoDateFromUnixSeconds(periodStart);
+            const monthLabel = monthLabelFromUnixSeconds(periodStart);
+            const descBase = `Monthly Membership - ${monthLabel}`;
+            const basePayload = {
+              member_id: String(member.id),
+              member_name: safeString(member.full_name || member.english_name || "", 200),
+              amount,
+              date,
+              provider: "stripe",
+              stripe_invoice_id: latestInvoice.id,
+              stripe_subscription_id: subscription.id,
+              stripe_customer_id: member.stripe_customer_id,
+            };
+
+            const chargeCreated = await createInvoiceTransactionIfMissing(
+              store,
+              "Transaction",
+              latestInvoice.id,
+              "charge",
+              {
+                ...basePayload,
+                type: "charge",
+                description: descBase,
+              }
+            );
+            await createInvoiceTransactionIfMissing(
+              store,
+              "Transaction",
+              latestInvoice.id,
+              "payment",
+              {
+                ...basePayload,
+                type: "payment",
+                description: `${descBase} (Stripe)`,
+              }
+            );
+
+            if (chargeCreated) {
+              const currentBalance = Number(member.total_owed || 0);
+              const newBalance = Math.max(0, currentBalance - amount);
+              await store.update("Member", member.id, { total_owed: newBalance });
+            }
+          }
+        }
         activated.push({ id: member.id, name: member.full_name || member.english_name || member.hebrew_name });
       } catch (err) {
         errors.push({
@@ -444,6 +566,15 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     // Admin endpoint to update a member's monthly bill (e.g., add donation or payment plan)
     router.post("/update-monthly-bill", async (req, res) => {
+      const callerId = req.user?.id;
+      if (!callerId || typeof req.getUserById !== "function") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const caller = await req.getUserById(callerId);
+      const isAdmin = caller?.is_admin === true || caller?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const memberId = safeString(req.body?.memberId, 200);
       const amount = Number(req.body?.amount);
       const reason = safeString(req.body?.reason, 500);

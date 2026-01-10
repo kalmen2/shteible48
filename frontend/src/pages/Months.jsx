@@ -152,15 +152,28 @@ export default function Months() {
     return recurringPayments.filter(p => p.member_id === memberId && p.is_active);
   };
 
-  const getMemberTotalMonthly = (memberId) => {
+  const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
-    const memberCharges = getMemberCharges(memberId);
-    const memberRecurring = getMemberRecurringPayments(memberId);
+    if (!member) return standardAmount;
 
-    const chargesTotal = memberCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
-    const recurringTotal = memberRecurring.reduce((sum, p) => sum + (p.amount_per_month || 0), 0);
+    if (!member.membership_active) {
+      return standardAmount;
+    }
 
-    return standardAmount + chargesTotal + recurringTotal;
+    const memberRecurring = getMemberRecurringPayments(member.id);
+    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
+    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
+      return Math.max(0, standardAmount - subscriptionAmount);
+    }
+
+    const memberCharges = getMemberCharges(member.id);
+    const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
+      return Math.max(0, standardAmount - chargesTotal);
+    }
+
+    return standardAmount;
   };
 
   const isMonthlyChargeDescription = (description) => {
@@ -189,7 +202,7 @@ export default function Months() {
     
     const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
     const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const totalMonthly = getMemberTotalMonthly(member.id);
+    const totalMonthly = getMemberTotalMonthly(member);
     const monthlyChargesThisMonth = transactions
       .filter(t => t.type === 'charge' && isMonthlyChargeDescription(t.description))
       .reduce((sum, t) => sum + (t.amount || 0), 0);

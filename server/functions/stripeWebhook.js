@@ -45,6 +45,23 @@ async function createRecordOnce(store, entity, payload) {
   }
 }
 
+async function hasInvoiceTransaction(store, entity, invoiceId, type) {
+  if (!invoiceId) return false;
+  const [existing] = await store.filter(
+    entity,
+    { stripe_invoice_id: String(invoiceId), type },
+    undefined,
+    1
+  );
+  return Boolean(existing);
+}
+
+async function createInvoiceTransactionIfMissing(store, entity, invoiceId, type, payload) {
+  if (await hasInvoiceTransaction(store, entity, invoiceId, type)) return false;
+  await store.create(entity, payload);
+  return true;
+}
+
 async function markEventProcessed({ store, event }) {
   if (!event?.id) return false;
   if (typeof store.ensureWebhookEventIndex === "function") {
@@ -160,7 +177,7 @@ async function upsertGuestRecurringFromCheckout({ store, guestId, guestName, pay
   await store.create("RecurringPayment", base);
 }
 
-async function recordSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, memberId, paymentType }) {
+async function recordSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, memberId, paymentType, invoiceId }) {
   const amount = centsToDollars(amountPaidCents);
   const date = isoDateFromUnixSeconds(periodStart);
   const monthLabel = monthLabelFromUnixSeconds(periodStart);
@@ -173,7 +190,7 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
         ? "Balance Payoff Plan"
         : "Additional Monthly Payment";
 
-  const createdCharge = await createRecordOnce(store, "Transaction", {
+  const chargePayload = {
     member_id: String(memberId),
     type: "charge",
     description: descBase,
@@ -182,9 +199,10 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     provider: "stripe",
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
-  });
+    stripe_invoice_id: invoiceId || undefined,
+  };
 
-  await createRecordOnce(store, "Transaction", {
+  const paymentPayload = {
     member_id: String(memberId),
     type: "payment",
     description: `${descBase} (Stripe)` ,
@@ -193,16 +211,26 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     provider: "stripe",
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
-  });
+    stripe_invoice_id: invoiceId || undefined,
+  };
 
-  if (!createdCharge) {
+  const chargeCreated = invoiceId
+    ? await createInvoiceTransactionIfMissing(store, "Transaction", invoiceId, "charge", chargePayload)
+    : await createRecordOnce(store, "Transaction", chargePayload);
+
+  await (invoiceId
+    ? createInvoiceTransactionIfMissing(store, "Transaction", invoiceId, "payment", paymentPayload)
+    : createRecordOnce(store, "Transaction", paymentPayload));
+
+  if (!chargeCreated) {
     return;
   }
 
   // Net effect is zero if we also update member.total_owed by +charge and -payment.
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
   if (member) {
-    const newBalance = (member.total_owed || 0);
+    const currentBalance = Number(member.total_owed || 0);
+    const newBalance = Math.max(0, currentBalance - amount);
     await store.update("Member", member.id, { total_owed: newBalance });
   }
 
@@ -228,13 +256,13 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
   }
 }
 
-async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, guestId, paymentType }) {
+async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, guestId, paymentType, invoiceId }) {
   const amount = centsToDollars(amountPaidCents);
   const date = isoDateFromUnixSeconds(periodStart);
 
   const descBase = paymentType === "guest_balance_payoff" ? "Guest Balance Payoff" : "Guest Monthly Donation";
 
-  const createdCharge = await createRecordOnce(store, "GuestTransaction", {
+  const chargePayload = {
     guest_id: String(guestId),
     type: "charge",
     description: descBase,
@@ -243,9 +271,10 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
     provider: "stripe",
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
-  });
+    stripe_invoice_id: invoiceId || undefined,
+  };
 
-  await createRecordOnce(store, "GuestTransaction", {
+  const paymentPayload = {
     guest_id: String(guestId),
     type: "payment",
     description: `${descBase} (Stripe)`,
@@ -254,9 +283,18 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
     provider: "stripe",
     stripe_subscription_id: subscriptionId,
     stripe_customer_id: customerId,
-  });
+    stripe_invoice_id: invoiceId || undefined,
+  };
 
-  if (!createdCharge) {
+  const chargeCreated = invoiceId
+    ? await createInvoiceTransactionIfMissing(store, "GuestTransaction", invoiceId, "charge", chargePayload)
+    : await createRecordOnce(store, "GuestTransaction", chargePayload);
+
+  await (invoiceId
+    ? createInvoiceTransactionIfMissing(store, "GuestTransaction", invoiceId, "payment", paymentPayload)
+    : createRecordOnce(store, "GuestTransaction", paymentPayload));
+
+  if (!chargeCreated) {
     return;
   }
 
@@ -288,6 +326,60 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
   }
 }
 
+async function recordLatestSubscriptionInvoice({
+  store,
+  stripe,
+  subscriptionId,
+  memberId,
+  guestId,
+  paymentType,
+}) {
+  if (!subscriptionId) return;
+  const sub = await stripe.subscriptions.retrieve(String(subscriptionId), {
+    expand: ["latest_invoice"],
+  });
+  const latestInvoice = sub?.latest_invoice;
+  const invoiceId = typeof latestInvoice === "string" ? latestInvoice : latestInvoice?.id;
+  if (!invoiceId) return;
+
+  const invoice =
+    typeof latestInvoice === "object" && latestInvoice?.id
+      ? latestInvoice
+      : await stripe.invoices.retrieve(String(invoiceId), {
+          expand: ["payment_intent", "lines"],
+        });
+
+  const paid = invoice?.status === "paid" || invoice?.payment_intent?.status === "succeeded";
+  if (!paid) return;
+
+  const amountPaidCents = Number(invoice.amount_paid ?? invoice.total ?? 0);
+  const periodStart = invoice.lines?.data?.[0]?.period?.start || invoice.created;
+
+  if (memberId) {
+    await recordSubscriptionInvoicePayment({
+      store,
+      subscriptionId: String(subscriptionId),
+      customerId: invoice.customer,
+      amountPaidCents,
+      periodStart,
+      memberId,
+      paymentType,
+      invoiceId,
+    });
+  } else if (guestId) {
+    await recordGuestSubscriptionInvoicePayment({
+      store,
+      subscriptionId: String(subscriptionId),
+      customerId: invoice.customer,
+      amountPaidCents,
+      periodStart,
+      guestId,
+      paymentType,
+      invoiceId,
+    });
+  }
+}
+
 /**
  * Stripe webhook handler. Must be mounted with express.raw({ type: 'application/json' }).
  * @param {{ store: any }} deps
@@ -314,6 +406,9 @@ function createStripeWebhookHandler({ store }) {
 
   return async function stripeWebhook(req, res) {
     const sig = req.headers["stripe-signature"];
+    if (!sig) {
+      return res.status(400).send("Webhook Error: missing stripe-signature header.");
+    }
     const rawBody = getRawBody(req);
     if (!rawBody) {
       return res
@@ -333,12 +428,16 @@ function createStripeWebhookHandler({ store }) {
       }
 
       const recorded = await markEventProcessed({ store, event });
-      if (!recorded) {
+      const isDuplicate = !recorded;
+      if (isDuplicate && event.type !== "invoice.paid" && event.type !== "checkout.session.completed") {
         return res.json({ received: true, duplicate: true });
       }
 
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
+        if (isDuplicate && session.mode !== "subscription") {
+          return res.json({ received: true, duplicate: true });
+        }
 
         // One-time payments
         if (session.mode === "payment") {
@@ -390,6 +489,14 @@ function createStripeWebhookHandler({ store }) {
                 stripe_customer_id: session.customer,
               });
             }
+
+            await recordLatestSubscriptionInvoice({
+              store,
+              stripe,
+              subscriptionId: session.subscription,
+              memberId,
+              paymentType,
+            });
           } else if (guestId && session.subscription) {
             await upsertGuestRecurringFromCheckout({
               store,
@@ -400,6 +507,14 @@ function createStripeWebhookHandler({ store }) {
               customerId: session.customer,
               subscriptionId: session.subscription,
               payoffTotalCents: md.payoffTotalCents ? Number(md.payoffTotalCents) : undefined,
+            });
+
+            await recordLatestSubscriptionInvoice({
+              store,
+              stripe,
+              subscriptionId: session.subscription,
+              guestId,
+              paymentType,
             });
           }
         }
@@ -454,6 +569,7 @@ function createStripeWebhookHandler({ store }) {
               periodStart: firstLine.period?.start || invoice.created,
               memberId,
               paymentType,
+              invoiceId: invoice.id,
             });
 
             // For payoff plans, cancel when remaining is <= 0.
@@ -478,6 +594,7 @@ function createStripeWebhookHandler({ store }) {
               periodStart: firstLine.period?.start || invoice.created,
               guestId,
               paymentType,
+              invoiceId: invoice.id,
             });
 
             if (paymentType === "guest_balance_payoff") {
@@ -555,7 +672,7 @@ function createStripeWebhookHandler({ store }) {
         }
       }
 
-      return res.json({ received: true });
+      return res.json({ received: true, duplicate: isDuplicate || undefined });
     } catch (e) {
       return res.status(500).json({ message: e?.message || String(e) });
     }

@@ -417,15 +417,29 @@ export default function Members() {
     return recurringPayments.filter(p => p.member_id === memberId && p.is_active);
   };
 
-  const getMemberTotalMonthly = (memberId) => {
-    const standardAmount = currentPlan?.standard_amount || 0;
-    const memberCharges = getMemberCharges(memberId);
-    const memberRecurring = getMemberRecurringPayments(memberId);
-    
-    const chargesTotal = memberCharges.reduce((sum, c) => sum + (c.amount || 0), 0);
-    const recurringTotal = memberRecurring.reduce((sum, p) => sum + (p.amount_per_month || 0), 0);
-    
-    return standardAmount + chargesTotal + recurringTotal;
+  const getMemberTotalMonthly = (member) => {
+    const standardAmount = Number(currentPlan?.standard_amount || 0);
+    if (!member) return standardAmount;
+
+    if (!member.membership_active) {
+      return standardAmount;
+    }
+
+    const memberCharges = getMemberCharges(member.id);
+    const memberRecurring = getMemberRecurringPayments(member.id);
+    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
+
+    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
+      return Math.max(0, standardAmount - subscriptionAmount);
+    }
+
+    const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
+      return Math.max(0, standardAmount - chargesTotal);
+    }
+
+    return standardAmount;
   };
 
   return (
@@ -646,7 +660,7 @@ export default function Members() {
                                       {filteredMembers.map((member) => {
                       const memberCharges = getMemberCharges(member.id);
                       const memberRecurring = getMemberRecurringPayments(member.id);
-                      const totalMonthly = getMemberTotalMonthly(member.id);
+                      const totalMonthly = getMemberTotalMonthly(member);
                       const displayBalance = (member.total_owed || 0) + totalMonthly;
                       const primaryName = member.english_name || member.full_name || member.hebrew_name || "Unnamed";
                       const secondaryName =

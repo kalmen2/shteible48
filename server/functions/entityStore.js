@@ -80,8 +80,8 @@ async function createRecord(data) {
   return {
     ...data,
     id,
-    created_date: data?.created_date ?? now,
-    updated_date: data?.updated_date ?? now,
+    created_date: now,
+    updated_date: now,
   };
 }
 
@@ -91,6 +91,7 @@ function updateRecord(existing, patch) {
     ...existing,
     ...patch,
     id: existing.id,
+    created_date: existing.created_date,
     updated_date: now,
   };
 }

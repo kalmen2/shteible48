@@ -55,12 +55,12 @@ export default function GuestDetail() {
 
   const addPaymentMutation = useMutation({
     mutationFn: async (paymentData) => {
-      const transaction = await base44.entities.GuestTransaction.create(paymentData);
-      const newBalance = (guest.total_owed || 0) - paymentData.amount;
-      await base44.entities.Guest.update(guestId, { total_owed: newBalance });
-      return transaction;
+      return await base44.entities.GuestTransaction.create(paymentData);
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("addGuestPaymentMutation failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guestTransactions', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guests'] });
@@ -72,12 +72,12 @@ export default function GuestDetail() {
 
   const addChargeMutation = useMutation({
     mutationFn: async (chargeData) => {
-      const transaction = await base44.entities.GuestTransaction.create(chargeData);
-      const newBalance = (guest.total_owed || 0) + chargeData.amount;
-      await base44.entities.Guest.update(guestId, { total_owed: newBalance });
-      return transaction;
+      return await base44.entities.GuestTransaction.create(chargeData);
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("addGuestChargeMutation failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guestTransactions', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guests'] });
@@ -91,11 +91,11 @@ export default function GuestDetail() {
   const deleteTransactionMutation = useMutation({
     mutationFn: async (transaction) => {
       await base44.entities.GuestTransaction.delete(transaction.id);
-      const adjustment = transaction.type === 'charge' ? -transaction.amount : transaction.amount;
-      const newBalance = (guest.total_owed || 0) + adjustment;
-      await base44.entities.Guest.update(guestId, { total_owed: newBalance });
     },
-    onSuccess: () => {
+    onError: (error) => {
+      console.error("deleteGuestTransaction failed", error);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guestTransactions', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guests'] });

@@ -49,11 +49,28 @@ function normalizeSchedule(schedule) {
 
 function computeMemberBalance(member, plan, charges, recurringPayments) {
   const standardAmount = Number(plan?.standard_amount || 0);
-  const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
+  const totalOwed = Number(member.total_owed || 0);
+
+  if (!member?.membership_active) {
+    return totalOwed + standardAmount;
+  }
+
   const memberRecurring = (recurringPayments || []).filter((p) => p.member_id === member.id && p.is_active);
-  const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-  const recurringTotal = memberRecurring.reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
-  return Number(member.total_owed || 0) + standardAmount + chargesTotal + recurringTotal;
+  const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+  const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
+  let monthlyDue = standardAmount;
+
+  if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
+    monthlyDue = Math.max(0, standardAmount - subscriptionAmount);
+  } else {
+    const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
+    const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
+      monthlyDue = Math.max(0, standardAmount - chargesTotal);
+    }
+  }
+
+  return totalOwed + monthlyDue;
 }
 
 function applyTemplate(template, member, balanceValue) {

@@ -74,11 +74,27 @@ export default function EmailManagement() {
 
   const getMemberCharges = (memberId) => membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
   const getMemberRecurringPayments = (memberId) => recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
-  const getMemberTotalMonthly = (memberId) => {
-    const standardAmount = currentPlan?.standard_amount || 0;
-    const chargesTotal = getMemberCharges(memberId).reduce((sum, c) => sum + (c.amount || 0), 0);
-    const recurringTotal = getMemberRecurringPayments(memberId).reduce((sum, p) => sum + (p.amount_per_month || 0), 0);
-    return standardAmount + chargesTotal + recurringTotal;
+  const getMemberTotalMonthly = (member) => {
+    const standardAmount = Number(currentPlan?.standard_amount || 0);
+    if (!member) return standardAmount;
+
+    if (!member.membership_active) {
+      return standardAmount;
+    }
+
+    const memberRecurring = getMemberRecurringPayments(member.id);
+    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
+    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
+      return Math.max(0, standardAmount - subscriptionAmount);
+    }
+
+    const chargesTotal = getMemberCharges(member.id).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
+      return Math.max(0, standardAmount - chargesTotal);
+    }
+
+    return standardAmount;
   };
 
   useEffect(() => {
@@ -112,7 +128,7 @@ export default function EmailManagement() {
       key: `member:${m.id}`,
       name: m.full_name || m.english_name || m.hebrew_name || 'Member',
       email: m.email,
-      balance: (m.total_owed || 0) + getMemberTotalMonthly(m.id),
+      balance: (m.total_owed || 0) + getMemberTotalMonthly(m),
       ref: m,
     })),
     ...guests.map((g) => ({

@@ -1,5 +1,5 @@
 
-const { assertEntityName, createRecord, updateRecord } = require("./entityStore.js");
+const { assertEntityName, createRecord } = require("./entityStore.js");
 
 function normalizeSort(sort) {
   if (!sort || typeof sort !== "string") return null;
@@ -34,9 +34,44 @@ function toPublic(doc) {
 
 /** @param {{ db: import('mongodb').Db }} deps */
 function createMongoEntityStore({ db }) {
+  const indexPromises = new Map();
+
+  function ensureIndexes(entity) {
+    if (indexPromises.has(entity)) return indexPromises.get(entity);
+    const col = db.collection(entity);
+    const specs = [
+      { keys: { id: 1 }, options: { unique: true } },
+    ];
+
+    if (entity === "Transaction") {
+      specs.push({ keys: { member_id: 1, date: -1 } });
+    }
+    if (entity === "GuestTransaction") {
+      specs.push({ keys: { guest_id: 1, date: -1 } });
+    }
+    if (entity === "MembershipCharge") {
+      specs.push({ keys: { member_id: 1, is_active: 1 } });
+    }
+    if (entity === "RecurringPayment") {
+      specs.push({ keys: { member_id: 1, is_active: 1 } });
+      specs.push({ keys: { guest_id: 1, is_active: 1 } });
+      specs.push({ keys: { stripe_subscription_id: 1 } });
+    }
+
+    const promise = Promise.all(
+      specs.map(({ keys, options }) => col.createIndex(keys, options).catch((err) => {
+        console.error(`Failed to create index for ${entity}`, err?.message || err);
+      }))
+    );
+    indexPromises.set(entity, promise);
+    return promise;
+  }
+
   function collectionFor(entity) {
     assertEntityName(entity);
-    return db.collection(entity);
+    const col = db.collection(entity);
+    ensureIndexes(entity);
+    return col;
   }
 
   return {
@@ -93,16 +128,23 @@ function createMongoEntityStore({ db }) {
 
     async update(entity, id, patch) {
       const col = collectionFor(entity);
-      const existing = await col.findOne({ id: String(id) });
-      if (!existing) {
+      const patchData = { ...(patch ?? {}) };
+      delete patchData.id;
+      delete patchData.created_date;
+      delete patchData.updated_date;
+      const updatedDate = new Date().toISOString();
+      const result = await col.findOneAndUpdate(
+        { id: String(id) },
+        { $set: { ...patchData, updated_date: updatedDate } },
+        { returnDocument: "after" }
+      );
+      if (!result.value) {
         const err = new Error(`${entity} not found`);
         // @ts-ignore
         err.status = 404;
         throw err;
       }
-      const updated = updateRecord(toPublic(existing), patch ?? {});
-      await col.updateOne({ id: String(id) }, { $set: updated });
-      return updated;
+      return toPublic(result.value);
     },
 
     async remove(entity, id) {
@@ -116,6 +158,10 @@ function createMongoEntityStore({ db }) {
     async _dangerous_clear(entity) {
       const col = collectionFor(entity);
       await col.deleteMany({});
+    },
+
+    async ensureWebhookEventIndex() {
+      await ensureIndexes("WebhookEvent");
     },
   };
 }
