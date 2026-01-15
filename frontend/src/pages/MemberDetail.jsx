@@ -206,7 +206,31 @@ export default function MemberDetail() {
         description: "Changes saved successfully.",
       });
     },
-    onError: (error) => {
+    onError: async (error, variables) => {
+      try {
+        const refreshed = await base44.entities.Member.filter({ id: variables.id });
+        const current = refreshed?.[0];
+        if (current) {
+          const matches = Object.entries(variables.data || {}).every(([key, value]) => {
+            if (value === undefined) return true;
+            return String(current[key] ?? "") === String(value);
+          });
+          if (matches) {
+            queryClient.setQueryData(['member', memberId], current);
+            queryClient.setQueryData(['members'], (prev = []) =>
+              Array.isArray(prev) ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m)) : prev
+            );
+            setEditDialogOpen(false);
+            toast({
+              title: "Member updated",
+              description: "Changes saved successfully.",
+            });
+            return;
+          }
+        }
+      } catch {
+        // fall through to error toast
+      }
       toast({
         title: "Update failed",
         description: error?.message || "Unable to save member changes.",

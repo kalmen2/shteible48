@@ -32,6 +32,7 @@ export default function EmailManagement() {
   // One-time send recipient selection
   const [sendRecipientMode, setSendRecipientMode] = useState("all"); // "all" or "selected"
   const [sendSelectedRecipientIds, setSendSelectedRecipientIds] = useState([]);
+  const [printFilter, setPrintFilter] = useState("all");
 
   const queryClient = useQueryClient();
 
@@ -72,6 +73,12 @@ export default function EmailManagement() {
 
   const schedule = schedules[0];
   const currentPlan = plans[0];
+
+  useEffect(() => {
+    const handleAfterPrint = () => setPrintFilter("all");
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
 
   const getMemberCharges = (memberId) => membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
   const getMemberRecurringPayments = (memberId) => recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
@@ -194,6 +201,18 @@ export default function EmailManagement() {
     const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
     const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
     return { transactions, charges, payments, balance: charges - payments };
+  };
+
+  const membersMissingEmailForMonth = React.useMemo(() => {
+    return members.filter((member) => {
+      const monthlyData = getMemberMonthlyData(member);
+      return monthlyData.transactions.length > 0 && !member.email;
+    });
+  }, [members, selectedMonth, allTransactions]);
+
+  const handlePrint = (mode) => {
+    setPrintFilter(mode);
+    setTimeout(() => window.print(), 0);
   };
 
   const saveScheduleMutation = useMutation({
@@ -815,13 +834,22 @@ export default function EmailManagement() {
                   <CardTitle>Monthly Statements - {monthOptions.find(m => m.value === selectedMonth)?.label || "No Data"}</CardTitle>
                   <div className="flex gap-2">
                     <Button
-                      onClick={() => window.print()}
+                      onClick={() => handlePrint("all")}
                       variant="outline"
                       className="h-9"
                       disabled={monthOptions.length === 0}
                     >
                       <Printer className="w-4 h-4 mr-2" />
                       Print All
+                    </Button>
+                    <Button
+                      onClick={() => handlePrint("missing-email")}
+                      variant="outline"
+                      className="h-9"
+                      disabled={monthOptions.length === 0 || membersMissingEmailForMonth.length === 0}
+                    >
+                      <Printer className="w-4 h-4 mr-2" />
+                      Print Missing Email
                     </Button>
                     <Button
                       onClick={async () => {
@@ -897,6 +925,7 @@ export default function EmailManagement() {
                       {members.map((member) => {
                         const monthlyData = getMemberMonthlyData(member);
                         if (monthlyData.transactions.length === 0) return null;
+                        if (printFilter === "missing-email" && member.email) return null;
                         return (
                           <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
                             <td className="py-4 px-6">
