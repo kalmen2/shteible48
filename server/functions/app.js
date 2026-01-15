@@ -83,7 +83,14 @@ app.use(async (req, res, next) => {
   // Register routes only once, after db is ready
   if (!routesRegistered) {
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
-    app.use('/uploads', express.static(uploadsDirAbs));
+    app.use(
+      '/uploads',
+      express.static(uploadsDirAbs, {
+        setHeaders: (res) => {
+          res.setHeader('Content-Disposition', 'attachment');
+        },
+      })
+    );
 
     const auth = createAuthRouter({ db: mongoDb });
     //app.post('/api/auth/signup', (req, res, next) => auth.signup(req, res).catch(next));

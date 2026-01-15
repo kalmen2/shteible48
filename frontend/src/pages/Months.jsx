@@ -45,12 +45,12 @@ export default function Months() {
 
   const { data: memberTransactions = [] } = useQuery({
     queryKey: ['allTransactions'],
-    queryFn: () => base44.entities.Transaction.list('-date', 10000),
+    queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
 
   const { data: guestTransactions = [] } = useQuery({
     queryKey: ['guestTransactions'],
-    queryFn: () => base44.entities.GuestTransaction.list('-date', 10000),
+    queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
   });
 
   const { data: plans = [] } = useQuery({
@@ -60,7 +60,7 @@ export default function Months() {
 
   const { data: membershipCharges = [] } = useQuery({
     queryKey: ['membershipCharges'],
-    queryFn: () => base44.entities.MembershipCharge.list('-created_date', 10000),
+    queryFn: () => base44.entities.MembershipCharge.listAll('-created_date'),
   });
 
   const { data: recurringPayments = [] } = useQuery({

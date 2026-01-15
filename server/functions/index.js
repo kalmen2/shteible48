@@ -36,13 +36,16 @@ exports.monthlyEmailScheduler = onSchedule("every 1 minutes", async () => {
   }
 });
 
-exports.monthlyMembershipCharges = onSchedule("0 2 * * *", async () => {
+exports.monthlyMembershipCharges = onSchedule(
+  { schedule: "0 2 * * *", timeZone: process.env.BILLING_TIME_ZONE || "UTC" },
+  async () => {
   try {
     await runMonthlyMembershipCharges();
   } catch (err) {
     console.error("Monthly membership charge scheduler failed:", err?.message || err);
   }
-});
+  }
+);
 
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started

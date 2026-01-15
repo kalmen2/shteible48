@@ -45,7 +45,7 @@ function mapRowToMember(row) {
   return out;
 }
 
-function parseMultipartFile(req) {
+function parseMultipartFile(req, { uploadsDirAbs, maxFileSizeBytes = 5 * 1024 * 1024 } = {}) {
   return new Promise((resolve, reject) => {
     const contentType = req.headers["content-type"] || "";
     if (!contentType.includes("multipart/form-data")) {
@@ -53,14 +53,41 @@ function parseMultipartFile(req) {
       return;
     }
 
-    const busboy = Busboy({ headers: req.headers });
-    const chunks = [];
+    if (!uploadsDirAbs) {
+      reject(new Error("uploadsDirAbs is required"));
+      return;
+    }
+
+    const busboy = Busboy({
+      headers: req.headers,
+      limits: {
+        files: 1,
+        fileSize: maxFileSizeBytes,
+      },
+    });
+    let tempFilePath = null;
+    let wroteBytes = 0;
     let fileInfo = null;
 
     busboy.on("file", (_name, file, info) => {
       fileInfo = info;
-      file.on("data", (data) => chunks.push(data));
-      file.on("error", (err) => reject(err));
+      const safeName = safeBaseName(path.basename(info.filename || "upload"));
+      tempFilePath = path.join(uploadsDirAbs, `${Date.now()}-${safeName}`);
+      const out = require("node:fs").createWriteStream(tempFilePath);
+      file.on("data", (data) => {
+        wroteBytes += data.length;
+      });
+      file.on("limit", () => {
+        out.destroy(new Error("File exceeds upload limit"));
+        file.unpipe(out);
+        file.resume();
+      });
+      file.on("error", (err) => {
+        out.destroy(err);
+      });
+      out.on("error", (err) => reject(err));
+      out.on("finish", () => resolve({ tempFilePath, originalname: info.filename, mimetype: info.mimeType, size: wroteBytes }));
+      file.pipe(out);
     });
 
     busboy.on("error", (err) => reject(err));
@@ -69,11 +96,9 @@ function parseMultipartFile(req) {
         reject(new Error("Missing file"));
         return;
       }
-      resolve({
-        buffer: Buffer.concat(chunks),
-        originalname: fileInfo.filename,
-        mimetype: fileInfo.mimeType,
-      });
+      if (!tempFilePath) {
+        reject(new Error("Missing file"));
+      }
     });
 
     const bodyBuffer = req.rawBody || (Buffer.isBuffer(req.body) ? req.body : null);
@@ -144,6 +169,8 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
           {
             filename: pdf.filename || `Statement-${(pdf.memberName || "member").replace(/\s+/g, "_")}.pdf`,
             content: pdfBuffer,
+            contentType: "application/pdf",
+            contentDisposition: "attachment",
           },
         ];
       }
@@ -158,15 +185,25 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
   // POST /api/integrations/Core/UploadFile (multipart field: file)
   router.post("/Core/UploadFile", async (req, res) => {
     try {
-      const file = await parseMultipartFile(req);
+      await fs.mkdir(uploadsDirAbs, { recursive: true });
+      const file = await parseMultipartFile(req, { uploadsDirAbs });
       if (!file) return res.status(400).json({ message: "Missing file" });
 
       const safeName = safeBaseName(path.basename(file.originalname || "upload"));
-      const finalName = `${Date.now()}-${safeName}`;
-      const finalPath = path.join(uploadsDirAbs, finalName);
+      const ext = path.extname(safeName).toLowerCase();
+      const allowedExts = new Set([".csv", ".xlsx", ".xls"]);
+      if (!allowedExts.has(ext)) {
+        if (file.tempFilePath) {
+          await fs.unlink(file.tempFilePath).catch(() => {});
+        }
+        return res.status(400).json({ message: "Only .csv, .xls, and .xlsx files are supported" });
+      }
 
-      await fs.mkdir(uploadsDirAbs, { recursive: true });
-      await fs.writeFile(finalPath, file.buffer);
+      const finalName = path.basename(file.tempFilePath);
+      const finalPath = path.join(uploadsDirAbs, finalName);
+      if (file.tempFilePath && file.tempFilePath !== finalPath) {
+        await fs.rename(file.tempFilePath, finalPath);
+      }
 
       const file_url = `${publicBaseUrl}/uploads/${encodeURIComponent(finalName)}`;
       res.json({ status: "success", file_url });
@@ -174,6 +211,9 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
       const msg = err?.message || String(err);
       if (msg.includes("Unexpected end of form")) {
         return res.status(400).json({ message: "Upload interrupted. Please try again." });
+      }
+      if (msg.toLowerCase().includes("upload limit")) {
+        return res.status(400).json({ message: "File too large. Max size is 5MB." });
       }
       return res.status(400).json({ message: msg });
     }
@@ -197,7 +237,11 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
       }
 
       const fileName = decodeURIComponent(file_url.slice(uploadsPrefix.length));
-      const filePath = path.join(uploadsDirAbs, fileName);
+      const uploadsRoot = path.resolve(uploadsDirAbs);
+      const filePath = path.resolve(uploadsRoot, fileName);
+      if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+        return res.status(400).json({ status: "error", message: "Invalid file path" });
+      }
       const buf = await fs.readFile(filePath);
       const ext = path.extname(filePath).toLowerCase();
       let rows;
@@ -208,7 +252,7 @@ function createIntegrationsRouter({ uploadsDirAbs, publicBaseUrl }) {
         rows = await parseCsvToObjects(text);
       }
 
-      // Base44 returns {status, output}
+      // returns {status, output}
       res.json({ status: "success", output: { members: rows } });
     } catch (err) {
       res.status(500).json({ status: "error", message: err?.message ?? "Failed to extract" });

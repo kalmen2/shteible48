@@ -43,7 +43,7 @@ export default function Guests() {
 
   const { data: guestTransactions = [] } = useQuery({
     queryKey: ['guestTransactions'],
-    queryFn: () => base44.entities.GuestTransaction.list('-date', 5000),
+    queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
   });
 
   const filteredGuests = guests

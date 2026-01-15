@@ -75,18 +75,19 @@ function createMongoEntityStore({ db }) {
   }
 
   return {
-    async list(entity, sort, limit) {
+    async list(entity, sort, limit, skip) {
       const col = collectionFor(entity);
       const cursor = col.find({});
       const sortSpec = normalizeSort(sort);
       if (sortSpec) cursor.sort(sortSpec);
       const lim = normalizeLimit(limit);
       if (lim) cursor.limit(lim);
+      if (Number.isFinite(skip) && skip > 0) cursor.skip(skip);
       const docs = await cursor.toArray();
       return docs.map(toPublic);
     },
 
-    async filter(entity, where, sort, limit) {
+    async filter(entity, where, sort, limit, skip) {
       const col = collectionFor(entity);
       const query = normalizeWhere(where);
       const cursor = col.find(query);
@@ -94,6 +95,7 @@ function createMongoEntityStore({ db }) {
       if (sortSpec) cursor.sort(sortSpec);
       const lim = normalizeLimit(limit);
       if (lim) cursor.limit(lim);
+      if (Number.isFinite(skip) && skip > 0) cursor.skip(skip);
       const docs = await cursor.toArray();
       return docs.map(toPublic);
     },

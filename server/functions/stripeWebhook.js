@@ -218,17 +218,17 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     ? await createInvoiceTransactionIfMissing(store, "Transaction", invoiceId, "charge", chargePayload)
     : await createRecordOnce(store, "Transaction", chargePayload);
 
-  await (invoiceId
+  const paymentCreated = await (invoiceId
     ? createInvoiceTransactionIfMissing(store, "Transaction", invoiceId, "payment", paymentPayload)
     : createRecordOnce(store, "Transaction", paymentPayload));
 
-  if (!chargeCreated) {
+  if (!paymentCreated && !chargeCreated) {
     return;
   }
 
   // Net effect is zero if we also update member.total_owed by +charge and -payment.
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
-  if (member) {
+  if (paymentCreated && member) {
     const currentBalance = Number(member.total_owed || 0);
     const newBalance = Math.max(0, currentBalance - amount);
     await store.update("Member", member.id, { total_owed: newBalance });
@@ -237,7 +237,7 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
   // Update RecurringPayment bookkeeping
   const recs = await store.filter("RecurringPayment", { stripe_subscription_id: String(subscriptionId) }, undefined, 1);
   const rec = recs[0];
-  if (!rec) return;
+  if (!rec || !paymentCreated) return;
 
   if (paymentType === "balance_payoff") {
     const remaining = Number(rec.remaining_amount ?? rec.total_amount ?? 0);
@@ -290,16 +290,16 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
     ? await createInvoiceTransactionIfMissing(store, "GuestTransaction", invoiceId, "charge", chargePayload)
     : await createRecordOnce(store, "GuestTransaction", chargePayload);
 
-  await (invoiceId
+  const paymentCreated = await (invoiceId
     ? createInvoiceTransactionIfMissing(store, "GuestTransaction", invoiceId, "payment", paymentPayload)
     : createRecordOnce(store, "GuestTransaction", paymentPayload));
 
-  if (!chargeCreated) {
+  if (!paymentCreated && !chargeCreated) {
     return;
   }
 
   const [guest] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
-  if (guest) {
+  if (paymentCreated && guest) {
     const newBalance = paymentType === "guest_balance_payoff"
       ? Math.max(0, (guest.total_owed || 0) - amount)
       : (guest.total_owed || 0);
@@ -308,7 +308,7 @@ async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, cu
 
   const recs = await store.filter("RecurringPayment", { stripe_subscription_id: String(subscriptionId) }, undefined, 1);
   const rec = recs[0];
-  if (!rec) return;
+  if (!rec || !paymentCreated) return;
 
   if (paymentType === "guest_balance_payoff") {
     const remaining = Number(rec.remaining_amount ?? rec.total_amount ?? 0);
@@ -549,7 +549,7 @@ function createStripeWebhookHandler({ store }) {
           const md = firstLine.metadata || invoice.metadata || {};
           let memberId = md.memberId;
           let guestId = md.guestId;
-          let paymentType = md.paymentType || "additional_monthly";
+          let paymentType = md.paymentType;
 
           if (!memberId && !guestId) {
             const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
@@ -559,6 +559,16 @@ function createStripeWebhookHandler({ store }) {
               paymentType = paymentType || sub.metadata.paymentType || "additional_monthly";
             }
           }
+          if (!paymentType) {
+            const recs = await store.filter(
+              "RecurringPayment",
+              { stripe_subscription_id: String(subscriptionId) },
+              undefined,
+              1
+            );
+            paymentType = recs[0]?.payment_type;
+          }
+          paymentType = paymentType || "additional_monthly";
 
           if (memberId) {
             await recordSubscriptionInvoicePayment({
@@ -621,13 +631,45 @@ function createStripeWebhookHandler({ store }) {
           const firstLine = invoice.lines.data[0];
           const md = firstLine.metadata || invoice.metadata || {};
           let memberId = md.memberId;
-          let paymentType = md.paymentType || "additional_monthly";
+          let paymentType = md.paymentType;
 
           if (!memberId) {
             const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
             if (sub?.metadata) {
               memberId = memberId || sub.metadata.memberId;
-              paymentType = paymentType || sub.metadata.paymentType || "additional_monthly";
+              paymentType = paymentType || sub.metadata.paymentType;
+            }
+          }
+          if (!paymentType) {
+            const recs = await store.filter(
+              "RecurringPayment",
+              { stripe_subscription_id: String(subscriptionId) },
+              undefined,
+              1
+            );
+            paymentType = recs[0]?.payment_type;
+          }
+          paymentType = paymentType || "additional_monthly";
+          if (!memberId) {
+            const [memberBySub] = await store.filter(
+              "Member",
+              { stripe_subscription_id: String(subscriptionId) },
+              undefined,
+              1
+            );
+            if (memberBySub) {
+              memberId = memberBySub.id;
+            }
+          }
+          if (!memberId && invoice.customer) {
+            const [memberByCustomer] = await store.filter(
+              "Member",
+              { stripe_customer_id: String(invoice.customer) },
+              undefined,
+              1
+            );
+            if (memberByCustomer) {
+              memberId = memberByCustomer.id;
             }
           }
 
@@ -638,16 +680,28 @@ function createStripeWebhookHandler({ store }) {
             const monthLabel = monthLabelFromUnixSeconds(periodStart);
             const date = isoDateFromUnixSeconds(periodStart);
 
-            const createdCharge = await createRecordOnce(store, "Transaction", {
-              member_id: String(memberId),
-              type: "charge",
-              description: `Unpaid Monthly Membership - ${monthLabel}`,
-              amount,
-              date,
-              provider: "stripe",
-              stripe_subscription_id: subscriptionId,
-              stripe_customer_id: invoice.customer,
-            });
+            const createdCharge = await (invoice.id
+              ? createInvoiceTransactionIfMissing(store, "Transaction", invoice.id, "charge", {
+                  member_id: String(memberId),
+                  type: "charge",
+                  description: `Unpaid Monthly Membership - ${monthLabel}`,
+                  amount,
+                  date,
+                  provider: "stripe",
+                  stripe_subscription_id: subscriptionId,
+                  stripe_customer_id: invoice.customer,
+                  stripe_invoice_id: invoice.id,
+                })
+              : createRecordOnce(store, "Transaction", {
+                  member_id: String(memberId),
+                  type: "charge",
+                  description: `Unpaid Monthly Membership - ${monthLabel}`,
+                  amount,
+                  date,
+                  provider: "stripe",
+                  stripe_subscription_id: subscriptionId,
+                  stripe_customer_id: invoice.customer,
+                }));
 
             if (createdCharge) {
               const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);

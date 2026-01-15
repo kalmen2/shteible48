@@ -11,6 +11,7 @@ import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, CreditCard, Re
 import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { toLocalDate, todayISO } from "@/utils/dates";
+import { toast } from "@/components/ui/use-toast";
 import InvoiceTemplate from "../components/member/InvoiceTemplate";
 import { getParsha, isShabbat, getHolidaysByDate, getHebrewDate } from "../components/calendar/hebrewDateConverter";
 import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
@@ -165,7 +166,7 @@ export default function MemberDetail() {
 
   const cancelRecurringPaymentMutation = useMutation({
     mutationFn: async (id) => {
-      return await base44.entities.RecurringPayment.update(id, { is_active: false });
+      return await base44.payments.cancelSubscription({ recurringPaymentId: id });
     },
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: ['recurringPayments', memberId] });
@@ -183,15 +184,34 @@ export default function MemberDetail() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['recurringPayments', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
     },
   });
 
   const updateMemberMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Member.update(id, data),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      if (updated?.id) {
+        queryClient.setQueryData(['member', memberId], updated);
+        queryClient.setQueryData(['members'], (prev = []) =>
+          Array.isArray(prev) ? prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)) : prev
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setEditDialogOpen(false);
+      toast({
+        title: "Member updated",
+        description: "Changes saved successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Update failed",
+        description: error?.message || "Unable to save member changes.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -309,29 +329,33 @@ export default function MemberDetail() {
 
   const openEditDialog = () => {
     setEditMember({
-      english_name: member?.english_name || "",
-      hebrew_name: member?.hebrew_name || "",
-      email: member?.email || "",
-      phone: member?.phone || "",
-      address: member?.address || "",
+      english_name: String(member?.english_name || ""),
+      hebrew_name: String(member?.hebrew_name || ""),
+      email: String(member?.email || ""),
+      phone: String(member?.phone || ""),
+      address: String(member?.address || ""),
     });
     setEditDialogOpen(true);
   };
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
-    const englishName = editMember.english_name.trim();
-    const hebrewName = editMember.hebrew_name.trim();
+    const englishName = String(editMember.english_name || "").trim();
+    const hebrewName = String(editMember.hebrew_name || "").trim();
+    const email = String(editMember.email || "").trim();
+    const phone = String(editMember.phone || "").trim();
+    const address = String(editMember.address || "").trim();
     const full_name = englishName || hebrewName || member.full_name || "";
+    const targetId = member?.id || memberId;
     updateMemberMutation.mutate({
-      id: memberId,
+      id: targetId,
       data: {
         full_name,
         english_name: englishName || undefined,
         hebrew_name: hebrewName || undefined,
-        email: editMember.email.trim() || undefined,
-        phone: editMember.phone.trim() || undefined,
-        address: editMember.address.trim() || undefined,
+        email: email || undefined,
+        phone: phone || undefined,
+        address: address || undefined,
       },
     });
   };
@@ -824,7 +848,11 @@ export default function MemberDetail() {
                   <div key={payment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
                     <div>
                       <div className="font-semibold text-slate-900">
-                        {payment.payment_type === "additional_monthly" ? "Additional Monthly Payment" : "Balance Payoff Plan"}
+                        {payment.payment_type === "membership"
+                          ? "Monthly Membership"
+                          : payment.payment_type === "additional_monthly"
+                            ? "Additional Monthly Payment"
+                            : "Balance Payoff Plan"}
                       </div>
                       <div className="text-sm text-slate-600">
                         ${payment.amount_per_month.toFixed(2)}/month • Stripe

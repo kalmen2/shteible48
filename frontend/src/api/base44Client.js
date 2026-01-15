@@ -43,20 +43,54 @@ async function requestJson(path, { method = "GET", body, headers, rawBody } = {}
 }
 
 function entityClient(entityName) {
+  const list = (sort, limit, page) => {
+    const params = new URLSearchParams();
+    if (sort) params.set("sort", sort);
+    if (limit !== undefined) params.set("limit", String(limit));
+    if (page !== undefined) params.set("page", String(page));
+    const qs = params.toString();
+    return requestJson(`/entities/${entityName}${qs ? `?${qs}` : ""}`);
+  };
+
+  const filter = (where, sort, limit, page) => {
+    const body = { where };
+    if (sort !== undefined) body.sort = sort;
+    if (limit !== undefined) body.limit = limit;
+    if (page !== undefined) body.page = page;
+    return requestJson(`/entities/${entityName}/filter`, { method: "POST", body });
+  };
+
+  const listAll = async (sort, pageSize = 1000) => {
+    const safePageSize = Number.isFinite(pageSize) ? Math.min(pageSize, 1000) : 1000;
+    const out = [];
+    let page = 1;
+    while (true) {
+      const chunk = await list(sort, safePageSize, page);
+      out.push(...chunk);
+      if (!Array.isArray(chunk) || chunk.length < safePageSize) break;
+      page += 1;
+    }
+    return out;
+  };
+
+  const filterAll = async (where, sort, pageSize = 1000) => {
+    const safePageSize = Number.isFinite(pageSize) ? Math.min(pageSize, 1000) : 1000;
+    const out = [];
+    let page = 1;
+    while (true) {
+      const chunk = await filter(where, sort, safePageSize, page);
+      out.push(...chunk);
+      if (!Array.isArray(chunk) || chunk.length < safePageSize) break;
+      page += 1;
+    }
+    return out;
+  };
+
   return {
-    list: (sort, limit) => {
-      const params = new URLSearchParams();
-      if (sort) params.set("sort", sort);
-      if (limit !== undefined) params.set("limit", String(limit));
-      const qs = params.toString();
-      return requestJson(`/entities/${entityName}${qs ? `?${qs}` : ""}`);
-    },
-    filter: (where, sort, limit) => {
-      const body = { where };
-      if (sort !== undefined) body.sort = sort;
-      if (limit !== undefined) body.limit = limit;
-      return requestJson(`/entities/${entityName}/filter`, { method: "POST", body });
-    },
+    list,
+    listAll,
+    filter,
+    filterAll,
     create: (data) => requestJson(`/entities/${entityName}`, { method: "POST", body: data }),
     bulkCreate: (items) => requestJson(`/entities/${entityName}/bulk`, { method: "POST", body: items }),
     update: (id, data) => requestJson(`/entities/${entityName}/${id}`, { method: "PATCH", body: data }),
@@ -145,6 +179,11 @@ export const base44 = {
       requestJson(`/payments/activate-memberships-bulk`, {
         method: "POST",
         body: { memberIds, amountPerMonth },
+      }),
+    cancelSubscription: async ({ recurringPaymentId, subscriptionId }) =>
+      requestJson(`/payments/cancel-subscription`, {
+        method: "POST",
+        body: { recurringPaymentId, subscriptionId },
       }),
     getConfig: async () => requestJson(`/payments/config`),
   },

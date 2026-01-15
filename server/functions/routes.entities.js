@@ -48,6 +48,7 @@ const ENTITY_FIELD_ALLOWLIST = {
     "show_footer",
   ],
   EmailSchedule: [
+    "id",
     "enabled",
     "day_of_month",
     "hour",
@@ -134,8 +135,11 @@ function createEntitiesRouter({ store }) {
       const sort = req.query.sort ? String(req.query.sort) : undefined;
       const rawLimit = req.query.limit ? Number(req.query.limit) : undefined;
       const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 1000) : undefined;
+      const rawPage = req.query.page ? Number(req.query.page) : undefined;
+      const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : undefined;
+      const skip = page && limit ? (page - 1) * limit : undefined;
 
-      const out = await store.list(entity, sort, limit);
+      const out = await store.list(entity, sort, limit, skip);
       res.json(out);
     } catch (err) {
       next(err);
@@ -159,8 +163,11 @@ function createEntitiesRouter({ store }) {
       const sort = body.sort;
       const rawLimit = body.limit;
       const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 1000) : undefined;
+      const rawPage = body.page;
+      const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : undefined;
+      const skip = page && limit ? (page - 1) * limit : undefined;
 
-      const out = await store.filter(entity, where, sort, limit);
+      const out = await store.filter(entity, where, sort, limit, skip);
       res.json(out);
     } catch (err) {
       next(err);

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Plus, DollarSign, Settings, CreditCard, AlertCircle, Upload, Download, UserPlus, ChevronDown, FileSpreadsheet, Search, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { toast } from "@/components/ui/use-toast";
 
 const generateUniqueMemberId = (existingIds = new Set()) => {
   let attempt = 0;
@@ -126,6 +127,17 @@ export default function Members() {
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
+      toast({
+        title: "Member updated",
+        description: "Changes saved successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Update failed",
+        description: error?.message || "Unable to save member changes.",
+        variant: "destructive",
+      });
     },
   });
 

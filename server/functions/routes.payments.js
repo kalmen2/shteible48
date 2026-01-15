@@ -388,6 +388,52 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     return res.json({ url: session.url });
   });
 
+  router.post("/cancel-subscription", async (req, res) => {
+    const recurringPaymentId = req.body?.recurringPaymentId
+      ? safeString(req.body.recurringPaymentId, 200)
+      : null;
+    const subscriptionId = req.body?.subscriptionId
+      ? safeString(req.body.subscriptionId, 200)
+      : null;
+
+    if (!recurringPaymentId && !subscriptionId) {
+      return res.status(400).json({ message: "recurringPaymentId or subscriptionId is required" });
+    }
+
+    const [recurring] = recurringPaymentId
+      ? await store.filter("RecurringPayment", { id: String(recurringPaymentId) }, undefined, 1)
+      : await store.filter("RecurringPayment", { stripe_subscription_id: String(subscriptionId) }, undefined, 1);
+
+    if (!recurring) {
+      return res.status(404).json({ message: "Recurring payment not found" });
+    }
+
+    const stripeSubscriptionId = recurring.stripe_subscription_id || subscriptionId;
+    if (!stripeSubscriptionId) {
+      return res.status(400).json({ message: "Missing Stripe subscription id" });
+    }
+
+    const stripe = getStripe();
+    try {
+      await stripe.subscriptions.cancel(stripeSubscriptionId);
+    } catch (err) {
+      const message = err?.message || "Failed to cancel Stripe subscription";
+      return res.status(502).json({ message });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    await store.update("RecurringPayment", recurring.id, { is_active: false, ended_date: today });
+
+    if (recurring.member_id && recurring.payment_type === "membership") {
+      await store.update("Member", recurring.member_id, {
+        membership_active: false,
+        stripe_subscription_id: null,
+      });
+    }
+
+    return res.json({ ok: true, subscriptionId: stripeSubscriptionId });
+  });
+
   router.post("/activate-memberships-bulk", async (req, res) => {
     const stripe = getStripe();
     const memberIds = Array.isArray(req.body?.memberIds)

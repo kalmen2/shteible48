@@ -43,7 +43,7 @@ export default function Calendar() {
 
   const { data: allTransactions = [] } = useQuery({
     queryKey: ['allTransactions'],
-    queryFn: () => base44.entities.Transaction.list('-date', 5000),
+    queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
   
   const currentYear = currentMonth.getFullYear();

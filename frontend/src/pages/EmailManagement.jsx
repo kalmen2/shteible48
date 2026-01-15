@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/use-toast";
 import { Mail, Send, AlertCircle, FileText, Clock, Zap, Printer, Calendar as CalendarIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -51,7 +52,7 @@ export default function EmailManagement() {
 
   const { data: membershipCharges = [] } = useQuery({
     queryKey: ['membershipCharges'],
-    queryFn: () => base44.entities.MembershipCharge.list('-created_date', 10000),
+    queryFn: () => base44.entities.MembershipCharge.listAll('-created_date'),
   });
 
   const { data: recurringPayments = [] } = useQuery({
@@ -61,7 +62,7 @@ export default function EmailManagement() {
 
   const { data: allTransactions = [] } = useQuery({
     queryKey: ['allTransactions'],
-    queryFn: () => base44.entities.Transaction.list('-date', 10000),
+    queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
 
   const { data: schedules = [] } = useQuery({
@@ -144,21 +145,33 @@ export default function EmailManagement() {
 
   const recipientsWithBalance = allRecipients.filter((r) => (r.balance || 0) > 0);
 
-  // Generate list of last 12 months
-  const generateMonthOptions = () => {
-    const months = [];
-    const today = new Date();
-    for (let i = 0; i < 12; i++) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      months.push({
-        value: format(date, 'yyyy-MM'),
-        label: format(date, 'MMMM yyyy')
-      });
+  const monthOptions = React.useMemo(() => {
+    const monthMap = new Map();
+    for (const tx of allTransactions || []) {
+      const date = toLocalDate(tx.date);
+      if (!date) continue;
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const key = format(monthStart, "yyyy-MM");
+      if (!monthMap.has(key)) {
+        monthMap.set(key, monthStart);
+      }
     }
-    return months;
-  };
+    return Array.from(monthMap.entries())
+      .map(([value, date]) => ({
+        value,
+        date,
+        label: format(date, "MMMM yyyy"),
+      }))
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [allTransactions]);
 
-  const monthOptions = generateMonthOptions();
+  useEffect(() => {
+    if (!monthOptions.length) return;
+    const exists = monthOptions.some((m) => m.value === selectedMonth);
+    if (!exists) {
+      setSelectedMonth(monthOptions[0].value);
+    }
+  }, [monthOptions, selectedMonth]);
 
   // Get transactions for selected month
   const getMonthlyTransactions = (memberId) => {
@@ -284,6 +297,13 @@ export default function EmailManagement() {
 
     setSendLog(log);
     setSending(false);
+    const sentCount = log.filter((item) => item.status === "sent").length;
+    const failedCount = log.filter((item) => item.status === "failed").length;
+    toast({
+      title: failedCount ? "Emails sent with issues" : "Emails sent",
+      description: `Sent ${sentCount} of ${recipients.length} emails.`,
+      variant: failedCount ? "destructive" : "default",
+    });
   };
 
   const savingSchedule = saveScheduleMutation.isPending;
@@ -766,21 +786,25 @@ export default function EmailManagement() {
                 <CardTitle>Select Month</CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
-                <div className="flex items-center gap-4">
-                  <Label className="text-sm font-semibold text-slate-700">Month:</Label>
-                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                    <SelectTrigger className="w-64 h-11">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {monthOptions.map((month) => (
-                        <SelectItem key={month.value} value={month.value}>
-                          {month.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {monthOptions.length === 0 ? (
+                  <div className="text-sm text-slate-500">No transaction months available yet.</div>
+                ) : (
+                  <div className="flex items-center gap-4">
+                    <Label className="text-sm font-semibold text-slate-700">Month:</Label>
+                    <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                      <SelectTrigger className="w-64 h-11">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {monthOptions.map((month) => (
+                          <SelectItem key={month.value} value={month.value}>
+                            {month.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -788,12 +812,13 @@ export default function EmailManagement() {
             <Card className="border-slate-200 shadow-lg">
               <CardHeader className="border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center justify-between">
-                  <CardTitle>Monthly Statements - {monthOptions.find(m => m.value === selectedMonth)?.label}</CardTitle>
+                  <CardTitle>Monthly Statements - {monthOptions.find(m => m.value === selectedMonth)?.label || "No Data"}</CardTitle>
                   <div className="flex gap-2">
                     <Button
                       onClick={() => window.print()}
                       variant="outline"
                       className="h-9"
+                      disabled={monthOptions.length === 0}
                     >
                       <Printer className="w-4 h-4 mr-2" />
                       Print All
@@ -838,8 +863,15 @@ export default function EmailManagement() {
 
                         setSendLog(log);
                         setSending(false);
+                        const sentCount = log.filter((item) => item.status === "sent").length;
+                        const failedCount = log.filter((item) => item.status === "failed").length;
+                        toast({
+                          title: failedCount ? "Emails sent with issues" : "Emails sent",
+                          description: `Sent ${sentCount} of ${log.length} emails.`,
+                          variant: failedCount ? "destructive" : "default",
+                        });
                       }}
-                      disabled={sending}
+                      disabled={sending || monthOptions.length === 0}
                       className="bg-blue-900 hover:bg-blue-800 h-9"
                     >
                       <Mail className="w-4 h-4 mr-2" />
