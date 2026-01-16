@@ -918,7 +918,7 @@ export default function EmailManagement() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto print-overflow">
                   <table className="w-full">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
@@ -983,8 +983,8 @@ export default function EmailManagement() {
                   <CardTitle>Send Log</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                <div className="overflow-x-auto print-overflow">
+                  <table className="w-full">
                       <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
                           <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>

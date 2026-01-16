@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Search, Trash2, Calendar, UserPlus, Pencil, Printer } from "lucide-react";
 import { format } from "date-fns";
 import { Link } from "react-router-dom";
+import { toast } from "@/components/ui/use-toast";
 import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
 
 const createPageUrl = (page) => {
@@ -74,6 +75,41 @@ export default function Guests() {
       queryClient.invalidateQueries({ queryKey: ['guests'] });
       setEditGuestDialogOpen(false);
       setEditingGuest(null);
+      toast({
+        title: "Guest updated",
+        description: "Changes saved successfully.",
+      });
+    },
+    onError: async (error, variables) => {
+      try {
+        const refreshed = await base44.entities.Guest.filter({ id: variables.id });
+        const current = refreshed?.[0];
+        if (current) {
+          const matches = Object.entries(variables.data || {}).every(([key, value]) => {
+            if (value === undefined) return true;
+            return String(current[key] ?? "") === String(value);
+          });
+          if (matches) {
+            queryClient.setQueryData(['guests'], (prev = []) =>
+              Array.isArray(prev) ? prev.map((g) => (g.id === current.id ? { ...g, ...current } : g)) : prev
+            );
+            setEditGuestDialogOpen(false);
+            setEditingGuest(null);
+            toast({
+              title: "Guest updated",
+              description: "Changes saved successfully.",
+            });
+            return;
+          }
+        }
+      } catch {
+        // fall through to error toast
+      }
+      toast({
+        title: "Update failed",
+        description: error?.message || "Unable to save guest changes.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -108,14 +144,20 @@ export default function Guests() {
 
   const handleSaveGuestEdit = () => {
     if (editingGuest) {
+      const fullName = String(editingGuest.full_name || "").trim();
+      const email = String(editingGuest.email || "").trim();
+      const phone = String(editingGuest.phone || "").trim();
+      const address = String(editingGuest.address || "").trim();
+      const notes = String(editingGuest.notes || "").trim();
+      const targetId = editingGuest.id || editingGuest.guest_id;
       updateGuestMutation.mutate({
-        id: editingGuest.id,
+        id: targetId,
         data: {
-          full_name: editingGuest.full_name,
-          email: editingGuest.email || undefined,
-          phone: editingGuest.phone || undefined,
-          address: editingGuest.address || undefined,
-          notes: editingGuest.notes || undefined
+          full_name: fullName || undefined,
+          email: email || undefined,
+          phone: phone || undefined,
+          address: address || undefined,
+          notes: notes || undefined,
         }
       });
     }

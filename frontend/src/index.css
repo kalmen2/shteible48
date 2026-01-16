@@ -156,3 +156,33 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  body {
+    background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .app-shell {
+    background: #ffffff !important;
+    overflow: visible !important;
+  }
+
+  .app-sidebar {
+    display: none !important;
+  }
+
+  .app-main {
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-hidden {
+    display: none !important;
+  }
+
+  .print-overflow {
+    overflow: visible !important;
+  }
+}

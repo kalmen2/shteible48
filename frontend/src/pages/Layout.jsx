@@ -40,10 +40,10 @@ export default function Layout({ children, currentPageName }) {
   const sidebarWidth = isCollapsed ? 80 : 256;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+    <div className="app-shell flex h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       {/* Left Sidebar */}
       <aside
-        className="fixed inset-y-0 left-0 z-30 bg-blue-900/80 text-white shadow-xl flex flex-col transition-[width] duration-300 ease-in-out backdrop-blur-md"
+        className="app-sidebar fixed inset-y-0 left-0 z-30 bg-blue-900/80 text-white shadow-xl flex flex-col transition-[width] duration-300 ease-in-out backdrop-blur-md"
         style={{ width: sidebarWidth }}
       >
         {/* Logo/Header */}
@@ -108,7 +108,7 @@ export default function Layout({ children, currentPageName }) {
 
       {/* Main Content */}
       <main
-        className="flex-1 h-screen overflow-y-auto transition-[margin] duration-300 ease-in-out"
+        className="app-main flex-1 h-screen overflow-y-auto transition-[margin] duration-300 ease-in-out"
         style={{ marginLeft: sidebarWidth }}
       >
         {children}
