@@ -132,7 +132,35 @@ export default function Members() {
         description: "Changes saved successfully.",
       });
     },
-    onError: (error) => {
+    onError: async (error, variables) => {
+      try {
+        const refreshed = await base44.entities.Member.filter({ id: variables.id });
+        let current = refreshed?.[0];
+        if (!current) {
+          const byMemberId = await base44.entities.Member.filter({ member_id: String(variables.id) });
+          current = byMemberId?.[0];
+        }
+        if (current) {
+          const matches = Object.entries(variables.data || {}).every(([key, value]) => {
+            if (value === undefined) return true;
+            return String(current[key] ?? "") === String(value);
+          });
+          if (matches) {
+            queryClient.setQueryData(['members'], (prev = []) =>
+              Array.isArray(prev) ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m)) : prev
+            );
+            setEditMemberDialogOpen(false);
+            setSelectedMember(null);
+            toast({
+              title: "Member updated",
+              description: "Changes saved successfully.",
+            });
+            return;
+          }
+        }
+      } catch {
+        // fall through to error toast
+      }
       toast({
         title: "Update failed",
         description: error?.message || "Unable to save member changes.",
@@ -408,8 +436,9 @@ export default function Members() {
     const englishName = selectedMember.english_name?.trim() || "";
     const hebrewName = selectedMember.hebrew_name?.trim() || "";
     const full_name = englishName || hebrewName || selectedMember.full_name || "";
+    const targetId = selectedMember.id || selectedMember.member_id;
     updateMemberMutation.mutate({
-      id: selectedMember.id,
+      id: targetId,
       data: {
         full_name,
         english_name: englishName || undefined,

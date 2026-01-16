@@ -1,78 +1,54 @@
-# Base44 App
+# Shtiebel48 Frontend
 
+Synagogue management system app helps run day‑to‑day synagogue operations. It keeps member and guest records, tracks dues and recurring memberships, records payments and charges, manages balances owed, generates monthly statements, and sends email reminders. It also supports Stripe for card payments and scheduled jobs for monthly billing and email statements.
 
-This app was created automatically by Base44.
-It's a Vite+React app.
+## Requirements
 
-This repo now also includes a local Node.js/Express backend that mimics the Base44 entity + integrations API shape used by the UI.
+- Node.js 18+
+- npm
 
-## Running the app
+## Setup
 
-Start the backend (Terminal 1):
+Install dependencies:
 
-Start MongoDB (Terminal 1a, if you don't already have Mongo running):
-
-```powershell
-docker compose up -d
-```
-
-Start the Express API (Terminal 1b):
-
-```powershell
+```bash
+cd frontend
 npm install
-npm run dev:server
 ```
 
-Create a `.env` file (see `.env.example`) and set `MONGODB_URI` there.
+Create `frontend/.env` and set these:
 
-The backend requires MongoDB. Set `MONGODB_URI` (and optionally `MONGODB_DB_NAME`) in a `.env` file (see `.env.example`).
+```bash
+VITE_API_BASE_URL=http://localhost:3001/api
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_APP_ID=...
+```
 
-Start the frontend (Terminal 2):
+Notes:
+- `VITE_API_BASE_URL` must point to the same backend used by Stripe webhooks and the database you expect.
+- Firebase values are required only if you use Google Sign-In.
+
+## Run (Frontend)
 
 ```bash
 npm run dev
 ```
 
-By default, the frontend calls `http://localhost:3001/api`.
-To change it, set `VITE_API_BASE_URL`.
+The app runs at `http://localhost:5173` by default.
 
-## Google Sign-In (Firebase)
+## Backend (API)
 
-This project supports "Continue with Google" via Firebase Authentication.
-
-Frontend:
-
-- Create a Firebase project and enable **Authentication → Sign-in method → Google**.
-- Set these in your `.env`:
-	- `VITE_FIREBASE_API_KEY`
-	- `VITE_FIREBASE_AUTH_DOMAIN`
-	- `VITE_FIREBASE_PROJECT_ID`
-	- `VITE_FIREBASE_APP_ID` (optional)
-
-Backend:
-
-- The backend exchanges a Firebase ID token for the app JWT at `POST /api/auth/google`.
-- Configure Firebase Admin credentials with either `FIREBASE_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`.
-- See `.env.example`.
+The API lives in `server/functions`. See `server/functions/README.md` for local run and env requirements.
 
 ## Payments (Stripe)
 
-Card payments use Stripe Checkout (the app does not collect card numbers).
+Payments are handled by the backend. Ensure the backend has Stripe keys and the webhook endpoint configured.
 
-Backend `.env`:
-
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `FRONTEND_BASE_URL` (defaults to `http://localhost:5173`)
-
-Webhook endpoint:
-
-- `POST http://localhost:3001/api/stripe/webhook`
-
-## Building the app
+## Build
 
 ```bash
 npm run build
+npm run preview
 ```
-
-For more information and support, please contact Base44 support at app@base44.com.
