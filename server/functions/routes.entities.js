@@ -98,6 +98,27 @@ async function assertRelatedExists(store, entity, id, fieldName) {
   return record;
 }
 
+async function resolveMemberIdForUpdate(store, memberId) {
+  const [memberById] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+  if (memberById) {
+    return { resolvedId: memberById.id, matchedField: "id" };
+  }
+
+  const [memberByMemberId] = await store.filter(
+    "Member",
+    { member_id: String(memberId) },
+    undefined,
+    1
+  );
+  if (memberByMemberId) {
+    return { resolvedId: memberByMemberId.id, matchedField: "member_id" };
+  }
+
+  const err = new Error("Member not found in this backend");
+  err.status = 404;
+  throw err;
+}
+
 async function applyMemberBalanceDelta(store, memberId, delta) {
   if (!delta) return;
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
@@ -263,6 +284,16 @@ function createEntitiesRouter({ store }) {
       assertEntityName(entity);
 
       const patch = sanitizeEntityData(entity, req.body ?? {});
+
+      if (entity === "Member") {
+        const resolved = await resolveMemberIdForUpdate(store, id);
+        const updated = await store.update(entity, resolved.resolvedId, patch);
+        if (resolved.matchedField === "member_id") {
+          res.set("x-member-id-resolved", resolved.resolvedId);
+        }
+        return res.json(updated);
+      }
+
       const updated = await store.update(entity, id, patch);
       res.json(updated);
     } catch (err) {

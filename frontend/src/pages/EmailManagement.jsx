@@ -66,6 +66,11 @@ export default function EmailManagement() {
     queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
 
+  const { data: allGuestTransactions = [] } = useQuery({
+    queryKey: ['allGuestTransactions'],
+    queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
+  });
+
   const { data: schedules = [] } = useQuery({
     queryKey: ['emailSchedule'],
     queryFn: () => base44.entities.EmailSchedule.list('-created_date', 1),
@@ -152,9 +157,14 @@ export default function EmailManagement() {
 
   const recipientsWithBalance = allRecipients.filter((r) => (r.balance || 0) > 0);
 
+  const allStatementTransactions = React.useMemo(
+    () => [...(allTransactions || []), ...(allGuestTransactions || [])],
+    [allTransactions, allGuestTransactions]
+  );
+
   const monthOptions = React.useMemo(() => {
     const monthMap = new Map();
-    for (const tx of allTransactions || []) {
+    for (const tx of allStatementTransactions || []) {
       const date = toLocalDate(tx.date);
       if (!date) continue;
       const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
@@ -170,7 +180,7 @@ export default function EmailManagement() {
         label: format(date, "MMMM yyyy"),
       }))
       .sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [allTransactions]);
+  }, [allStatementTransactions]);
 
   useEffect(() => {
     if (!monthOptions.length) return;
@@ -181,14 +191,14 @@ export default function EmailManagement() {
   }, [monthOptions, selectedMonth]);
 
   // Get transactions for selected month
-  const getMonthlyTransactions = (memberId) => {
+  const getMonthlyTransactions = (transactions, id, idField) => {
     const baseMonth = toLocalMonthDate(selectedMonth);
     if (!baseMonth) return [];
     const monthStart = startOfMonth(baseMonth);
     const monthEnd = endOfMonth(baseMonth);
     
-    return allTransactions.filter(t => {
-      if (t.member_id !== memberId) return false;
+    return transactions.filter((t) => {
+      if (t[idField] !== id) return false;
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
@@ -196,19 +206,19 @@ export default function EmailManagement() {
     });
   };
 
-  const getMemberMonthlyData = (member) => {
-    const transactions = getMonthlyTransactions(member.id);
+  const getRecipientMonthlyData = (recipient) => {
+    const isGuest = recipient.kind === "guest";
+    const list = isGuest ? allGuestTransactions : allTransactions;
+    const idField = isGuest ? "guest_id" : "member_id";
+    const transactions = getMonthlyTransactions(list, recipient.id, idField);
     const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
     const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
     return { transactions, charges, payments, balance: charges - payments };
   };
 
-  const membersMissingEmailForMonth = React.useMemo(() => {
-    return members.filter((member) => {
-      const monthlyData = getMemberMonthlyData(member);
-      return monthlyData.transactions.length > 0 && !member.email;
-    });
-  }, [members, selectedMonth, allTransactions]);
+  const recipientsMissingEmailForMonth = React.useMemo(() => {
+    return allRecipients.filter((rec) => !String(rec.email || "").trim());
+  }, [allRecipients]);
 
   const handlePrint = (mode) => {
     setPrintFilter(mode);
@@ -846,7 +856,7 @@ export default function EmailManagement() {
                       onClick={() => handlePrint("missing-email")}
                       variant="outline"
                       className="h-9"
-                      disabled={monthOptions.length === 0 || membersMissingEmailForMonth.length === 0}
+                      disabled={monthOptions.length === 0 || recipientsMissingEmailForMonth.length === 0}
                     >
                       <Printer className="w-4 h-4 mr-2" />
                       Print Missing Email
@@ -857,25 +867,24 @@ export default function EmailManagement() {
                         setSendLog([]);
                         const log = [];
                         
-                        for (const member of members) {
-                          const monthlyData = getMemberMonthlyData(member);
-                          if (monthlyData.transactions.length === 0) continue;
-                          if (!member.email) {
-                            log.push({ member: member.full_name, status: "skipped", reason: "No email" });
+                        for (const recipient of allRecipients) {
+                          const monthlyData = getRecipientMonthlyData(recipient);
+                          if (!recipient.email) {
+                            log.push({ member: recipient.name, status: "skipped", reason: "No email" });
                             continue;
                           }
 
                           try {
-                            const body = `Dear ${member.full_name},\n\nHere is your statement for ${monthOptions.find(m => m.value === selectedMonth)?.label}:\n\nCharges: $${monthlyData.charges.toFixed(2)}\nPayments: $${monthlyData.payments.toFixed(2)}\nNet for Month: $${monthlyData.balance.toFixed(2)}\n\nTransactions: ${monthlyData.transactions.length}\n\nThank you,\nSynagogue Administration`;
+                            const body = `Dear ${recipient.name},\n\nHere is your statement for ${monthOptions.find(m => m.value === selectedMonth)?.label}:\n\nCharges: $${monthlyData.charges.toFixed(2)}\nPayments: $${monthlyData.payments.toFixed(2)}\nNet for Month: $${monthlyData.balance.toFixed(2)}\n\nTransactions: ${monthlyData.transactions.length}\n\nThank you,\nSynagogue Administration`;
                             
                             await base44.integrations.Core.SendEmail({
-                              to: member.email,
+                              to: recipient.email,
                               subject: `Monthly Statement - ${monthOptions.find(m => m.value === selectedMonth)?.label}`,
                               body: body,
                               pdf: attachInvoice
                                 ? {
-                                    memberName: member.full_name || member.english_name || member.hebrew_name || "Member",
-                                    memberId: member.member_id || member.id,
+                                    memberName: recipient.name || "Member",
+                                    memberId: recipient.ref?.member_id || recipient.ref?.guest_id || recipient.id,
                                     balance: monthlyData.balance,
                                     statementDate: selectedMonth,
                                     note: "This statement reflects your monthly activity.",
@@ -883,9 +892,9 @@ export default function EmailManagement() {
                                 : undefined,
                             });
 
-                            log.push({ member: member.full_name, status: "sent", email: member.email });
+                            log.push({ member: recipient.name, status: "sent", email: recipient.email });
                           } catch (error) {
-                            log.push({ member: member.full_name, status: "failed", reason: error.message });
+                            log.push({ member: recipient.name, status: "failed", reason: error.message });
                           }
                         }
 
@@ -913,7 +922,7 @@ export default function EmailManagement() {
                   <table className="w-full">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
+                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member/Guest</th>
                         <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Email</th>
                         <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Charges</th>
                         <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Payments</th>
@@ -922,18 +931,18 @@ export default function EmailManagement() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {members.map((member) => {
-                        const monthlyData = getMemberMonthlyData(member);
-                        if (monthlyData.transactions.length === 0) return null;
-                        if (printFilter === "missing-email" && member.email) return null;
+                      {allRecipients.map((recipient) => {
+                        const monthlyData = getRecipientMonthlyData(recipient);
+                        const hasEmail = Boolean(String(recipient.email || "").trim());
+                        if (printFilter === "missing-email" && hasEmail) return null;
                         return (
-                          <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
+                          <tr key={recipient.key} className="hover:bg-blue-50/30 transition-colors">
                             <td className="py-4 px-6">
-                              <div className="font-semibold text-slate-900">{member.full_name}</div>
+                              <div className="font-semibold text-slate-900">{recipient.name}</div>
                             </td>
                             <td className="py-4 px-6">
-                              {member.email ? (
-                                <div className="text-sm text-slate-600">{member.email}</div>
+                              {recipient.email ? (
+                                <div className="text-sm text-slate-600">{recipient.email}</div>
                               ) : (
                                 <div className="text-sm text-red-600">No email</div>
                               )}
