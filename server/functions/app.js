@@ -10,6 +10,7 @@ const { connectMongo } = require('./mongo');
 const { createMongoEntityStore } = require('./store.mongo');
 const { authMiddleware, createAuthRouter } = require('./auth');
 const { createEntitiesRouter } = require('./routes.entities');
+const { createMemberResolveRouter } = require('./routes.entities');
 const { createPaymentsRouter } = require('./routes.payments');
 const { createStripeWebhookHandler } = require('./stripeWebhook');
 
@@ -98,6 +99,9 @@ app.use(async (req, res, next) => {
     app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
     app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
 
+    // Stripe webhook must not be behind auth middleware.
+    app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
+
     app.use(
       '/api/entities',
       authMiddleware,
@@ -107,6 +111,13 @@ app.use(async (req, res, next) => {
           getUserById,
           adminEmails: ADMIN_EMAILS,
         })(req, res, next)
+    );
+
+    // Resolve member ids (id/member_id/email) for frontend to use canonical id
+    app.use(
+      '/api',
+      authMiddleware,
+      createMemberResolveRouter({ store: req.store })
     );
     app.use(
       '/api/payments',
@@ -119,7 +130,6 @@ app.use(async (req, res, next) => {
           allowedFrontendOrigins,
         })(req, res, next)
     );
-    app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
 
     // Add integrations router for file upload and related endpoints
     if (!integrationsRouter) {

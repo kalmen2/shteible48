@@ -256,6 +256,27 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
   }
 }
 
+// Try to resolve a member even when the id coming from Stripe metadata is missing or stale.
+async function findMemberByAnyId(store, { memberId, stripeCustomerId, subscriptionId }) {
+  const lookups = [];
+  if (memberId) {
+    lookups.push({ id: String(memberId) });
+    lookups.push({ member_id: String(memberId) });
+  }
+  if (subscriptionId) {
+    lookups.push({ stripe_subscription_id: String(subscriptionId) });
+  }
+  if (stripeCustomerId) {
+    lookups.push({ stripe_customer_id: String(stripeCustomerId) });
+  }
+
+  for (const where of lookups) {
+    const [member] = await store.filter("Member", where, undefined, 1);
+    if (member) return member;
+  }
+  return null;
+}
+
 async function recordGuestSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, guestId, paymentType, invoiceId }) {
   const amount = centsToDollars(amountPaidCents);
   const date = isoDateFromUnixSeconds(periodStart);
@@ -471,10 +492,17 @@ function createStripeWebhookHandler({ store }) {
           const memberId = md.memberId;
           const paymentType = md.paymentType || "additional_monthly";
           const guestId = md.guestId;
-          if (memberId && session.subscription) {
+          const member = await findMemberByAnyId(store, {
+            memberId,
+            stripeCustomerId: session.customer,
+            subscriptionId: session.subscription,
+          });
+          const resolvedMemberId = member?.id || memberId;
+
+          if (resolvedMemberId && session.subscription && !guestId) {
             await upsertRecurringFromCheckout({
               store,
-              memberId,
+              memberId: resolvedMemberId,
               memberName: md.memberName,
               paymentType,
               amountCents: Number(md.amountCents || 0),
@@ -482,8 +510,8 @@ function createStripeWebhookHandler({ store }) {
               subscriptionId: session.subscription,
             });
 
-            if (paymentType === "membership") {
-              await store.update("Member", String(memberId), {
+            if (member && paymentType === "membership") {
+              await store.update("Member", String(member.id), {
                 membership_active: true,
                 stripe_subscription_id: session.subscription,
                 stripe_customer_id: session.customer,
@@ -494,7 +522,7 @@ function createStripeWebhookHandler({ store }) {
               store,
               stripe,
               subscriptionId: session.subscription,
-              memberId,
+              memberId: resolvedMemberId,
               paymentType,
             });
           } else if (guestId && session.subscription) {

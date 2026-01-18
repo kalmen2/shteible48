@@ -235,6 +235,15 @@ function createEntitiesRouter({ store }) {
       }
 
       const sanitizedItems = items.map((item) => sanitizeEntityData(entity, item ?? {}));
+
+      // Ensure Members always have a canonical id when created.
+      if (entity === "Member") {
+        for (const item of sanitizedItems) {
+          if (!item.id && item.member_id) {
+            item.id = String(item.member_id);
+          }
+        }
+      }
       if (entity === "Transaction") {
         for (const item of sanitizedItems) {
           await assertRelatedExists(store, "Member", item.member_id, "member_id");
@@ -328,6 +337,37 @@ function createEntitiesRouter({ store }) {
 
   return router;
 }
+
+// Resolve a member by id, member_id, or email and return the canonical id
+function createMemberResolveRouter({ store }) {
+  const router = express.Router();
+
+  router.get("/members/resolve", async (req, res, next) => {
+    try {
+      const key = String(req.query.key ?? "").trim();
+      if (!key) return res.status(400).json({ message: "key is required" });
+
+      const [byId] = await store.filter("Member", { id: key }, undefined, 1);
+      if (byId) return res.json({ id: byId.id, member: byId });
+
+      const [byMemberId] = await store.filter("Member", { member_id: key }, undefined, 1);
+      if (byMemberId) return res.json({ id: byMemberId.id, member: byMemberId });
+
+      if (key.includes("@")) {
+        const lower = key.toLowerCase();
+        const [byEmail] = await store.filter("Member", { email: lower }, undefined, 1);
+        if (byEmail) return res.json({ id: byEmail.id, member: byEmail });
+      }
+
+      return res.status(404).json({ message: "Member not found" });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+}
 module.exports = {
   createEntitiesRouter,
+  createMemberResolveRouter,
 };

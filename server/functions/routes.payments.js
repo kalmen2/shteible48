@@ -28,6 +28,52 @@ function isoDateFromUnixSeconds(sec) {
   return d.toISOString().split("T")[0];
 }
 
+// Resolve a member using several identifiers to tolerate stale or alternate ids.
+async function findMemberByAnyId(store, { memberId, stripeCustomerId, subscriptionId }) {
+  const lookups = [];
+  if (memberId) {
+    lookups.push({ id: String(memberId) });
+    lookups.push({ member_id: String(memberId) });
+  }
+  if (subscriptionId) {
+    lookups.push({ stripe_subscription_id: String(subscriptionId) });
+  }
+  if (stripeCustomerId) {
+    lookups.push({ stripe_customer_id: String(stripeCustomerId) });
+  }
+
+  for (const where of lookups) {
+    const [member] = await store.filter("Member", where, undefined, 1);
+    if (member) return member;
+  }
+  return null;
+}
+
+// Resolve the canonical Member using any reasonable key (id, member_id, email, or Stripe ids).
+async function resolveMemberFromInput(store, memberKey, opts = {}) {
+  const key = String(memberKey ?? "").trim();
+  // First try id/member_id/stripe_* via existing helper.
+  const direct = await findMemberByAnyId(store, {
+    memberId: key,
+    stripeCustomerId: opts.stripeCustomerId,
+    subscriptionId: opts.subscriptionId,
+  });
+  if (direct) return direct;
+
+  // If the input looks like an email, try matching on email.
+  if (key.includes("@")) {
+    const lower = key.toLowerCase();
+    const [byEmailLower] = await store.filter("Member", { email: lower }, undefined, 1);
+    if (byEmailLower) return byEmailLower;
+    if (lower !== key) {
+      const [byEmailExact] = await store.filter("Member", { email: key }, undefined, 1);
+      if (byEmailExact) return byEmailExact;
+    }
+  }
+
+  return null;
+}
+
 async function hasInvoiceTransaction(store, entity, invoiceId, type) {
   if (!invoiceId) return false;
   const [existing] = await store.filter(
@@ -46,8 +92,27 @@ async function createInvoiceTransactionIfMissing(store, entity, invoiceId, type,
 }
 
 async function ensureCustomer({ stripe, store, memberId }) {
-  const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+  console.log("[ensureCustomer] incoming memberId:", memberId);
+  const member = await resolveMemberFromInput(store, memberId);
+  console.log(
+    "[ensureCustomer] resolved member:",
+    member
+      ? {
+          id: member.id,
+          member_id: member.member_id,
+          email: member.email,
+        }
+      : null
+  );
   if (!member) {
+    const err = new Error("Member not found");
+    // @ts-ignore
+    err.status = 404;
+    throw err;
+  }
+
+  const updateKey = member.member_id || member.id || memberId;
+  if (!updateKey) {
     const err = new Error("Member not found");
     // @ts-ignore
     err.status = 404;
@@ -62,12 +127,12 @@ async function ensureCustomer({ stripe, store, memberId }) {
     name: member.full_name || undefined,
     email: member.email || undefined,
     metadata: {
-      memberId: String(member.id),
+      memberId: String(member.id || member.member_id),
     },
   });
 
-  await store.update("Member", member.id, { stripe_customer_id: customer.id });
-  const [updated] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+  await store.update("Member", String(updateKey), { stripe_customer_id: customer.id });
+  const [updated] = await store.filter("Member", { id: String(member.id || updateKey) }, undefined, 1);
   return { member: updated ?? member, customerId: customer.id };
 }
 
@@ -138,8 +203,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
 
     const frontendOrigin = resolveFrontendBaseUrl(req);
-    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -160,7 +225,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       cancel_url: cancelUrl,
       metadata: {
         kind: "one_time_payment",
-        memberId: String(memberId),
+        memberId: String(member.id),
         memberName: safeString(member.full_name || "", 200),
         amountCents: String(amountCents),
         description,
@@ -236,8 +301,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
 
     const frontendOrigin = resolveFrontendBaseUrl(req);
-    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=success`;
-    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
+    const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
+    const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -262,7 +327,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       ],
       subscription_data: {
         metadata: {
-          memberId: String(memberId),
+          memberId: String(member.id),
           paymentType,
           memberName: safeString(member.full_name || "", 200),
           amountCents: String(amountCents),
@@ -273,7 +338,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       cancel_url: cancelUrl,
       metadata: {
         kind: "subscription",
-        memberId: String(memberId),
+        memberId: String(member.id),
         memberName: safeString(member.full_name || "", 200),
         paymentType,
         amountCents: String(amountCents),
@@ -380,7 +445,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       cancel_url: cancelUrl,
       metadata: {
         kind: "save_card",
-        memberId: String(memberId),
+        memberId: String(member.id),
         memberName: safeString(member.full_name || "", 200),
       },
     });

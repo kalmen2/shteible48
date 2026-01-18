@@ -23,6 +23,9 @@ export const StatementTemplate = base44.entities.StatementTemplate;
 
 export const EmailSchedule = base44.entities.EmailSchedule;
 
+// Helper: resolve canonical member id from id/member_id/email
+export const resolveMember = base44.members.resolve;
+
 
 
 // auth sdk:

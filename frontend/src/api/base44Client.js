@@ -112,6 +112,13 @@ export const base44 = {
     StatementTemplate: entityClient("StatementTemplate"),
     EmailSchedule: entityClient("EmailSchedule"),
   },
+  members: {
+    resolve: async (key) => {
+      const params = new URLSearchParams();
+      if (key !== undefined && key !== null) params.set("key", String(key));
+      return requestJson(`/members/resolve?${params.toString()}`);
+    },
+  },
   integrations: {
     Core: {
       SendEmail: (payload) => requestJson(`/integrations/Core/SendEmail`, { method: "POST", body: payload }),

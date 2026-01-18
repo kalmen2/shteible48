@@ -1,4 +1,5 @@
 
+const { ObjectId } = require("mongodb");
 const { assertEntityName, createRecord } = require("./entityStore.js");
 
 function normalizeSort(sort) {
@@ -135,18 +136,70 @@ function createMongoEntityStore({ db }) {
       delete patchData.created_date;
       delete patchData.updated_date;
       const updatedDate = new Date().toISOString();
-      const result = await col.findOneAndUpdate(
+      
+      console.log(`[store.update] entity=${entity}, id=${id}, id type=${typeof id}`);
+      
+      let result = await col.findOneAndUpdate(
         { id: String(id) },
         { $set: { ...patchData, updated_date: updatedDate } },
         { returnDocument: "after" }
       );
-      if (!result.value) {
-        const err = new Error(`${entity} not found`);
-        // @ts-ignore
-        err.status = 404;
-        throw err;
+      
+      console.log(`[store.update] First attempt (id field): ${result ? 'found' : 'not found'}`, result ? { hasValue: !!result.value, hasLastErrorObject: !!result.lastErrorObject } : null);
+      
+      // Return early if first attempt succeeded
+      if (result) {
+        return toPublic(result);
       }
-      return toPublic(result.value);
+
+      // If no match for Member by id, try member_id (string/number) without mutating id.
+      if (entity === "Member") {
+        const memberIdStr = String(id);
+        const memberIdNum = Number(id);
+        const filters = [{ member_id: memberIdStr }];
+        if (Number.isFinite(memberIdNum)) {
+          filters.push({ member_id: memberIdNum });
+        }
+        console.log(`[store.update] Trying member_id filters:`, filters);
+        
+        // Try to find the document first to see what's actually there
+        const existing = await col.findOne({ $or: filters });
+        console.log(`[store.update] Document exists?`, existing ? { id: existing.id, member_id: existing.member_id } : 'not found');
+        
+        result = await col.findOneAndUpdate(
+          { $or: filters },
+          { $set: { ...patchData, updated_date: updatedDate } },
+          { returnDocument: "after" }
+        );
+        console.log(`[store.update] member_id attempt: ${result ? 'found' : 'not found'}`);
+        
+        // Return early if member_id attempt succeeded
+        if (result) {
+          return toPublic(result);
+        }
+      }
+
+      // Fallback to Mongo _id if valid and still not found.
+      if (!result && ObjectId.isValid(id)) {
+        console.log(`[store.update] Trying _id as ObjectId`);
+        result = await col.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: { ...patchData, updated_date: updatedDate } },
+          { returnDocument: "after" }
+        );
+        console.log(`[store.update] _id attempt: ${result ? 'found' : 'not found'}`);
+        
+        // Return early if _id attempt succeeded
+        if (result) {
+          return toPublic(result);
+        }
+      }
+
+      console.error(`[store.update] All attempts failed for entity=${entity}, id=${id}`);
+      const err = new Error(`${entity} not found`);
+      // @ts-ignore
+      err.status = 404;
+      throw err;
     },
 
     async remove(entity, id) {
