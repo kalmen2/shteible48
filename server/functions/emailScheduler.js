@@ -1,6 +1,11 @@
+const jwt = require("jsonwebtoken");
+const { randomUUID } = require("crypto");
 const { connectMongo } = require("./mongo");
 const { createMongoEntityStore } = require("./store.mongo");
 const { sendEmail, createBalancePdf } = require("./emailService");
+
+const JWT_SECRET = process.env.JWT_SECRET;
+const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
 
 function getZonedParts(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -93,14 +98,32 @@ function normalizeSelectedIds(selectedIds) {
   return { memberIds, guestIds };
 }
 
+function buildSaveCardUrlForRecord(record) {
+  try {
+    const isGuest = record.guest_id || (record.member_id === undefined && record.membership_active === undefined);
+    const payload = isGuest
+      ? { kind: "guest", id: String(record.id) }
+      : { kind: "member", id: String(record.id), member_id: record.member_id };
+    const token = jwt.sign({ ...payload, jti: randomUUID() }, JWT_SECRET, { expiresIn: "24h" });
+    return `${FRONTEND_BASE_URL}/save-card?token=${encodeURIComponent(token)}`;
+  } catch (err) {
+    console.error("Failed to build save card url", err?.message || err);
+    return "";
+  }
+}
+
 function applyTemplate(template, member, balanceValue) {
   const name = member.english_name || member.full_name || member.hebrew_name || "Member";
+  const hebrewName = member.hebrew_name || "";
   const balance = Number(balanceValue ?? member.total_owed ?? 0).toFixed(2);
   const memberId = member.member_id || member.id || "";
+  const saveCardUrl = buildSaveCardUrlForRecord(member);
   return String(template)
     .replace(/{member_name}/g, name)
+    .replace(/{hebrew_name}/g, hebrewName)
     .replace(/{balance}/g, `$${balance}`)
-    .replace(/{id}/g, memberId);
+    .replace(/{id}/g, memberId)
+    .replace(/{save_card_url}/g, saveCardUrl);
 }
 
 async function runMonthlyEmailScheduler() {

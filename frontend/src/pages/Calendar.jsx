@@ -1,32 +1,58 @@
-import React, { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, X, Plus, Trash2, Check } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, getDay } from "date-fns";
-import { getHebrewDate, isShabbat, isErevShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList, getHolidaysByDate } from "../components/calendar/hebrewDateConverter";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-const createPageUrl = (page) => {
-  const [pageName, queryString] = page.split('?');
-  return queryString ? `/${pageName}?${queryString}` : `/${pageName}`;
-};
+import React, { useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from 'lucide-react';
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameMonth,
+  isSameDay,
+  addMonths,
+  subMonths,
+  startOfWeek,
+  endOfWeek,
+} from 'date-fns';
+import {
+  getHebrewDate,
+  isShabbat,
+  isErevShabbat,
+  getParsha,
+  hebrewDateToGregorian,
+  getHebrewMonthsList,
+  getHolidaysByDate,
+} from '../components/calendar/hebrewDateConverter';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export default function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [calendarMode, setCalendarMode] = useState("english"); // "english" or "hebrew"
+  const [calendarMode, setCalendarMode] = useState('english'); // "english" or "hebrew"
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState("");
+  const [selectedEvent, setSelectedEvent] = useState('');
   const [honorData, setHonorData] = useState({});
   const [newEventDialogOpen, setNewEventDialogOpen] = useState(false);
-  const [newEventName, setNewEventName] = useState("");
+  const [newEventName, setNewEventName] = useState('');
   const [newEventHonors, setNewEventHonors] = useState([
-    { name: "", roles: [{ role_name: "", payment_type: "flexible", fixed_amount: 0 }] }
+    { name: '', roles: [{ role_name: '', payment_type: 'flexible', fixed_amount: 0 }] },
   ]);
 
   const queryClient = useQueryClient();
@@ -45,16 +71,26 @@ export default function Calendar() {
     queryKey: ['allTransactions'],
     queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
-  
+
   const currentYear = currentMonth.getFullYear();
   const currentMonthNum = currentMonth.getMonth();
-  
+
   const years = Array.from({ length: 10 }, (_, i) => currentYear - 2 + i);
   const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
-  
+
   // Hebrew calendar navigation
   const currentHebrewDate = getHebrewDate(currentMonth);
   const hebrewYears = Array.from({ length: 10 }, (_, i) => currentHebrewDate.year - 2 + i);
@@ -64,7 +100,7 @@ export default function Calendar() {
   const monthEnd = endOfMonth(currentMonth);
   const calendarStart = startOfWeek(monthStart);
   const calendarEnd = endOfWeek(monthEnd);
-  
+
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const [holidayMap, setHolidayMap] = useState({});
@@ -79,20 +115,20 @@ export default function Calendar() {
   const handleDateClick = (date) => {
     setSelectedDate(format(date, 'yyyy-MM-dd'));
     setTransactionDialogOpen(true);
-    setSelectedEvent("");
+    setSelectedEvent('');
     setHonorData({});
   };
 
   const handleHonorChange = (honorName, roleIndex, field, value) => {
-    setHonorData(prev => ({
+    setHonorData((prev) => ({
       ...prev,
       [honorName]: {
         ...prev[honorName],
         [roleIndex]: {
           ...prev[honorName]?.[roleIndex],
-          [field]: value
-        }
-      }
+          [field]: value,
+        },
+      },
     }));
   };
 
@@ -100,19 +136,18 @@ export default function Calendar() {
     const transactions = [];
     Object.entries(honorData).forEach(([honorName, rolesData]) => {
       Object.entries(rolesData).forEach(([roleIndex, data]) => {
-        const honor = currentHonors.find(h => h.name === honorName);
+        const honor = currentHonors.find((h) => h.name === honorName);
         const role = honor?.roles[roleIndex];
-        const rawAmount =
-          data.amount ?? (role?.payment_type === "fixed" ? role.fixed_amount : "");
+        const rawAmount = data.amount ?? (role?.payment_type === 'fixed' ? role.fixed_amount : '');
         const amount = Number(rawAmount);
         if (data.memberId && Number.isFinite(amount) && amount > 0) {
-          const member = members.find(m => m.id === data.memberId);
+          const member = members.find((m) => m.id === data.memberId);
           transactions.push({
             honor: honorName,
-            role: role?.role_name || "",
+            role: role?.role_name || '',
             memberId: data.memberId,
-            memberName: member?.full_name || "",
-            amount
+            memberName: member?.full_name || '',
+            amount,
           });
         }
       });
@@ -125,23 +160,25 @@ export default function Calendar() {
 
   const handleCreateEvent = (e) => {
     e.preventDefault();
-    const filteredHonors = newEventHonors.filter(h => 
-      h.name.trim() !== "" && h.roles.some(r => r.role_name.trim() !== "")
-    ).map(h => ({
-      ...h,
-      roles: h.roles.filter(r => r.role_name.trim() !== "")
-    }));
-    
+    const filteredHonors = newEventHonors
+      .filter((h) => h.name.trim() !== '' && h.roles.some((r) => r.role_name.trim() !== ''))
+      .map((h) => ({
+        ...h,
+        roles: h.roles.filter((r) => r.role_name.trim() !== ''),
+      }));
+
     if (newEventName.trim() && filteredHonors.length > 0) {
       createEventMutation.mutate({
         name: newEventName.trim(),
         honors: filteredHonors,
-        is_custom: true
+        is_custom: true,
       });
     }
   };
 
-  const selectedEventData = selectedEvent ? customEvents.find(e => e.name === selectedEvent) : null;
+  const selectedEventData = selectedEvent
+    ? customEvents.find((e) => e.name === selectedEvent)
+    : null;
   const currentHonors = selectedEventData?.honors || [];
 
   const createEventMutation = useMutation({
@@ -149,9 +186,9 @@ export default function Calendar() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
       setNewEventDialogOpen(false);
-      setNewEventName("");
+      setNewEventName('');
       setNewEventHonors([
-        { name: "", roles: [{ role_name: "", payment_type: "flexible", fixed_amount: 0 }] }
+        { name: '', roles: [{ role_name: '', payment_type: 'flexible', fixed_amount: 0 }] },
       ]);
     },
   });
@@ -160,13 +197,13 @@ export default function Calendar() {
     mutationFn: (eventId) => base44.entities.InputType.delete(eventId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
-      setSelectedEvent("");
+      setSelectedEvent('');
       setHonorData({});
     },
     onError: (error) => {
-      console.error("deleteEventMutation failed", error);
+      console.error('deleteEventMutation failed', error);
       queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
-      alert(error?.message || "Failed to delete event. Please try again.");
+      alert(error?.message || 'Failed to delete event. Please try again.');
     },
   });
 
@@ -176,11 +213,11 @@ export default function Calendar() {
         await base44.entities.Transaction.create({
           member_id: transaction.memberId,
           member_name: transaction.memberName,
-          type: "charge",
+          type: 'charge',
           description: `${selectedEvent} - ${transaction.honor}${transaction.role ? ` (${transaction.role})` : ''}`,
           amount: parseFloat(transaction.amount),
           date: selectedDate,
-          category: selectedEvent
+          category: selectedEvent,
         });
       }
     },
@@ -189,7 +226,7 @@ export default function Calendar() {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['allTransactions'] });
       setHonorData({});
-      setSelectedEvent("");
+      setSelectedEvent('');
     },
   });
 
@@ -202,8 +239,6 @@ export default function Calendar() {
     return getParsha(shabbat);
   };
 
-  const hebrewDate = getHebrewDate(currentMonth);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -212,28 +247,28 @@ export default function Calendar() {
             <div className="mb-4 flex justify-center">
               <div className="inline-flex rounded-lg bg-blue-800 p-1">
                 <button
-                  onClick={() => setCalendarMode("english")}
+                  onClick={() => setCalendarMode('english')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    calendarMode === "english" 
-                      ? "bg-white text-blue-900 shadow-sm" 
-                      : "text-blue-100 hover:text-white"
+                    calendarMode === 'english'
+                      ? 'bg-white text-blue-900 shadow-sm'
+                      : 'text-blue-100 hover:text-white'
                   }`}
                 >
                   English Calendar
                 </button>
                 <button
-                  onClick={() => setCalendarMode("hebrew")}
+                  onClick={() => setCalendarMode('hebrew')}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    calendarMode === "hebrew" 
-                      ? "bg-white text-blue-900 shadow-sm" 
-                      : "text-blue-100 hover:text-white"
+                    calendarMode === 'hebrew'
+                      ? 'bg-white text-blue-900 shadow-sm'
+                      : 'text-blue-100 hover:text-white'
                   }`}
                 >
                   Hebrew Calendar
                 </button>
               </div>
             </div>
-            
+
             <div className="flex items-center justify-between gap-4">
               <Button
                 variant="ghost"
@@ -243,29 +278,37 @@ export default function Calendar() {
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
-              
-              {calendarMode === "english" ? (
+
+              {calendarMode === 'english' ? (
                 <div className="flex items-center gap-3 flex-1 justify-center">
                   <select
                     value={currentMonthNum}
-                    onChange={(e) => setCurrentMonth(new Date(currentYear, parseInt(e.target.value), 1))}
+                    onChange={(e) =>
+                      setCurrentMonth(new Date(currentYear, parseInt(e.target.value), 1))
+                    }
                     className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
                   >
                     {months.map((month, idx) => (
-                      <option key={idx} value={idx} className="bg-blue-900">{month}</option>
+                      <option key={idx} value={idx} className="bg-blue-900">
+                        {month}
+                      </option>
                     ))}
                   </select>
-                  
+
                   <select
                     value={currentYear}
-                    onChange={(e) => setCurrentMonth(new Date(parseInt(e.target.value), currentMonthNum, 1))}
+                    onChange={(e) =>
+                      setCurrentMonth(new Date(parseInt(e.target.value), currentMonthNum, 1))
+                    }
                     className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
                   >
-                    {years.map(year => (
-                      <option key={year} value={year} className="bg-blue-900">{year}</option>
+                    {years.map((year) => (
+                      <option key={year} value={year} className="bg-blue-900">
+                        {year}
+                      </option>
                     ))}
                   </select>
-                  
+
                   <div className="text-blue-100 text-sm ml-2">
                     ({currentHebrewDate.month} {currentHebrewDate.year})
                   </div>
@@ -275,35 +318,47 @@ export default function Calendar() {
                   <select
                     value={currentHebrewDate.monthNum}
                     onChange={(e) => {
-                      const newDate = hebrewDateToGregorian(currentHebrewDate.year, parseInt(e.target.value), 1);
+                      const newDate = hebrewDateToGregorian(
+                        currentHebrewDate.year,
+                        parseInt(e.target.value),
+                        1
+                      );
                       setCurrentMonth(newDate);
                     }}
                     className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
                   >
                     {hebrewMonthsList.map((month, idx) => (
-                      <option key={idx} value={idx + 1} className="bg-blue-900">{month}</option>
+                      <option key={idx} value={idx + 1} className="bg-blue-900">
+                        {month}
+                      </option>
                     ))}
                   </select>
-                  
+
                   <select
                     value={currentHebrewDate.year}
                     onChange={(e) => {
-                      const newDate = hebrewDateToGregorian(parseInt(e.target.value), currentHebrewDate.monthNum, 1);
+                      const newDate = hebrewDateToGregorian(
+                        parseInt(e.target.value),
+                        currentHebrewDate.monthNum,
+                        1
+                      );
                       setCurrentMonth(newDate);
                     }}
                     className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
                   >
-                    {hebrewYears.map(year => (
-                      <option key={year} value={year} className="bg-blue-900">{year}</option>
+                    {hebrewYears.map((year) => (
+                      <option key={year} value={year} className="bg-blue-900">
+                        {year}
+                      </option>
                     ))}
                   </select>
-                  
+
                   <div className="text-blue-100 text-sm ml-2">
                     ({format(currentMonth, 'MMM yyyy')})
                   </div>
                 </div>
               )}
-              
+
               <Button
                 variant="ghost"
                 size="icon"
@@ -317,16 +372,18 @@ export default function Calendar() {
           <CardContent className="p-6">
             {/* Day Headers */}
             <div className="grid grid-cols-7 gap-2 mb-4">
-              {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map((day, i) => (
-                <div 
-                  key={i} 
-                  className={`text-center font-semibold py-3 ${
-                    i === 6 ? 'text-blue-900' : 'text-slate-700'
-                  }`}
-                >
-                  {day}
-                </div>
-              ))}
+              {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map(
+                (day, i) => (
+                  <div
+                    key={i}
+                    className={`text-center font-semibold py-3 ${
+                      i === 6 ? 'text-blue-900' : 'text-slate-700'
+                    }`}
+                  >
+                    {day}
+                  </div>
+                )
+              )}
             </div>
 
             {/* Calendar Grid */}
@@ -339,7 +396,7 @@ export default function Calendar() {
                 const hebrewDay = getHebrewDate(day);
                 const parsha = isSaturday ? getParsha(day) : null;
                 const holidayNames = holidayMap[format(day, 'yyyy-MM-dd')];
-                
+
                 return (
                   <button
                     key={i}
@@ -356,15 +413,19 @@ export default function Calendar() {
                     `}
                   >
                     <div className="flex flex-col items-start w-full">
-                      <span className={`text-lg font-bold ${
-                        isToday ? 'text-amber-700' : 
-                        isSaturday ? 'text-blue-900' : 
-                        'text-slate-900'
-                      }`}>
+                      <span
+                        className={`text-lg font-bold ${
+                          isToday
+                            ? 'text-amber-700'
+                            : isSaturday
+                              ? 'text-blue-900'
+                              : 'text-slate-900'
+                        }`}
+                      >
                         {format(day, 'd')}
                       </span>
                       <span className="text-xs text-slate-500 mt-1">
-                        {(hebrewDay.dayHebrew || hebrewDay.day)} {hebrewDay.month}
+                        {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
                       </span>
                     </div>
                     {isSaturday && isCurrentMonth && parsha && (
@@ -413,7 +474,8 @@ export default function Calendar() {
               <DialogTitle>Add Transactions</DialogTitle>
               {selectedDate && (
                 <DialogDescription>
-                  {format(new Date(selectedDate), 'MMMM d, yyyy')} • {format(new Date(selectedDate), 'EEEE')} - {getWeekParsha(new Date(selectedDate))}
+                  {format(new Date(selectedDate), 'MMMM d, yyyy')} •{' '}
+                  {format(new Date(selectedDate), 'EEEE')} - {getWeekParsha(new Date(selectedDate))}
                 </DialogDescription>
               )}
             </DialogHeader>
@@ -440,11 +502,11 @@ export default function Calendar() {
                         disabled={deleteEventMutation.isPending}
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
-                        {deleteEventMutation.isPending ? "Deleting..." : "Delete Event"}
+                        {deleteEventMutation.isPending ? 'Deleting...' : 'Delete Event'}
                       </Button>
                     )}
                     <Dialog open={newEventDialogOpen} onOpenChange={setNewEventDialogOpen}>
-                      <Button 
+                      <Button
                         onClick={() => setNewEventDialogOpen(true)}
                         className="bg-blue-900 hover:bg-blue-800"
                         size="sm"
@@ -455,7 +517,9 @@ export default function Calendar() {
                       <DialogContent className="max-w-2xl">
                         <DialogHeader>
                           <DialogTitle>Create New Event</DialogTitle>
-                          <DialogDescription>Set an event name and its honors/roles.</DialogDescription>
+                          <DialogDescription>
+                            Set an event name and its honors/roles.
+                          </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleCreateEvent} className="space-y-6">
                           <div className="space-y-2">
@@ -472,7 +536,10 @@ export default function Calendar() {
                           <div className="space-y-3">
                             <Label>Honors & Roles *</Label>
                             {newEventHonors.map((honor, honorIndex) => (
-                              <div key={honorIndex} className="border border-slate-200 rounded-lg p-4 space-y-3">
+                              <div
+                                key={honorIndex}
+                                className="border border-slate-200 rounded-lg p-4 space-y-3"
+                              >
                                 <div className="flex gap-2">
                                   <Input
                                     value={honor.name}
@@ -489,7 +556,11 @@ export default function Calendar() {
                                       type="button"
                                       variant="outline"
                                       size="icon"
-                                      onClick={() => setNewEventHonors(newEventHonors.filter((_, i) => i !== honorIndex))}
+                                      onClick={() =>
+                                        setNewEventHonors(
+                                          newEventHonors.filter((_, i) => i !== honorIndex)
+                                        )
+                                      }
                                       className="h-11 w-11"
                                     >
                                       <Trash2 className="w-4 h-4 text-red-600" />
@@ -506,7 +577,8 @@ export default function Calendar() {
                                           value={role.role_name}
                                           onChange={(e) => {
                                             const updated = [...newEventHonors];
-                                            updated[honorIndex].roles[roleIndex].role_name = e.target.value;
+                                            updated[honorIndex].roles[roleIndex].role_name =
+                                              e.target.value;
                                             setNewEventHonors(updated);
                                           }}
                                           placeholder="Role (e.g., Buyer, Recipient)"
@@ -529,14 +601,15 @@ export default function Calendar() {
                                           <SelectItem value="fixed">Fixed</SelectItem>
                                         </SelectContent>
                                       </Select>
-                                      {role.payment_type === "fixed" && (
+                                      {role.payment_type === 'fixed' && (
                                         <Input
                                           type="number"
                                           step="0.01"
-                                          value={role.fixed_amount || ""}
+                                          value={role.fixed_amount || ''}
                                           onChange={(e) => {
                                             const updated = [...newEventHonors];
-                                            updated[honorIndex].roles[roleIndex].fixed_amount = parseFloat(e.target.value) || 0;
+                                            updated[honorIndex].roles[roleIndex].fixed_amount =
+                                              parseFloat(e.target.value) || 0;
                                             setNewEventHonors(updated);
                                           }}
                                           placeholder="Amount"
@@ -550,7 +623,9 @@ export default function Calendar() {
                                           size="icon"
                                           onClick={() => {
                                             const updated = [...newEventHonors];
-                                            updated[honorIndex].roles = updated[honorIndex].roles.filter((_, i) => i !== roleIndex);
+                                            updated[honorIndex].roles = updated[
+                                              honorIndex
+                                            ].roles.filter((_, i) => i !== roleIndex);
                                             setNewEventHonors(updated);
                                           }}
                                           className="h-10 w-10"
@@ -566,7 +641,11 @@ export default function Calendar() {
                                     size="sm"
                                     onClick={() => {
                                       const updated = [...newEventHonors];
-                                      updated[honorIndex].roles.push({ role_name: "", payment_type: "flexible", fixed_amount: 0 });
+                                      updated[honorIndex].roles.push({
+                                        role_name: '',
+                                        payment_type: 'flexible',
+                                        fixed_amount: 0,
+                                      });
                                       setNewEventHonors(updated);
                                     }}
                                     className="w-full border-dashed"
@@ -580,7 +659,17 @@ export default function Calendar() {
                             <Button
                               type="button"
                               variant="outline"
-                              onClick={() => setNewEventHonors([...newEventHonors, { name: "", roles: [{ role_name: "", payment_type: "flexible", fixed_amount: 0 }] }])}
+                              onClick={() =>
+                                setNewEventHonors([
+                                  ...newEventHonors,
+                                  {
+                                    name: '',
+                                    roles: [
+                                      { role_name: '', payment_type: 'flexible', fixed_amount: 0 },
+                                    ],
+                                  },
+                                ])
+                              }
                               className="w-full border-dashed"
                             >
                               <Plus className="w-4 h-4 mr-2" />
@@ -588,7 +677,11 @@ export default function Calendar() {
                             </Button>
                           </div>
                           <div className="flex justify-end gap-3">
-                            <Button type="button" variant="outline" onClick={() => setNewEventDialogOpen(false)}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setNewEventDialogOpen(false)}
+                            >
                               Cancel
                             </Button>
                             <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
@@ -601,10 +694,13 @@ export default function Calendar() {
                   </div>
                 </div>
 
-                <Select value={selectedEvent} onValueChange={(value) => {
-                  setSelectedEvent(value);
-                  setHonorData({});
-                }}>
+                <Select
+                  value={selectedEvent}
+                  onValueChange={(value) => {
+                    setSelectedEvent(value);
+                    setHonorData({});
+                  }}
+                >
                   <SelectTrigger className="h-11">
                     <SelectValue placeholder="Choose an event..." />
                   </SelectTrigger>
@@ -615,7 +711,9 @@ export default function Calendar() {
                       </div>
                     ) : (
                       customEvents.map((event) => (
-                        <SelectItem key={event.id} value={event.name}>{event.name}</SelectItem>
+                        <SelectItem key={event.id} value={event.name}>
+                          {event.name}
+                        </SelectItem>
                       ))
                     )}
                   </SelectContent>
@@ -632,25 +730,36 @@ export default function Calendar() {
                     <table className="w-full">
                       <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
-                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Honor</th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Role</th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Member</th>
-                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Amount</th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                            Honor
+                          </th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                            Role
+                          </th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                            Member
+                          </th>
+                          <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                            Amount
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {currentHonors.map((honor) => 
+                        {currentHonors.map((honor) =>
                           honor.roles.map((role, roleIndex) => (
                             <tr key={`${honor.name}-${roleIndex}`}>
                               {roleIndex === 0 && (
-                                <td className="py-3 px-4 font-medium text-slate-900" rowSpan={honor.roles.length}>
+                                <td
+                                  className="py-3 px-4 font-medium text-slate-900"
+                                  rowSpan={honor.roles.length}
+                                >
                                   {honor.name}
                                 </td>
                               )}
                               <td className="py-3 px-4 text-slate-700">
                                 <div className="flex items-center gap-2">
                                   <span>{role.role_name}</span>
-                                  {role.payment_type === "fixed" && (
+                                  {role.payment_type === 'fixed' && (
                                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
                                       Fixed: ${role.fixed_amount}
                                     </span>
@@ -659,8 +768,10 @@ export default function Calendar() {
                               </td>
                               <td className="py-3 px-4">
                                 <Select
-                                  value={honorData[honor.name]?.[roleIndex]?.memberId || ""}
-                                  onValueChange={(value) => handleHonorChange(honor.name, roleIndex, 'memberId', value)}
+                                  value={honorData[honor.name]?.[roleIndex]?.memberId || ''}
+                                  onValueChange={(value) =>
+                                    handleHonorChange(honor.name, roleIndex, 'memberId', value)
+                                  }
                                 >
                                   <SelectTrigger className="h-10">
                                     <SelectValue placeholder="Select member..." />
@@ -678,11 +789,25 @@ export default function Calendar() {
                                 <Input
                                   type="number"
                                   step="0.01"
-                                  placeholder={role.payment_type === "fixed" ? role.fixed_amount.toString() : "0.00"}
-                                  value={honorData[honor.name]?.[roleIndex]?.amount || (role.payment_type === "fixed" ? role.fixed_amount : "")}
-                                  onChange={(e) => handleHonorChange(honor.name, roleIndex, 'amount', e.target.value)}
+                                  placeholder={
+                                    role.payment_type === 'fixed'
+                                      ? role.fixed_amount.toString()
+                                      : '0.00'
+                                  }
+                                  value={
+                                    honorData[honor.name]?.[roleIndex]?.amount ||
+                                    (role.payment_type === 'fixed' ? role.fixed_amount : '')
+                                  }
+                                  onChange={(e) =>
+                                    handleHonorChange(
+                                      honor.name,
+                                      roleIndex,
+                                      'amount',
+                                      e.target.value
+                                    )
+                                  }
                                   className="h-10"
-                                  readOnly={role.payment_type === "fixed"}
+                                  readOnly={role.payment_type === 'fixed'}
                                 />
                               </td>
                             </tr>
@@ -694,7 +819,9 @@ export default function Calendar() {
                   <div className="p-4 bg-slate-50 border-t border-slate-200">
                     <Button
                       onClick={handleSubmitTransactions}
-                      disabled={Object.keys(honorData).length === 0 || saveTransactionsMutation.isPending}
+                      disabled={
+                        Object.keys(honorData).length === 0 || saveTransactionsMutation.isPending
+                      }
                       className="w-full h-11 bg-blue-900 hover:bg-blue-800"
                     >
                       <Check className="w-5 h-5 mr-2" />
@@ -707,8 +834,10 @@ export default function Calendar() {
               {/* Existing Transactions for Selected Date */}
               {selectedDate && (
                 <div className="mt-6 pt-6 border-t border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-900 mb-3">Transactions on this date</h3>
-                  {allTransactions.filter(t => t.date === selectedDate).length === 0 ? (
+                  <h3 className="text-lg font-semibold text-slate-900 mb-3">
+                    Transactions on this date
+                  </h3>
+                  {allTransactions.filter((t) => t.date === selectedDate).length === 0 ? (
                     <div className="p-4 bg-slate-50 rounded-lg text-slate-500 text-center">
                       No transactions recorded for this date yet
                     </div>
@@ -717,28 +846,44 @@ export default function Calendar() {
                       <table className="w-full">
                         <thead className="bg-slate-50 border-b border-slate-200">
                           <tr>
-                            <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Event/Honor</th>
-                            <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">Member</th>
-                            <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">Amount</th>
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                              Event/Honor
+                            </th>
+                            <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
+                              Member
+                            </th>
+                            <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">
+                              Amount
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {allTransactions.filter(t => t.date === selectedDate).map((transaction) => (
-                            <tr key={transaction.id} className="hover:bg-slate-50">
-                              <td className="py-3 px-4">
-                                <div className="font-medium text-slate-900">{transaction.description}</div>
-                                {transaction.category && (
-                                  <div className="text-xs text-blue-600">{transaction.category}</div>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 text-slate-700">{transaction.member_name}</td>
-                              <td className="py-3 px-4 text-right">
-                                <span className={`font-semibold ${transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'}`}>
-                                  ${transaction.amount?.toFixed(2)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {allTransactions
+                            .filter((t) => t.date === selectedDate)
+                            .map((transaction) => (
+                              <tr key={transaction.id} className="hover:bg-slate-50">
+                                <td className="py-3 px-4">
+                                  <div className="font-medium text-slate-900">
+                                    {transaction.description}
+                                  </div>
+                                  {transaction.category && (
+                                    <div className="text-xs text-blue-600">
+                                      {transaction.category}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-slate-700">
+                                  {transaction.member_name}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <span
+                                    className={`font-semibold ${transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'}`}
+                                  >
+                                    ${transaction.amount?.toFixed(2)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
                         </tbody>
                       </table>
                     </div>

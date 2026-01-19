@@ -1,18 +1,40 @@
-import React, { useState, useRef } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, Trash2, CreditCard, Repeat, ChevronDown } from "lucide-react";
-import { Link } from "react-router-dom";
-import { format } from "date-fns";
-import { toLocalDate, todayISO } from "@/utils/dates";
-import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
-import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
+import React, { useState, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  ArrowLeft,
+  Printer,
+  Plus,
+  DollarSign,
+  Calendar,
+  Receipt,
+  Trash2,
+  CreditCard,
+  Repeat,
+  ChevronDown,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
+import { toLocalDate, todayISO } from '@/utils/dates';
+import GuestInvoiceTemplate from '../components/guests/GuestInvoiceTemplate';
+import MiniCalendarPopup from '../components/guests/MiniCalendarPopup';
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -27,13 +49,13 @@ export default function GuestDetail() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [donationDialogOpen, setDonationDialogOpen] = useState(false);
   const [payoffDialogOpen, setPayoffDialogOpen] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDescription, setPaymentDescription] = useState("");
-  const [chargeAmount, setChargeAmount] = useState("");
-  const [chargeDescription, setChargeDescription] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [chargeAmount, setChargeAmount] = useState('');
+  const [chargeDescription, setChargeDescription] = useState('');
   const [chargeDate, setChargeDate] = useState(todayISO());
-  const [donationAmount, setDonationAmount] = useState("");
-  const [payoffAmount, setPayoffAmount] = useState("");
+  const [donationAmount, setDonationAmount] = useState('');
+  const [payoffAmount, setPayoffAmount] = useState('');
   const invoiceRef = useRef();
 
   const queryClient = useQueryClient();
@@ -58,15 +80,15 @@ export default function GuestDetail() {
       return await base44.entities.GuestTransaction.create(paymentData);
     },
     onError: (error) => {
-      console.error("addGuestPaymentMutation failed", error);
+      console.error('addGuestPaymentMutation failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guestTransactions', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guests'] });
       setPaymentDialogOpen(false);
-      setPaymentAmount("");
-      setPaymentDescription("");
+      setPaymentAmount('');
+      setPaymentDescription('');
     },
   });
 
@@ -75,15 +97,15 @@ export default function GuestDetail() {
       return await base44.entities.GuestTransaction.create(chargeData);
     },
     onError: (error) => {
-      console.error("addGuestChargeMutation failed", error);
+      console.error('addGuestChargeMutation failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guestTransactions', guestId] });
       queryClient.invalidateQueries({ queryKey: ['guests'] });
       setChargeDialogOpen(false);
-      setChargeAmount("");
-      setChargeDescription("");
+      setChargeAmount('');
+      setChargeDescription('');
       setChargeDate(todayISO());
     },
   });
@@ -93,7 +115,7 @@ export default function GuestDetail() {
       await base44.entities.GuestTransaction.delete(transaction.id);
     },
     onError: (error) => {
-      console.error("deleteGuestTransaction failed", error);
+      console.error('deleteGuestTransaction failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
@@ -107,10 +129,10 @@ export default function GuestDetail() {
     addPaymentMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
-      type: "payment",
-      description: paymentDescription || "Payment received",
+      type: 'payment',
+      description: paymentDescription || 'Payment received',
       amount: parseFloat(paymentAmount),
-      date: todayISO()
+      date: todayISO(),
     });
   };
 
@@ -135,7 +157,7 @@ export default function GuestDetail() {
     base44.payments
       .createGuestSubscriptionCheckout({
         guestId,
-        paymentType: "guest_monthly_donation",
+        paymentType: 'guest_monthly_donation',
         amountPerMonth,
         successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
         cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
@@ -152,7 +174,7 @@ export default function GuestDetail() {
     base44.payments
       .createGuestSubscriptionCheckout({
         guestId,
-        paymentType: "guest_balance_payoff",
+        paymentType: 'guest_balance_payoff',
         amountPerMonth,
         payoffTotal: guest.total_owed || 0,
         successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
@@ -168,10 +190,10 @@ export default function GuestDetail() {
     addChargeMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
-      type: "charge",
-      description: chargeDescription || "Manual charge",
+      type: 'charge',
+      description: chargeDescription || 'Manual charge',
       amount: parseFloat(chargeAmount),
-      date: chargeDate
+      date: chargeDate,
     });
   };
 
@@ -179,11 +201,11 @@ export default function GuestDetail() {
     addChargeMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
-      type: "charge",
+      type: 'charge',
       description: eventData.description,
       amount: parseFloat(eventData.amount),
       date: eventData.date,
-      category: eventData.category
+      category: eventData.category,
     });
     setCalendarOpen(false);
   };
@@ -207,8 +229,8 @@ export default function GuestDetail() {
     );
   }
 
-  const charges = transactions.filter(t => t.type === 'charge');
-  const payments = transactions.filter(t => t.type === 'payment');
+  const charges = transactions.filter((t) => t.type === 'charge');
+  const payments = transactions.filter((t) => t.type === 'payment');
   const totalCharges = charges.reduce((sum, t) => sum + (t.amount || 0), 0);
   const totalPayments = payments.reduce((sum, t) => sum + (t.amount || 0), 0);
 
@@ -216,7 +238,10 @@ export default function GuestDetail() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Back Button */}
-        <Link to={createPageUrl('Guests')} className="inline-flex items-center text-blue-900 hover:text-blue-700 mb-6 font-medium">
+        <Link
+          to={createPageUrl('Guests')}
+          className="inline-flex items-center text-blue-900 hover:text-blue-700 mb-6 font-medium"
+        >
           <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Guests
         </Link>
@@ -228,17 +253,31 @@ export default function GuestDetail() {
               <div className="flex-1">
                 <h1 className="text-3xl font-bold text-slate-900 mb-3">{guest.full_name}</h1>
                 <div className="space-y-2 text-slate-600">
-                  {guest.email && <div className="flex items-center gap-2"><span className="font-medium">Email:</span> {guest.email}</div>}
-                  {guest.phone && <div className="flex items-center gap-2"><span className="font-medium">Phone:</span> {guest.phone}</div>}
-                  {guest.address && <div className="flex items-center gap-2"><span className="font-medium">Address:</span> {guest.address}</div>}
+                  {guest.email && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Email:</span> {guest.email}
+                    </div>
+                  )}
+                  {guest.phone && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Phone:</span> {guest.phone}
+                    </div>
+                  )}
+                  {guest.address && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Address:</span> {guest.address}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex flex-col items-end gap-3">
                 <div className="text-right">
                   <div className="text-sm text-slate-600 mb-1">Current Balance</div>
-                  <div className={`text-4xl font-bold ${
-                    (guest.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
-                  }`}>
+                  <div
+                    className={`text-4xl font-bold ${
+                      (guest.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
+                    }`}
+                  >
                     ${(guest.total_owed || 0).toFixed(2)}
                   </div>
                 </div>
@@ -303,7 +342,11 @@ export default function GuestDetail() {
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setChargeDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setChargeDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
@@ -313,7 +356,7 @@ export default function GuestDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
-                  
+
                   <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
                     <DialogTrigger asChild>
                       <Button className="bg-green-600 hover:bg-green-700">
@@ -350,13 +393,21 @@ export default function GuestDetail() {
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPaymentDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-green-600 hover:bg-green-700">
                             Record Payment
                           </Button>
-                          <Button type="button" className="bg-blue-900 hover:bg-blue-800" onClick={handleStripePayment}>
+                          <Button
+                            type="button"
+                            className="bg-blue-900 hover:bg-blue-800"
+                            onClick={handleStripePayment}
+                          >
                             Pay with Card (Stripe)
                           </Button>
                         </div>
@@ -366,7 +417,10 @@ export default function GuestDetail() {
 
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="border-green-200 text-green-700 hover:bg-green-50">
+                      <Button
+                        variant="outline"
+                        className="border-green-200 text-green-700 hover:bg-green-50"
+                      >
                         <Repeat className="w-4 h-4 mr-2" />
                         Monthly
                         <ChevronDown className="w-4 h-4 ml-2" />
@@ -403,9 +457,15 @@ export default function GuestDetail() {
                             className="h-11"
                           />
                         </div>
-                        <p className="text-sm text-slate-500">Guests can donate monthly with no base charge.</p>
+                        <p className="text-sm text-slate-500">
+                          Guests can donate monthly with no base charge.
+                        </p>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setDonationDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDonationDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-green-600 hover:bg-green-700">
@@ -431,13 +491,20 @@ export default function GuestDetail() {
                             value={payoffAmount}
                             onChange={(e) => setPayoffAmount(e.target.value)}
                             required
-                            placeholder={guest.total_owed ? guest.total_owed.toFixed(2) : "100.00"}
+                            placeholder={guest.total_owed ? guest.total_owed.toFixed(2) : '100.00'}
                             className="h-11"
                           />
                         </div>
-                        <p className="text-sm text-slate-500">We will only charge the monthly amount you set until the balance is paid. No base charge is applied.</p>
+                        <p className="text-sm text-slate-500">
+                          We will only charge the monthly amount you set until the balance is paid.
+                          No base charge is applied.
+                        </p>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setPayoffDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPayoffDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
@@ -447,8 +514,12 @@ export default function GuestDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
-                  
-                  <Button onClick={handlePrint} variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+
+                  <Button
+                    onClick={handlePrint}
+                    variant="outline"
+                    className="border-slate-300 text-slate-700 hover:bg-slate-50"
+                  >
                     <Printer className="w-4 h-4 mr-2" />
                     Print Invoice
                   </Button>
@@ -465,7 +536,9 @@ export default function GuestDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">Total Charges</div>
-                  <div className="text-2xl font-bold text-slate-900">${totalCharges.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-slate-900">
+                    ${totalCharges.toFixed(2)}
+                  </div>
                 </div>
                 <Receipt className="w-8 h-8 text-amber-600" />
               </div>
@@ -476,7 +549,9 @@ export default function GuestDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">Total Payments</div>
-                  <div className="text-2xl font-bold text-slate-900">${totalPayments.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-slate-900">
+                    ${totalPayments.toFixed(2)}
+                  </div>
                 </div>
                 <DollarSign className="w-8 h-8 text-green-600" />
               </div>
@@ -510,11 +585,21 @@ export default function GuestDetail() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Date</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Description</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Type</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Amount</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Date
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Description
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Type
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Amount
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -527,25 +612,34 @@ export default function GuestDetail() {
                           })()}
                         </td>
                         <td className="py-4 px-6">
-                          <div className="font-medium text-slate-900">{transaction.description}</div>
+                          <div className="font-medium text-slate-900">
+                            {transaction.description}
+                          </div>
                           {transaction.category && (
-                            <div className="text-sm text-slate-500 mt-1">{transaction.category}</div>
+                            <div className="text-sm text-slate-500 mt-1">
+                              {transaction.category}
+                            </div>
                           )}
                         </td>
                         <td className="py-4 px-6">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                            transaction.type === 'charge'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}>
+                          <span
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                              transaction.type === 'charge'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-green-100 text-green-800'
+                            }`}
+                          >
                             {transaction.type === 'charge' ? 'Charge' : 'Payment'}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-right">
-                          <span className={`text-lg font-bold ${
-                            transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'
-                          }`}>
-                            {transaction.type === 'charge' ? '+' : '-'}${transaction.amount?.toFixed(2)}
+                          <span
+                            className={`text-lg font-bold ${
+                              transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'
+                            }`}
+                          >
+                            {transaction.type === 'charge' ? '+' : '-'}$
+                            {transaction.amount?.toFixed(2)}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-center">
@@ -554,7 +648,11 @@ export default function GuestDetail() {
                             variant="ghost"
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => {
-                              if (confirm('Delete this transaction? This will adjust the guest balance.')) {
+                              if (
+                                confirm(
+                                  'Delete this transaction? This will adjust the guest balance.'
+                                )
+                              ) {
                                 deleteTransactionMutation.mutate(transaction);
                               }
                             }}

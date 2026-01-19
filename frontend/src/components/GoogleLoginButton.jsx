@@ -1,6 +1,6 @@
-import React from "react";
-import { signInWithGoogle } from "@/lib/firebase";
-import { base44 } from "@/api/base44Client";
+import React from 'react';
+import { signInWithGoogle } from '@/lib/firebase';
+import { base44 } from '@/api/base44Client';
 
 export default function GoogleLoginButton({ onSuccess, onError }) {
   const handleGoogleLogin = async () => {
@@ -19,19 +19,23 @@ export default function GoogleLoginButton({ onSuccess, onError }) {
       type="button"
       onClick={handleGoogleLogin}
       style={{
-        background: "#fff",
-        color: "#444",
-        border: "1px solid #ccc",
+        background: '#fff',
+        color: '#444',
+        border: '1px solid #ccc',
         borderRadius: 4,
-        padding: "10px 20px",
+        padding: '10px 20px',
         fontWeight: 600,
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
         gap: 8,
       }}
     >
-      <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" style={{ width: 20, height: 20 }} />
+      <img
+        src="https://developers.google.com/identity/images/g-logo.png"
+        alt="Google"
+        style={{ width: 20, height: 20 }}
+      />
       Sign in with Google
     </button>
   );

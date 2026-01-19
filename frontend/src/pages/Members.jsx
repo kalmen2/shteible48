@@ -1,16 +1,45 @@
-import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, DollarSign, Settings, CreditCard, AlertCircle, Upload, Download, UserPlus, ChevronDown, FileSpreadsheet, Search, Pencil, Trash2 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { toast } from "@/components/ui/use-toast";
+import React, { useState } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Plus,
+  CreditCard,
+  AlertCircle,
+  Upload,
+  Download,
+  UserPlus,
+  ChevronDown,
+  FileSpreadsheet,
+  Search,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { toast } from '@/components/ui/use-toast';
 
 const generateUniqueMemberId = (existingIds = new Set()) => {
   let attempt = 0;
@@ -36,24 +65,24 @@ export default function Members() {
   const [editMemberDialogOpen, setEditMemberDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [newMember, setNewMember] = useState({
-    english_name: "",
-    hebrew_name: "",
-    full_name: "",
-    email: "",
-    phone: "",
-    address: ""
+    english_name: '',
+    hebrew_name: '',
+    full_name: '',
+    email: '',
+    phone: '',
+    address: '',
   });
   const [uploading, setUploading] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
   const [bulkActivating, setBulkActivating] = useState(false);
-  const [chargeAmount, setChargeAmount] = useState("");
-  const [chargeType, setChargeType] = useState("standard_donation");
+  const [chargeAmount, setChargeAmount] = useState('');
+  const [chargeType, setChargeType] = useState('standard_donation');
   // Stripe Checkout handles secure card entry.
   const [processing, setProcessing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("alpha"); // "alpha" or "balance"
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('alpha'); // "alpha" or "balance"
 
   const queryClient = useQueryClient();
 
@@ -63,19 +92,20 @@ export default function Members() {
   });
 
   const filteredMembers = members
-    .filter(m => 
-      m.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.english_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.hebrew_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.member_id?.includes(searchQuery)
+    .filter(
+      (m) =>
+        m.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.english_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.hebrew_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.member_id?.includes(searchQuery)
     )
     .sort((a, b) => {
-      if (sortBy === "balance") {
+      if (sortBy === 'balance') {
         return (b.total_owed || 0) - (a.total_owed || 0);
       }
-      const nameA = a.english_name || a.full_name || a.hebrew_name || "";
-      const nameB = b.english_name || b.full_name || b.hebrew_name || "";
+      const nameA = a.english_name || a.full_name || a.hebrew_name || '';
+      const nameB = b.english_name || b.full_name || b.hebrew_name || '';
       return nameA.localeCompare(nameB);
     });
 
@@ -96,27 +126,18 @@ export default function Members() {
 
   const currentPlan = plans[0];
 
-  const createPlanMutation = useMutation({
-    mutationFn: (planData) => base44.entities.MembershipPlan.create(planData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['membershipPlans'] });
-      setPlanDialogOpen(false);
-      setStandardAmount("");
-    },
-  });
-
   const createMemberMutation = useMutation({
     mutationFn: (memberData) => base44.entities.Member.create(memberData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setAddMemberDialogOpen(false);
       setNewMember({
-        english_name: "",
-        hebrew_name: "",
-        full_name: "",
-        email: "",
-        phone: "",
-        address: ""
+        english_name: '',
+        hebrew_name: '',
+        full_name: '',
+        email: '',
+        phone: '',
+        address: '',
       });
     },
   });
@@ -128,8 +149,8 @@ export default function Members() {
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
       toast({
-        title: "Member updated",
-        description: "Changes saved successfully.",
+        title: 'Member updated',
+        description: 'Changes saved successfully.',
       });
     },
     onError: async (error, variables) => {
@@ -137,23 +158,27 @@ export default function Members() {
         const refreshed = await base44.entities.Member.filter({ id: variables.id });
         let current = refreshed?.[0];
         if (!current) {
-          const byMemberId = await base44.entities.Member.filter({ member_id: String(variables.id) });
+          const byMemberId = await base44.entities.Member.filter({
+            member_id: String(variables.id),
+          });
           current = byMemberId?.[0];
         }
         if (current) {
           const matches = Object.entries(variables.data || {}).every(([key, value]) => {
             if (value === undefined) return true;
-            return String(current[key] ?? "") === String(value);
+            return String(current[key] ?? '') === String(value);
           });
           if (matches) {
             queryClient.setQueryData(['members'], (prev = []) =>
-              Array.isArray(prev) ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m)) : prev
+              Array.isArray(prev)
+                ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m))
+                : prev
             );
             setEditMemberDialogOpen(false);
             setSelectedMember(null);
             toast({
-              title: "Member updated",
-              description: "Changes saved successfully.",
+              title: 'Member updated',
+              description: 'Changes saved successfully.',
             });
             return;
           }
@@ -162,9 +187,9 @@ export default function Members() {
         // fall through to error toast
       }
       toast({
-        title: "Update failed",
-        description: error?.message || "Unable to save member changes.",
-        variant: "destructive",
+        title: 'Update failed',
+        description: error?.message || 'Unable to save member changes.',
+        variant: 'destructive',
       });
     },
   });
@@ -195,8 +220,8 @@ export default function Members() {
       queryClient.invalidateQueries({ queryKey: ['membershipCharges'] });
       setChargeDialogOpen(false);
       setSelectedMember(null);
-      setChargeAmount("");
-      setChargeType("standard_donation");
+      setChargeAmount('');
+      setChargeType('standard_donation');
     },
   });
 
@@ -211,7 +236,10 @@ export default function Members() {
     e.preventDefault();
     const existingIds = new Set((members || []).map((m) => m.member_id).filter(Boolean));
     const member_id = generateUniqueMemberId(existingIds);
-    const full_name = newMember.english_name?.trim() || newMember.hebrew_name?.trim() || newMember.full_name?.trim();
+    const full_name =
+      newMember.english_name?.trim() ||
+      newMember.hebrew_name?.trim() ||
+      newMember.full_name?.trim();
     createMemberMutation.mutate({
       ...newMember,
       full_name,
@@ -220,7 +248,8 @@ export default function Members() {
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "english_name,hebrew_name,email,phone,address\nHarav Moshe Fogel,הרב משה פוגל,john@example.com,123-456-7890,123 Main St";
+    const csvContent =
+      'english_name,hebrew_name,email,phone,address\nHarav Moshe Fogel,הרב משה פוגל,john@example.com,123-456-7890,123 Main St';
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -232,24 +261,24 @@ export default function Members() {
 
   const handleActivateSelected = async () => {
     if (!currentPlan?.standard_amount) {
-      alert("Please set a monthly plan amount in Settings first.");
+      alert('Please set a monthly plan amount in Settings first.');
       return;
     }
     const selectedMembers = members.filter((m) => selectedMemberIds.includes(m.id));
     const inactiveMembers = selectedMembers.filter((m) => !m.membership_active);
     if (inactiveMembers.length === 0) {
-      alert("No inactive members selected.");
+      alert('No inactive members selected.');
       return;
     }
 
     const missingCards = inactiveMembers.filter((m) => !m.stripe_default_payment_method_id);
     if (missingCards.length > 0) {
       const lines = missingCards.map((m) => {
-        const name = m.english_name || m.full_name || m.hebrew_name || "Member";
+        const name = m.english_name || m.full_name || m.hebrew_name || 'Member';
         const id = m.member_id || m.id;
         return `${name} (ID: ${id})`;
       });
-      alert(`Missing saved card on file for:\n${lines.join("\n")}`);
+      alert(`Missing saved card on file for:\n${lines.join('\n')}`);
       return;
     }
 
@@ -262,14 +291,14 @@ export default function Members() {
         amountPerMonth: currentPlan.standard_amount,
       });
       if (out?.errors?.length) {
-        const lines = out.errors.map((e) => `${e.name || e.id}: ${e.message}`).join("\n");
+        const lines = out.errors.map((e) => `${e.name || e.id}: ${e.message}`).join('\n');
         alert(`Some activations failed:\n${lines}`);
       }
       queryClient.invalidateQueries({ queryKey: ['members'] });
       queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
       setSelectedMemberIds([]);
     } catch (err) {
-      alert(err?.message || "Failed to activate memberships.");
+      alert(err?.message || 'Failed to activate memberships.');
     } finally {
       setBulkActivating(false);
     }
@@ -291,13 +320,15 @@ export default function Members() {
 
   const handleDeleteSelected = () => {
     if (selectedMemberIds.length === 0) return;
-    const ok = window.confirm(`Delete ${selectedMemberIds.length} member(s)? This cannot be undone.`);
+    const ok = window.confirm(
+      `Delete ${selectedMemberIds.length} member(s)? This cannot be undone.`
+    );
     if (!ok) return;
     deleteMembersMutation.mutate(selectedMemberIds);
   };
 
   const handleDeleteMember = (member) => {
-    const name = member.english_name || member.full_name || member.hebrew_name || "this member";
+    const name = member.english_name || member.full_name || member.hebrew_name || 'this member';
     const ok = window.confirm(`Delete ${name}? This cannot be undone.`);
     if (!ok) return;
     deleteMemberMutation.mutate(member.id);
@@ -314,19 +345,19 @@ export default function Members() {
       const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
         file_url,
         json_schema: {
-          type: "object",
+          type: 'object',
           properties: {
             members: {
-              type: "array",
+              type: 'array',
               items: {
-                type: "object",
+                type: 'object',
                 properties: {
-                  english_name: { type: ["string", "null"] },
-                  hebrew_name: { type: ["string", "null"] },
-                  full_name: { type: ["string", "null"] },
-                  email: { type: ["string", "null"] },
-                  phone: { type: ["string", "null"] },
-                  address: { type: ["string", "null"] },
+                  english_name: { type: ['string', 'null'] },
+                  hebrew_name: { type: ['string', 'null'] },
+                  full_name: { type: ['string', 'null'] },
+                  email: { type: ['string', 'null'] },
+                  phone: { type: ['string', 'null'] },
+                  address: { type: ['string', 'null'] },
                 },
               },
             },
@@ -334,16 +365,16 @@ export default function Members() {
         },
       });
 
-      if (result?.status !== "success" || !result?.output) {
-        throw new Error(result?.message || "Could not extract members from file");
+      if (result?.status !== 'success' || !result?.output) {
+        throw new Error(result?.message || 'Could not extract members from file');
       }
 
       const raw = result.output.members || result.output;
       const arr = Array.isArray(raw) ? raw : [raw];
       const cleaned = arr
         .map((m) => {
-          const english_name = m?.english_name ? String(m.english_name).trim() : "";
-          const hebrew_name = m?.hebrew_name ? String(m.hebrew_name).trim() : "";
+          const english_name = m?.english_name ? String(m.english_name).trim() : '';
+          const hebrew_name = m?.hebrew_name ? String(m.hebrew_name).trim() : '';
           const full_name = m?.full_name ? String(m.full_name).trim() : english_name || hebrew_name;
           return {
             english_name,
@@ -357,7 +388,9 @@ export default function Members() {
         .filter((m) => m.full_name || m.english_name || m.hebrew_name);
 
       if (cleaned.length === 0) {
-        throw new Error("No member rows found. Make sure your file has English or Hebrew name columns.");
+        throw new Error(
+          'No member rows found. Make sure your file has English or Hebrew name columns.'
+        );
       }
 
       const existingIds = new Set((members || []).map((m) => m.member_id).filter(Boolean));
@@ -372,7 +405,7 @@ export default function Members() {
       setUploadDialogOpen(false);
       setUploadFile(null);
     } catch (error) {
-      alert("Upload failed: " + (error?.message || error));
+      alert('Upload failed: ' + (error?.message || error));
     }
     setUploading(false);
   };
@@ -385,7 +418,7 @@ export default function Members() {
         member_name: selectedMember.full_name,
         charge_type: chargeType,
         amount: parseFloat(chargeAmount),
-        is_active: true
+        is_active: true,
       });
     }
   };
@@ -397,7 +430,7 @@ export default function Members() {
     try {
       const out = await base44.payments.createSubscriptionCheckout({
         memberId: selectedMember.id,
-        paymentType: "membership",
+        paymentType: 'membership',
         amountPerMonth: currentPlan.standard_amount,
         successPath: `/Members`,
         cancelPath: `/Members`,
@@ -411,7 +444,7 @@ export default function Members() {
   const deactivateMembership = (member) => {
     updateMemberMutation.mutate({
       id: member.id,
-      data: { membership_active: false }
+      data: { membership_active: false },
     });
     setDeactivateDialogOpen(false);
   };
@@ -433,9 +466,9 @@ export default function Members() {
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
-    const englishName = selectedMember.english_name?.trim() || "";
-    const hebrewName = selectedMember.hebrew_name?.trim() || "";
-    const full_name = englishName || hebrewName || selectedMember.full_name || "";
+    const englishName = selectedMember.english_name?.trim() || '';
+    const hebrewName = selectedMember.hebrew_name?.trim() || '';
+    const full_name = englishName || hebrewName || selectedMember.full_name || '';
     const targetId = selectedMember.id || selectedMember.member_id;
     updateMemberMutation.mutate({
       id: targetId,
@@ -445,17 +478,17 @@ export default function Members() {
         hebrew_name: hebrewName || undefined,
         email: selectedMember.email || undefined,
         phone: selectedMember.phone || undefined,
-        address: selectedMember.address || undefined
-      }
+        address: selectedMember.address || undefined,
+      },
     });
   };
 
   const getMemberCharges = (memberId) => {
-    return charges.filter(c => c.member_id === memberId && c.is_active);
+    return charges.filter((c) => c.member_id === memberId && c.is_active);
   };
 
   const getMemberRecurringPayments = (memberId) => {
-    return recurringPayments.filter(p => p.member_id === memberId && p.is_active);
+    return recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
   };
 
   const getMemberTotalMonthly = (member) => {
@@ -468,7 +501,7 @@ export default function Members() {
 
     const memberCharges = getMemberCharges(member.id);
     const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
     const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
 
     if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
@@ -487,26 +520,26 @@ export default function Members() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <h1 className="text-3xl font-bold text-slate-900">Members</h1>
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                                              <Input
-                                                placeholder="Search members..."
-                                                value={searchQuery}
-                                                onChange={(e) => setSearchQuery(e.target.value)}
-                                                className="pl-10 h-10 w-64"
-                                              />
-                                            </div>
-                                            <Select value={sortBy} onValueChange={setSortBy}>
-                                              <SelectTrigger className="w-44 h-10">
-                                                <SelectValue placeholder="Sort by..." />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="alpha">A-Z (Name)</SelectItem>
-                                                <SelectItem value="balance">Highest Balance</SelectItem>
-                                              </SelectContent>
-                                            </Select>
+          <h1 className="text-3xl font-bold text-slate-900">Members</h1>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="Search members..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 h-10 w-64"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-44 h-10">
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alpha">A-Z (Name)</SelectItem>
+                <SelectItem value="balance">Highest Balance</SelectItem>
+              </SelectContent>
+            </Select>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -539,13 +572,10 @@ export default function Members() {
                     disabled={deleteMembersMutation.isPending}
                     onClick={handleDeleteSelected}
                   >
-                    {deleteMembersMutation.isPending ? "Deleting..." : "Delete Selected"}
+                    {deleteMembersMutation.isPending ? 'Deleting...' : 'Delete Selected'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={bulkActivating}
-                    onClick={handleActivateSelected}
-                  >
-                    {bulkActivating ? "Activating..." : "Activate Selected"}
+                  <DropdownMenuItem disabled={bulkActivating} onClick={handleActivateSelected}>
+                    {bulkActivating ? 'Activating...' : 'Activate Selected'}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -567,15 +597,24 @@ export default function Members() {
                       required
                     />
                     <p className="text-xs text-slate-500">
-                      Upload a CSV or Excel file with columns: english_name, hebrew_name, email, phone, address. Member IDs are generated automatically.
+                      Upload a CSV or Excel file with columns: english_name, hebrew_name, email,
+                      phone, address. Member IDs are generated automatically.
                     </p>
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
-                    <Button type="button" variant="outline" onClick={() => setUploadDialogOpen(false)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setUploadDialogOpen(false)}
+                    >
                       Cancel
                     </Button>
-                    <Button type="submit" className="bg-blue-900 hover:bg-blue-800" disabled={uploading}>
-                      {uploading ? "Uploading..." : "Upload Members"}
+                    <Button
+                      type="submit"
+                      className="bg-blue-900 hover:bg-blue-800"
+                      disabled={uploading}
+                    >
+                      {uploading ? 'Uploading...' : 'Upload Members'}
                     </Button>
                   </div>
                 </form>
@@ -601,7 +640,7 @@ export default function Members() {
                     <Input
                       id="english_name"
                       value={newMember.english_name}
-                      onChange={(e) => setNewMember({...newMember, english_name: e.target.value})}
+                      onChange={(e) => setNewMember({ ...newMember, english_name: e.target.value })}
                       //placeholder="Harav Moshe Fogel"
                       className="h-11"
                     />
@@ -611,7 +650,7 @@ export default function Members() {
                     <Input
                       id="hebrew_name"
                       value={newMember.hebrew_name}
-                      onChange={(e) => setNewMember({...newMember, hebrew_name: e.target.value})}
+                      onChange={(e) => setNewMember({ ...newMember, hebrew_name: e.target.value })}
                       //placeholder="הרב משה פוגל"
                       className="h-11"
                     />
@@ -622,7 +661,7 @@ export default function Members() {
                       id="email"
                       type="email"
                       value={newMember.email}
-                      onChange={(e) => setNewMember({...newMember, email: e.target.value})}
+                      onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
                       //placeholder="john@example.com"
                       className="h-11"
                     />
@@ -632,7 +671,7 @@ export default function Members() {
                     <Input
                       id="phone"
                       value={newMember.phone}
-                      onChange={(e) => setNewMember({...newMember, phone: e.target.value})}
+                      onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
                       //placeholder="123-456-7890"
                       className="h-11"
                     />
@@ -642,13 +681,17 @@ export default function Members() {
                     <Input
                       id="address"
                       value={newMember.address}
-                      onChange={(e) => setNewMember({...newMember, address: e.target.value})}
+                      onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
                       //placeholder="123 Main St"
                       className="h-11"
                     />
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
-                    <Button type="button" variant="outline" onClick={() => setAddMemberDialogOpen(false)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAddMemberDialogOpen(false)}
+                    >
                       Cancel
                     </Button>
                     <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
@@ -668,44 +711,63 @@ export default function Members() {
           </CardHeader>
           <CardContent className="p-0">
             {filteredMembers.length === 0 ? (
-                                <div className="p-12 text-center text-slate-500">
-                                  {members.length === 0 ? "No members yet" : "No members found matching your search"}
-                                </div>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full">
-                                    <thead className="bg-slate-50 border-b border-slate-200">
-                                      <tr>
-                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                                          <input
-                                            type="checkbox"
-                                            checked={
-                                              filteredMembers.length > 0 &&
-                                              selectedMemberIds.length === filteredMembers.length
-                                            }
-                                            onChange={(e) => toggleAllMembers(e.target.checked)}
-                                            className="w-4 h-4 text-blue-900 rounded border-slate-300"
-                                          />
-                                        </th>
-                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">ID</th>
-                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Full Name</th>
-                                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Status</th>
-                                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Standard Amount</th>
-                                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Additional Charges</th>
-                                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Total Monthly</th>
-                                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance Owed</th>
-                                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      {filteredMembers.map((member) => {
+              <div className="p-12 text-center text-slate-500">
+                {members.length === 0 ? 'No members yet' : 'No members found matching your search'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={
+                            filteredMembers.length > 0 &&
+                            selectedMemberIds.length === filteredMembers.length
+                          }
+                          onChange={(e) => toggleAllMembers(e.target.checked)}
+                          className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                        />
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        ID
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Full Name
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Status
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Standard Amount
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Additional Charges
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Total Monthly
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Balance Owed
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMembers.map((member) => {
                       const memberCharges = getMemberCharges(member.id);
                       const memberRecurring = getMemberRecurringPayments(member.id);
                       const totalMonthly = getMemberTotalMonthly(member);
                       const displayBalance = (member.total_owed || 0) + totalMonthly;
-                      const primaryName = member.english_name || member.full_name || member.hebrew_name || "Unnamed";
+                      const primaryName =
+                        member.english_name || member.full_name || member.hebrew_name || 'Unnamed';
                       const secondaryName =
-                        member.hebrew_name && member.hebrew_name !== primaryName ? member.hebrew_name : null;
+                        member.hebrew_name && member.hebrew_name !== primaryName
+                          ? member.hebrew_name
+                          : null;
                       return (
                         <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
                           <td className="py-4 px-6 align-top">
@@ -716,7 +778,9 @@ export default function Members() {
                               className="w-4 h-4 text-blue-900 rounded border-slate-300"
                             />
                           </td>
-                          <td className="py-4 px-6 text-sm font-mono text-slate-700 align-top">{member.member_id || "—"}</td>
+                          <td className="py-4 px-6 text-sm font-mono text-slate-700 align-top">
+                            {member.member_id || '—'}
+                          </td>
                           <td className="py-4 px-6 align-top">
                             <Link
                               to={createPageUrl(`MemberDetail?id=${member.id}`)}
@@ -725,18 +789,26 @@ export default function Members() {
                               {primaryName}
                             </Link>
                             {secondaryName && (
-                              <div className="text-sm text-purple-800 font-medium">{secondaryName}</div>
+                              <div className="text-sm text-purple-800 font-medium">
+                                {secondaryName}
+                              </div>
                             )}
-                            {member.email && <div className="text-sm text-slate-500">{member.email}</div>}
+                            {member.email && (
+                              <div className="text-sm text-slate-500">{member.email}</div>
+                            )}
                           </td>
-                        <td className="py-4 px-6 text-center">
+                          <td className="py-4 px-6 text-center">
                             <div className="flex items-center justify-center gap-2">
-                              <div className={`w-3 h-3 rounded-full ${
-                                member.membership_active ? 'bg-green-500' : 'bg-red-500'
-                              }`}></div>
-                              <span className={`text-sm font-medium ${
-                                member.membership_active ? 'text-green-600' : 'text-red-600'
-                              }`}>
+                              <div
+                                className={`w-3 h-3 rounded-full ${
+                                  member.membership_active ? 'bg-green-500' : 'bg-red-500'
+                                }`}
+                              ></div>
+                              <span
+                                className={`text-sm font-medium ${
+                                  member.membership_active ? 'text-green-600' : 'text-red-600'
+                                }`}
+                              >
                                 {member.membership_active ? 'Active' : 'Inactive'}
                               </span>
                             </div>
@@ -758,16 +830,25 @@ export default function Members() {
                             )}
                           </td>
                           <td className="py-4 px-6">
-                            {(memberCharges.length > 0 || memberRecurring.length > 0) ? (
+                            {memberCharges.length > 0 || memberRecurring.length > 0 ? (
                               <div className="space-y-1">
                                 {memberCharges.map((charge) => (
                                   <div key={charge.id} className="flex items-center gap-2">
                                     <span className="text-sm px-2 py-1 bg-amber-100 text-amber-800 rounded">
-                                      {charge.charge_type === 'standard_donation' ? 'Donation' : 'Pay Off'}
+                                      {charge.charge_type === 'standard_donation'
+                                        ? 'Donation'
+                                        : 'Pay Off'}
                                     </span>
-                                    <span className="text-sm font-medium">${charge.amount.toFixed(2)}</span>
+                                    <span className="text-sm font-medium">
+                                      ${charge.amount.toFixed(2)}
+                                    </span>
                                     <button
-                                      onClick={() => updateChargeMutation.mutate({ id: charge.id, data: { is_active: false } })}
+                                      onClick={() =>
+                                        updateChargeMutation.mutate({
+                                          id: charge.id,
+                                          data: { is_active: false },
+                                        })
+                                      }
                                       className="text-xs text-red-600 hover:text-red-800"
                                     >
                                       Remove
@@ -777,9 +858,13 @@ export default function Members() {
                                 {memberRecurring.map((payment) => (
                                   <div key={payment.id} className="flex items-center gap-2">
                                     <span className="text-sm px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                      {payment.payment_type === 'additional_monthly' ? 'Donation' : 'Payoff'}
+                                      {payment.payment_type === 'additional_monthly'
+                                        ? 'Donation'
+                                        : 'Payoff'}
                                     </span>
-                                    <span className="text-sm font-medium">${payment.amount_per_month.toFixed(2)}</span>
+                                    <span className="text-sm font-medium">
+                                      ${payment.amount_per_month.toFixed(2)}
+                                    </span>
                                   </div>
                                 ))}
                               </div>
@@ -797,9 +882,11 @@ export default function Members() {
                             )}
                           </td>
                           <td className="py-4 px-6 text-right">
-                            <div className={`text-lg font-bold ${
-                              displayBalance > 0 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
+                            <div
+                              className={`text-lg font-bold ${
+                                displayBalance > 0 ? 'text-amber-600' : 'text-green-600'
+                              }`}
+                            >
                               ${displayBalance.toFixed(2)}
                             </div>
                           </td>
@@ -888,25 +975,32 @@ export default function Members() {
                   </div>
                   {currentPlan && (
                     <div className="text-sm text-slate-600 mt-2">
-                      Monthly Amount: <span className="font-semibold">${currentPlan.standard_amount.toFixed(2)}</span>
+                      Monthly Amount:{' '}
+                      <span className="font-semibold">
+                        ${currentPlan.standard_amount.toFixed(2)}
+                      </span>
                     </div>
                   )}
                 </div>
-                
+
                 <div className="text-sm text-slate-600">
                   You’ll enter payment details securely in Stripe Checkout.
                 </div>
-                
+
                 <div className="flex justify-end gap-3 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setPaymentDialogOpen(false)}
+                  >
                     Cancel
                   </Button>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     className="bg-green-600 hover:bg-green-700"
                     disabled={processing}
                   >
-                    {processing ? "Processing..." : "Activate Membership"}
+                    {processing ? 'Processing...' : 'Activate Membership'}
                   </Button>
                 </div>
               </form>
@@ -927,18 +1021,19 @@ export default function Members() {
               <div className="space-y-4 mt-4">
                 <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
                   <p className="text-sm text-slate-700 mb-2">
-                    Are you sure you want to deactivate membership for <span className="font-semibold">{selectedMember.full_name}</span>?
+                    Are you sure you want to deactivate membership for{' '}
+                    <span className="font-semibold">{selectedMember.full_name}</span>?
                   </p>
                   <p className="text-sm text-amber-700 font-medium">
                     Note: The membership will remain active until the end of this month.
                   </p>
                 </div>
-                
+
                 <div className="flex justify-end gap-3">
                   <Button variant="outline" onClick={() => setDeactivateDialogOpen(false)}>
                     Cancel
                   </Button>
-                  <Button 
+                  <Button
                     className="bg-red-600 hover:bg-red-700"
                     onClick={() => deactivateMembership(selectedMember)}
                   >
@@ -951,7 +1046,7 @@ export default function Members() {
         </Dialog>
 
         {/* Edit Member Dialog */}
-            <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
+        <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit Member</DialogTitle>
@@ -962,8 +1057,10 @@ export default function Members() {
                   <Label htmlFor="edit_english_name">English Name</Label>
                   <Input
                     id="edit_english_name"
-                    value={selectedMember.english_name || ""}
-                    onChange={(e) => setSelectedMember({...selectedMember, english_name: e.target.value})}
+                    value={selectedMember.english_name || ''}
+                    onChange={(e) =>
+                      setSelectedMember({ ...selectedMember, english_name: e.target.value })
+                    }
                     className="h-11"
                   />
                 </div>
@@ -971,8 +1068,10 @@ export default function Members() {
                   <Label htmlFor="edit_hebrew_name">Hebrew Name</Label>
                   <Input
                     id="edit_hebrew_name"
-                    value={selectedMember.hebrew_name || ""}
-                    onChange={(e) => setSelectedMember({...selectedMember, hebrew_name: e.target.value})}
+                    value={selectedMember.hebrew_name || ''}
+                    onChange={(e) =>
+                      setSelectedMember({ ...selectedMember, hebrew_name: e.target.value })
+                    }
                     className="h-11"
                   />
                 </div>
@@ -981,8 +1080,10 @@ export default function Members() {
                   <Input
                     id="edit_email"
                     type="email"
-                    value={selectedMember.email || ""}
-                    onChange={(e) => setSelectedMember({...selectedMember, email: e.target.value})}
+                    value={selectedMember.email || ''}
+                    onChange={(e) =>
+                      setSelectedMember({ ...selectedMember, email: e.target.value })
+                    }
                     placeholder="john@example.com"
                     className="h-11"
                   />
@@ -991,8 +1092,10 @@ export default function Members() {
                   <Label htmlFor="edit_phone">Phone</Label>
                   <Input
                     id="edit_phone"
-                    value={selectedMember.phone || ""}
-                    onChange={(e) => setSelectedMember({...selectedMember, phone: e.target.value})}
+                    value={selectedMember.phone || ''}
+                    onChange={(e) =>
+                      setSelectedMember({ ...selectedMember, phone: e.target.value })
+                    }
                     placeholder="123-456-7890"
                     className="h-11"
                   />
@@ -1001,14 +1104,20 @@ export default function Members() {
                   <Label htmlFor="edit_address">Address</Label>
                   <Input
                     id="edit_address"
-                    value={selectedMember.address || ""}
-                    onChange={(e) => setSelectedMember({...selectedMember, address: e.target.value})}
+                    value={selectedMember.address || ''}
+                    onChange={(e) =>
+                      setSelectedMember({ ...selectedMember, address: e.target.value })
+                    }
                     placeholder="123 Main St"
                     className="h-11"
                   />
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setEditMemberDialogOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditMemberDialogOpen(false)}
+                  >
                     Cancel
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
@@ -1058,7 +1167,11 @@ export default function Members() {
                   />
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
-                  <Button type="button" variant="outline" onClick={() => setChargeDialogOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setChargeDialogOpen(false)}
+                  >
                     Cancel
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">

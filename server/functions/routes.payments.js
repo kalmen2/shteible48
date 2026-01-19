@@ -1,5 +1,9 @@
 const express = require("express");
+const jwt = require("jsonwebtoken");
+const { randomUUID } = require("crypto");
 const { getStripe } = require("./stripeClient.js");
+
+const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_DEV_SECRET || "dev-secret";
 
 function dollarsToCents(amount) {
   const n = Number(amount);
@@ -26,6 +30,20 @@ function isoDateFromUnixSeconds(sec) {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return new Date().toISOString().split("T")[0];
   return d.toISOString().split("T")[0];
+}
+
+function signSaveCardToken(payload) {
+  const jti = randomUUID();
+  return jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: "24h" });
+}
+
+function verifySaveCardToken(token) {
+  return jwt.verify(token, JWT_SECRET);
+}
+
+function buildSaveCardUrl({ token, frontendBaseUrl }) {
+  const base = (frontendBaseUrl || "").replace(/\/$/, "");
+  return `${base}/save-card?token=${encodeURIComponent(token)}`;
 }
 
 // Resolve a member using several identifiers to tolerate stale or alternate ids.
@@ -120,6 +138,18 @@ async function ensureCustomer({ stripe, store, memberId }) {
   }
 
   if (member.stripe_customer_id) {
+    // Update Stripe customer with current member info (in case email/name changed)
+    try {
+      await stripe.customers.update(member.stripe_customer_id, {
+        name: member.full_name || undefined,
+        email: member.email || undefined,
+        metadata: {
+          memberId: String(member.id || member.member_id),
+        },
+      });
+    } catch (err) {
+      console.error("[ensureCustomer] Failed to update Stripe customer:", err?.message || err);
+    }
     return { member, customerId: member.stripe_customer_id };
   }
 
@@ -146,6 +176,18 @@ async function ensureGuestCustomer({ stripe, store, guestId }) {
   }
 
   if (guest.stripe_customer_id) {
+    // Update Stripe customer with current guest info (in case email/name changed)
+    try {
+      await stripe.customers.update(guest.stripe_customer_id, {
+        name: guest.full_name || undefined,
+        email: guest.email || undefined,
+        metadata: {
+          guestId: String(guest.id),
+        },
+      });
+    } catch (err) {
+      console.error("[ensureGuestCustomer] Failed to update Stripe customer:", err?.message || err);
+    }
     return { guest, customerId: guest.stripe_customer_id };
   }
 
@@ -190,6 +232,27 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
     return fallbackOrigin;
   };
+
+  // Generate a public save-card link for a member or guest (auth required to generate)
+  router.post("/save-card-link", async (req, res) => {
+    const memberId = safeString(req.body?.memberId, 200);
+    const guestId = safeString(req.body?.guestId, 200);
+    if (!memberId && !guestId) {
+      return res.status(400).json({ message: "memberId or guestId is required" });
+    }
+
+    if (memberId) {
+      const member = await resolveMemberFromInput(store, memberId);
+      if (!member) return res.status(404).json({ message: "Member not found" });
+      const token = signSaveCardToken({ kind: "member", id: String(member.id), member_id: member.member_id });
+      return res.json({ url: buildSaveCardUrl({ token, frontendBaseUrl }) });
+    }
+
+    const [guest] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
+    if (!guest) return res.status(404).json({ message: "Guest not found" });
+    const token = signSaveCardToken({ kind: "guest", id: String(guest.id) });
+    return res.json({ url: buildSaveCardUrl({ token, frontendBaseUrl }) });
+  });
 
   router.post("/checkout", async (req, res) => {
     const stripe = getStripe();
@@ -754,6 +817,95 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
   return router;
 }
 
+// Public (no auth) endpoints
+function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
+  const router = express.Router();
+
+  router.post("/save-card-session", async (req, res) => {
+    const stripe = getStripe();
+    const token = safeString(req.body?.token, 2000);
+    if (!token) return res.status(400).json({ message: "token is required" });
+
+    let payload;
+    try {
+      payload = verifySaveCardToken(token);
+    } catch (err) {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+
+    const isMember = payload?.kind === "member";
+    const isGuest = payload?.kind === "guest";
+    if (!isMember && !isGuest) {
+      return res.status(400).json({ message: "Invalid token payload" });
+    }
+
+    // Single-use enforcement: reject if jti already used; otherwise mark used
+    if (!payload?.jti) {
+      return res.status(400).json({ message: "Invalid token payload" });
+    }
+    const existingToken = await store.filter("WebhookEvent", { id: String(payload.jti) }, undefined, 1);
+    if (existingToken[0]) {
+      return res.status(409).json({ message: "This link has already been used" });
+    }
+    await store.create("WebhookEvent", {
+      id: String(payload.jti),
+      event_type: "save_card_token_used",
+      stripe_created: Math.floor(Date.now() / 1000),
+      stripe_livemode: false,
+      stripe_request_id: undefined,
+    });
+
+    let customerId;
+    let member;
+    let guest;
+
+    if (isMember) {
+      member = await resolveMemberFromInput(store, payload.id || payload.member_id);
+      if (!member) return res.status(404).json({ message: "Member not found" });
+      const result = await ensureCustomer({ stripe, store, memberId: member.id || member.member_id || payload.id });
+      member = result.member;
+      customerId = result.customerId;
+    } else {
+      const [g] = await store.filter("Guest", { id: String(payload.id) }, undefined, 1);
+      if (!g) return res.status(404).json({ message: "Guest not found" });
+      guest = g;
+      const result = await ensureGuestCustomer({ stripe, store, guestId: guest.id });
+      guest = result.guest;
+      customerId = result.customerId;
+    }
+
+    const frontendOrigin = normalizeOrigin(req.body?.origin) || frontendBaseUrl;
+    const successPath = safeString(req.body?.successPath) || (isMember ? `/MemberDetail?id=${encodeURIComponent(member.id)}` : `/GuestDetail?id=${encodeURIComponent(guest.id)}`);
+    const cancelPath = safeString(req.body?.cancelPath) || successPath;
+    const successUrl = `${frontendOrigin}${successPath}${successPath.includes('?') ? '&' : '?'}stripe=card_saved`;
+    const cancelUrl = `${frontendOrigin}${cancelPath}${cancelPath.includes('?') ? '&' : '?'}stripe=cancel`;
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "setup",
+        customer: customerId,
+        payment_method_types: ["card"],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          kind: "save_card",
+          memberId: isMember ? String(member.id) : "",
+          guestId: isGuest ? String(guest.id) : "",
+          name: isMember
+            ? safeString(member.full_name || member.english_name || member.hebrew_name || "")
+            : safeString(guest.full_name || guest.english_name || guest.hebrew_name || ""),
+        },
+      });
+      return res.json({ url: session.url });
+    } catch (err) {
+      return res.status(500).json({ message: err?.message || "Failed to create save-card session" });
+    }
+  });
+
+  return router;
+}
+
 module.exports = {
   createPaymentsRouter,
+  createPublicPaymentsRouter,
 };

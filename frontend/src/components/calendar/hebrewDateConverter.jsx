@@ -1,20 +1,20 @@
-import { HDate, getSedra, HebrewCalendar, flags } from "@hebcal/core";
-import { isLeapYear as hebcalIsLeapYear } from "@hebcal/hdate";
+import { HDate, getSedra, HebrewCalendar, flags } from '@hebcal/core';
+import { isLeapYear as hebcalIsLeapYear } from '@hebcal/hdate';
 
 function formatHebrewNumber(value) {
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return "";
+  if (!Number.isFinite(n) || n <= 0) return '';
   try {
-    const formatted = new Intl.NumberFormat("he-u-nu-hebr").format(n);
+    const formatted = new Intl.NumberFormat('he-u-nu-hebr').format(n);
     if (formatted && formatted !== String(n)) return formatted;
   } catch {}
 
-  const ones = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"];
-  const tens = ["", "י", "כ", "ל"];
+  const ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+  const tens = ['', 'י', 'כ', 'ל'];
   if (n <= 9) return ones[n];
-  if (n === 10) return "י";
-  if (n === 15) return "טו";
-  if (n === 16) return "טז";
+  if (n === 10) return 'י';
+  if (n === 15) return 'טו';
+  if (n === 16) return 'טז';
   if (n < 20) return `י${ones[n - 10]}`;
   if (n <= 30) {
     const t = Math.floor(n / 10);
@@ -24,9 +24,9 @@ function formatHebrewNumber(value) {
   return String(n);
 }
 
-function getHebrewMonthName(year, month, locale = "he") {
+function getHebrewMonthName(year, month, locale = 'he') {
   const h = new HDate(1, month, year);
-  if (typeof h.getMonthName === "function") {
+  if (typeof h.getMonthName === 'function') {
     return h.getMonthName(locale) || h.getMonthName();
   }
   return h.getMonthName?.() || String(month);
@@ -55,7 +55,7 @@ export function getParsha(date) {
   const sedra = getSedra(hd.getFullYear(), false).lookup(hd);
   const names = sedra?.parsha;
   if (!names || names.length === 0) return null;
-  return names.join(" - ");
+  return names.join(' - ');
 }
 
 export function isShabbat(date) {
@@ -106,7 +106,7 @@ export function getHolidaysByDate(startDate, endDate, { israel = false } = {}) {
     if (!g) continue;
     const key = g.toISOString().slice(0, 10);
     if (!map[key]) map[key] = [];
-    map[key].push(ev.render ? ev.render("he") : ev.getDesc());
+    map[key].push(ev.render ? ev.render('he') : ev.getDesc());
   }
   return map;
 }

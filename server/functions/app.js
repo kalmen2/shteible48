@@ -11,7 +11,7 @@ const { createMongoEntityStore } = require('./store.mongo');
 const { authMiddleware, createAuthRouter } = require('./auth');
 const { createEntitiesRouter } = require('./routes.entities');
 const { createMemberResolveRouter } = require('./routes.entities');
-const { createPaymentsRouter } = require('./routes.payments');
+const { createPaymentsRouter, createPublicPaymentsRouter } = require('./routes.payments');
 const { createStripeWebhookHandler } = require('./stripeWebhook');
 
 const { createIntegrationsRouter } = require('./routes.integrations');
@@ -102,6 +102,17 @@ app.use(async (req, res, next) => {
     // Stripe webhook must not be behind auth middleware.
     app.post('/api/stripe/webhook', createStripeWebhookHandler({ store }));
 
+    // Public payment routes (e.g., save-card by token) must come BEFORE any /api auth middleware
+    app.use(
+      '/api/payments/public',
+      createPublicPaymentsRouter({
+        store: req.store,
+        publicBaseUrl: PUBLIC_BASE_URL,
+        frontendBaseUrl: FRONTEND_BASE_URL,
+        allowedFrontendOrigins,
+      })
+    );
+
     app.use(
       '/api/entities',
       authMiddleware,
@@ -119,6 +130,7 @@ app.use(async (req, res, next) => {
       authMiddleware,
       createMemberResolveRouter({ store: req.store })
     );
+
     app.use(
       '/api/payments',
       authMiddleware,

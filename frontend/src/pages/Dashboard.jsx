@@ -1,9 +1,9 @@
-import React from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, DollarSign, TrendingUp, TrendingDown, Calendar, Receipt } from "lucide-react";
-import { Link } from "react-router-dom";
+import React from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Users, DollarSign, TrendingUp, TrendingDown, Calendar, Receipt } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -27,20 +27,28 @@ export default function Dashboard() {
   });
 
   // Calculate statistics
-  const activeMembers = members.filter(m => m.membership_active).length;
+  const activeMembers = members.filter((m) => m.membership_active).length;
   const totalMembers = members.length;
   const totalOwed = members.reduce((sum, m) => sum + (m.total_owed || 0), 0);
-  
+
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const thisMonthTransactions = transactions.filter(t => t.date?.startsWith(thisMonth));
-  const thisMonthCharges = thisMonthTransactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-  const thisMonthPayments = thisMonthTransactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
-  
-  const allCharges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-  const allPayments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+  const thisMonthTransactions = transactions.filter((t) => t.date?.startsWith(thisMonth));
+  const thisMonthCharges = thisMonthTransactions
+    .filter((t) => t.type === 'charge')
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+  const thisMonthPayments = thisMonthTransactions
+    .filter((t) => t.type === 'payment')
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const allCharges = transactions
+    .filter((t) => t.type === 'charge')
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+  const allPayments = transactions
+    .filter((t) => t.type === 'payment')
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
 
   const topOwingMembers = [...members]
-    .filter(m => (m.total_owed || 0) > 0)
+    .filter((m) => (m.total_owed || 0) > 0)
     .sort((a, b) => (b.total_owed || 0) - (a.total_owed || 0))
     .slice(0, 5);
 
@@ -87,8 +95,12 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">This Month Charges</div>
-                  <div className="text-3xl font-bold text-slate-900">${thisMonthCharges.toFixed(2)}</div>
-                  <div className="text-xs text-slate-500 mt-1">{thisMonthTransactions.filter(t => t.type === 'charge').length} transactions</div>
+                  <div className="text-3xl font-bold text-slate-900">
+                    ${thisMonthCharges.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {thisMonthTransactions.filter((t) => t.type === 'charge').length} transactions
+                  </div>
                 </div>
                 <TrendingUp className="w-10 h-10 text-red-600" />
               </div>
@@ -100,8 +112,12 @@ export default function Dashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">This Month Payments</div>
-                  <div className="text-3xl font-bold text-slate-900">${thisMonthPayments.toFixed(2)}</div>
-                  <div className="text-xs text-slate-500 mt-1">{thisMonthTransactions.filter(t => t.type === 'payment').length} transactions</div>
+                  <div className="text-3xl font-bold text-slate-900">
+                    ${thisMonthPayments.toFixed(2)}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {thisMonthTransactions.filter((t) => t.type === 'payment').length} transactions
+                  </div>
                 </div>
                 <TrendingDown className="w-10 h-10 text-green-600" />
               </div>
@@ -129,9 +145,13 @@ export default function Dashboard() {
                     >
                       <div>
                         <div className="font-semibold text-slate-900">{member.full_name}</div>
-                        {member.email && <div className="text-sm text-slate-500">{member.email}</div>}
+                        {member.email && (
+                          <div className="text-sm text-slate-500">{member.email}</div>
+                        )}
                       </div>
-                      <div className="text-lg font-bold text-amber-600">${(member.total_owed || 0).toFixed(2)}</div>
+                      <div className="text-lg font-bold text-amber-600">
+                        ${(member.total_owed || 0).toFixed(2)}
+                      </div>
                     </Link>
                   ))}
                 </div>
@@ -150,24 +170,34 @@ export default function Dashboard() {
               ) : (
                 <div className="divide-y divide-slate-100">
                   {recentTransactions.map((transaction) => (
-                    <div key={transaction.id} className="flex items-center justify-between p-4 hover:bg-blue-50 transition-colors">
+                    <div
+                      key={transaction.id}
+                      className="flex items-center justify-between p-4 hover:bg-blue-50 transition-colors"
+                    >
                       <div className="flex-1">
-                        <div className="font-semibold text-slate-900">{transaction.member_name}</div>
+                        <div className="font-semibold text-slate-900">
+                          {transaction.member_name}
+                        </div>
                         <div className="text-sm text-slate-600">{transaction.description}</div>
                         <div className="text-xs text-slate-500 mt-1">{transaction.date}</div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          transaction.type === 'charge'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-green-100 text-green-800'
-                        }`}>
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            transaction.type === 'charge'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}
+                        >
                           {transaction.type === 'charge' ? 'Charge' : 'Payment'}
                         </span>
-                        <span className={`text-lg font-bold ${
-                          transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'
-                        }`}>
-                          {transaction.type === 'charge' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                        <span
+                          className={`text-lg font-bold ${
+                            transaction.type === 'charge' ? 'text-amber-600' : 'text-green-600'
+                          }`}
+                        >
+                          {transaction.type === 'charge' ? '+' : '-'}$
+                          {transaction.amount.toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -203,7 +233,9 @@ export default function Dashboard() {
                 <TrendingUp className="w-10 h-10 text-amber-600" />
                 <div>
                   <div className="text-sm text-slate-600">Net Outstanding</div>
-                  <div className="text-2xl font-bold text-amber-600">${(allCharges - allPayments).toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-amber-600">
+                    ${(allCharges - allPayments).toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -217,7 +249,9 @@ export default function Dashboard() {
                 <Calendar className="w-10 h-10 text-blue-900" />
                 <div>
                   <div className="text-sm text-slate-600">Standard Monthly Membership</div>
-                  <div className="text-2xl font-bold text-blue-900">${plans[0].standard_amount.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-blue-900">
+                    ${plans[0].standard_amount.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </CardContent>

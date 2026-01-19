@@ -27,6 +27,7 @@ VITE_FIREBASE_APP_ID=...
 ```
 
 Notes:
+
 - `VITE_API_BASE_URL` must point to the same backend used by Stripe webhooks and the database you expect.
 - Firebase values are required only if you use Google Sign-In.
 

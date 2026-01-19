@@ -1,38 +1,53 @@
-import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { toast } from "@/components/ui/use-toast";
-import { Mail, Send, AlertCircle, FileText, Clock, Zap, Printer, Calendar as CalendarIcon } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format, startOfMonth, endOfMonth } from "date-fns";
-import { toLocalDate, toLocalMonthDate } from "@/utils/dates";
+import React, { useEffect, useState } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { toast } from '@/components/ui/use-toast';
+import {
+  Mail,
+  Send,
+  AlertCircle,
+  FileText,
+  Clock,
+  Zap,
+  Printer,
+  Calendar as CalendarIcon,
+} from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { toLocalDate, toLocalMonthDate } from '@/utils/dates';
 
 export default function EmailManagement() {
-  const [emailSubject, setEmailSubject] = useState("Monthly Balance Statement");
+  const [emailSubject, setEmailSubject] = useState('Monthly Balance Statement');
   const [emailBody, setEmailBody] = useState(
-    `Dear {member_name},\n\nThis is a reminder that you have an outstanding balance of ${"{balance}"} as of the end of this month.\n\nPlease remit payment at your earliest convenience.\n\nThank you for your continued support.\n\nBest regards,\nSynagogue Administration`
+    `Dear {member_name},\n\nThis is a reminder that you have an outstanding balance of ${'{balance}'} as of the end of this month.\n\nPlease remit payment at your earliest convenience.\n\nThank you for your continued support.\n\nBest regards,\nSynagogue Administration`
   );
-  const [sendType, setSendType] = useState("now"); // "now" or "monthly"
-  const [viewMode, setViewMode] = useState("send"); // "send" or "monthly"
+  const [sendType, setSendType] = useState('now'); // "now" or "monthly"
+  const [viewMode, setViewMode] = useState('send'); // "send" or "monthly"
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [attachInvoice, setAttachInvoice] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendLog, setSendLog] = useState([]);
   const [scheduleDay, setScheduleDay] = useState(1);
-  const [scheduleTime, setScheduleTime] = useState("09:00");
-  const [scheduleTimezone, setScheduleTimezone] = useState("America/New_York");
-  const [scheduleRecipientMode, setScheduleRecipientMode] = useState("all");
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [scheduleTimezone, setScheduleTimezone] = useState('America/New_York');
+  const [scheduleRecipientMode, setScheduleRecipientMode] = useState('all');
   const [selectedRecipientIds, setSelectedRecipientIds] = useState([]);
   const [scheduleMessage, setScheduleMessage] = useState(null);
 
   // One-time send recipient selection
-  const [sendRecipientMode, setSendRecipientMode] = useState("all"); // "all" or "selected"
+  const [sendRecipientMode, setSendRecipientMode] = useState('all'); // "all" or "selected"
   const [sendSelectedRecipientIds, setSendSelectedRecipientIds] = useState([]);
-  const [printFilter, setPrintFilter] = useState("all");
+  const [printFilter, setPrintFilter] = useState('all');
 
   const queryClient = useQueryClient();
 
@@ -80,13 +95,15 @@ export default function EmailManagement() {
   const currentPlan = plans[0];
 
   useEffect(() => {
-    const handleAfterPrint = () => setPrintFilter("all");
-    window.addEventListener("afterprint", handleAfterPrint);
-    return () => window.removeEventListener("afterprint", handleAfterPrint);
+    const handleAfterPrint = () => setPrintFilter('all');
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
   }, []);
 
-  const getMemberCharges = (memberId) => membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
-  const getMemberRecurringPayments = (memberId) => recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
+  const getMemberCharges = (memberId) =>
+    membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
+  const getMemberRecurringPayments = (memberId) =>
+    recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
   const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
@@ -96,13 +113,16 @@ export default function EmailManagement() {
     }
 
     const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
     const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
     if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
       return Math.max(0, standardAmount - subscriptionAmount);
     }
 
-    const chargesTotal = getMemberCharges(member.id).reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    const chargesTotal = getMemberCharges(member.id).reduce(
+      (sum, c) => sum + Number(c.amount || 0),
+      0
+    );
     if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
       return Math.max(0, standardAmount - chargesTotal);
     }
@@ -115,12 +135,12 @@ export default function EmailManagement() {
     setScheduleDay(Number(schedule.day_of_month ?? 1));
     const hour = Number(schedule.hour ?? 9);
     const minute = Number(schedule.minute ?? 0);
-    setScheduleTime(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
-    setScheduleTimezone(schedule.time_zone || "America/New_York");
-    setScheduleRecipientMode(schedule.send_to === "selected" ? "selected" : "all");
+    setScheduleTime(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    setScheduleTimezone(schedule.time_zone || 'America/New_York');
+    setScheduleRecipientMode(schedule.send_to === 'selected' ? 'selected' : 'all');
     const normalizedSelected = Array.isArray(schedule.selected_member_ids)
       ? schedule.selected_member_ids.map((id) => {
-          if (typeof id === "string" && id.includes(":")) return id;
+          if (typeof id === 'string' && id.includes(':')) return id;
           const matchMember = members.find((m) => String(m.id) === String(id));
           if (matchMember) return `member:${matchMember.id}`;
           const matchGuest = guests.find((g) => String(g.id) === String(id));
@@ -131,7 +151,7 @@ export default function EmailManagement() {
     setSelectedRecipientIds(normalizedSelected);
     if (schedule.subject) setEmailSubject(schedule.subject);
     if (schedule.body) setEmailBody(schedule.body);
-    if (typeof schedule.attach_invoice === "boolean") setAttachInvoice(schedule.attach_invoice);
+    if (typeof schedule.attach_invoice === 'boolean') setAttachInvoice(schedule.attach_invoice);
   }, [schedule, members, guests]);
 
   const allRecipients = [
@@ -168,7 +188,7 @@ export default function EmailManagement() {
       const date = toLocalDate(tx.date);
       if (!date) continue;
       const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-      const key = format(monthStart, "yyyy-MM");
+      const key = format(monthStart, 'yyyy-MM');
       if (!monthMap.has(key)) {
         monthMap.set(key, monthStart);
       }
@@ -177,7 +197,7 @@ export default function EmailManagement() {
       .map(([value, date]) => ({
         value,
         date,
-        label: format(date, "MMMM yyyy"),
+        label: format(date, 'MMMM yyyy'),
       }))
       .sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [allStatementTransactions]);
@@ -196,7 +216,7 @@ export default function EmailManagement() {
     if (!baseMonth) return [];
     const monthStart = startOfMonth(baseMonth);
     const monthEnd = endOfMonth(baseMonth);
-    
+
     return transactions.filter((t) => {
       if (t[idField] !== id) return false;
       if (!t.date) return false;
@@ -207,17 +227,21 @@ export default function EmailManagement() {
   };
 
   const getRecipientMonthlyData = (recipient) => {
-    const isGuest = recipient.kind === "guest";
+    const isGuest = recipient.kind === 'guest';
     const list = isGuest ? allGuestTransactions : allTransactions;
-    const idField = isGuest ? "guest_id" : "member_id";
+    const idField = isGuest ? 'guest_id' : 'member_id';
     const transactions = getMonthlyTransactions(list, recipient.id, idField);
-    const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+    const charges = transactions
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const payments = transactions
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     return { transactions, charges, payments, balance: charges - payments };
   };
 
   const recipientsMissingEmailForMonth = React.useMemo(() => {
-    return allRecipients.filter((rec) => !String(rec.email || "").trim());
+    return allRecipients.filter((rec) => !String(rec.email || '').trim());
   }, [allRecipients]);
 
   const handlePrint = (mode) => {
@@ -230,28 +254,28 @@ export default function EmailManagement() {
       if (schedule?.id) {
         return base44.entities.EmailSchedule.update(schedule.id, payload);
       }
-      return base44.entities.EmailSchedule.create({ id: "default", ...payload });
+      return base44.entities.EmailSchedule.create({ id: 'default', ...payload });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
-      setScheduleMessage({ type: "success", text: "Monthly schedule saved." });
+      setScheduleMessage({ type: 'success', text: 'Monthly schedule saved.' });
     },
     onError: (error) => {
-      setScheduleMessage({ type: "error", text: error?.message || "Failed to save schedule." });
+      setScheduleMessage({ type: 'error', text: error?.message || 'Failed to save schedule.' });
     },
   });
 
   const handleSaveSchedule = () => {
     setScheduleMessage(null);
-    const [hourStr, minuteStr] = String(scheduleTime || "09:00").split(":");
+    const [hourStr, minuteStr] = String(scheduleTime || '09:00').split(':');
     const hour = Number(hourStr);
     const minute = Number(minuteStr);
     if (Number.isNaN(hour) || Number.isNaN(minute)) {
-      setScheduleMessage({ type: "error", text: "Please choose a valid time." });
+      setScheduleMessage({ type: 'error', text: 'Please choose a valid time.' });
       return;
     }
-    if (scheduleRecipientMode === "selected" && selectedRecipientIds.length === 0) {
-      setScheduleMessage({ type: "error", text: "Select at least one recipient." });
+    if (scheduleRecipientMode === 'selected' && selectedRecipientIds.length === 0) {
+      setScheduleMessage({ type: 'error', text: 'Select at least one recipient.' });
       return;
     }
     saveScheduleMutation.mutate({
@@ -261,7 +285,7 @@ export default function EmailManagement() {
       minute,
       time_zone: scheduleTimezone,
       send_to: scheduleRecipientMode,
-      selected_member_ids: scheduleRecipientMode === "selected" ? selectedRecipientIds : [],
+      selected_member_ids: scheduleRecipientMode === 'selected' ? selectedRecipientIds : [],
       subject: emailSubject,
       body: emailBody,
       attach_invoice: attachInvoice,
@@ -273,27 +297,42 @@ export default function EmailManagement() {
     setSendLog([]);
     const log = [];
 
-    const recipients = sendRecipientMode === "selected"
-      ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
-      : allRecipients;
+    const recipients =
+      sendRecipientMode === 'selected'
+        ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+        : allRecipients;
 
     if (recipients.length === 0) {
-      setSendLog([{ member: "", status: "skipped", reason: "No recipients selected" }]);
+      setSendLog([{ member: '', status: 'skipped', reason: 'No recipients selected' }]);
       setSending(false);
       return;
     }
 
     for (const rec of recipients) {
       if (!rec.email) {
-        log.push({ member: rec.name, status: "skipped", reason: "No email" });
+        log.push({ member: rec.name, status: 'skipped', reason: 'No email' });
         continue;
       }
 
       try {
+        let saveCardUrl = '';
+        try {
+          const linkResp = await base44.payments.generateSaveCardLink({
+            memberId: rec.kind === 'member' ? rec.id : undefined,
+            guestId: rec.kind === 'guest' ? rec.id : undefined,
+          });
+          saveCardUrl = linkResp?.url || '';
+        } catch {
+          // Non-fatal; continue without save-card link
+          saveCardUrl = '';
+        }
+
         const personalizedBody = emailBody
           .replace(/{member_name}/g, rec.name)
           .replace(/{balance}/g, `$${(rec.balance || 0).toFixed(2)}`)
-          .replace(/{id}/g, rec.ref?.member_id || rec.ref?.guest_id || rec.id || 'N/A');
+          .replace(/{hebrew_name}/g, rec.ref?.hebrew_name || '')
+          .replace(/{id}/g, rec.ref?.member_id || rec.ref?.guest_id || rec.id || 'N/A')
+          .replace(/{save_card_url}/g, saveCardUrl);
 
         const pdfPayload = attachInvoice
           ? {
@@ -312,26 +351,26 @@ export default function EmailManagement() {
           pdf: pdfPayload,
         });
 
-        log.push({ 
-          member: rec.name, 
-          status: "sent", 
+        log.push({
+          member: rec.name,
+          status: 'sent',
           email: rec.email,
           type: sendType,
-          kind: rec.kind
+          kind: rec.kind,
         });
       } catch (error) {
-        log.push({ member: rec.name, status: "failed", reason: error.message });
+        log.push({ member: rec.name, status: 'failed', reason: error.message });
       }
     }
 
     setSendLog(log);
     setSending(false);
-    const sentCount = log.filter((item) => item.status === "sent").length;
-    const failedCount = log.filter((item) => item.status === "failed").length;
+    const sentCount = log.filter((item) => item.status === 'sent').length;
+    const failedCount = log.filter((item) => item.status === 'failed').length;
     toast({
-      title: failedCount ? "Emails sent with issues" : "Emails sent",
+      title: failedCount ? 'Emails sent with issues' : 'Emails sent',
       description: `Sent ${sentCount} of ${recipients.length} emails.`,
-      variant: failedCount ? "destructive" : "default",
+      variant: failedCount ? 'destructive' : 'default',
     });
   };
 
@@ -348,22 +387,22 @@ export default function EmailManagement() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setViewMode("send")}
+                onClick={() => setViewMode('send')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  viewMode === "send"
-                    ? "bg-blue-900 text-white"
-                    : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                  viewMode === 'send'
+                    ? 'bg-blue-900 text-white'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
                 }`}
               >
                 <Send className="w-4 h-4 inline mr-2" />
                 Send Emails
               </button>
               <button
-                onClick={() => setViewMode("monthly")}
+                onClick={() => setViewMode('monthly')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  viewMode === "monthly"
-                    ? "bg-blue-900 text-white"
-                    : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                  viewMode === 'monthly'
+                    ? 'bg-blue-900 text-white'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
                 }`}
               >
                 <CalendarIcon className="w-4 h-4 inline mr-2" />
@@ -373,441 +412,495 @@ export default function EmailManagement() {
           </div>
         </div>
 
-        {viewMode === "send" && (
+        {viewMode === 'send' && (
           <>
-        {/* Stats Card */}
-        <Card className="mb-6 border-slate-200 shadow-lg">
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="flex items-center gap-4">
-                <Mail className="w-8 h-8 text-blue-900" />
-                <div>
-                  <div className="text-sm text-slate-600">Total Members & Guests</div>
-                  <div className="text-2xl font-bold text-slate-900">{allRecipients.length}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <AlertCircle className="w-8 h-8 text-amber-600" />
-                <div>
-                  <div className="text-sm text-slate-600">With Balance</div>
-                  <div className="text-2xl font-bold text-amber-600">{recipientsWithBalance.length}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <Mail className="w-8 h-8 text-green-600" />
-                <div>
-                  <div className="text-sm text-slate-600">With Email</div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {allRecipients.filter(r => r.email).length}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Email Template */}
-        <Card className="mb-6 border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-slate-50">
-            <CardTitle>Email Template</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6 space-y-6">
-            <div className="space-y-2">
-              <Label>Send Schedule</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSendType("now")}
-                  className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                    sendType === "now"
-                      ? "border-blue-900 bg-blue-50 text-blue-900"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                  }`}
-                >
-                  <Zap className="w-5 h-5" />
-                  <div className="text-left">
-                    <div className="font-semibold">Send Now</div>
-                    <div className="text-xs">One-time send</div>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSendType("monthly")}
-                  className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
-                    sendType === "monthly"
-                      ? "border-blue-900 bg-blue-50 text-blue-900"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                  }`}
-                >
-                  <Clock className="w-5 h-5" />
-                  <div className="text-left">
-                    <div className="font-semibold">Monthly</div>
-                    <div className="text-xs">Auto-recurring</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="subject">Subject</Label>
-              <input
-                id="subject"
-                value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="body">Email Body</Label>
-              <Textarea
-                id="body"
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                rows={10}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-slate-500">
-                Available variables: {"{member_name}"}, {"{balance}"}, {"{id}"}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <input
-                type="checkbox"
-                id="attachInvoice"
-                checked={attachInvoice}
-                onChange={(e) => setAttachInvoice(e.target.checked)}
-                className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
-              />
-              <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
-                <FileText className="w-5 h-5 text-blue-900" />
-                <div>
-                  <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
-                  <div className="text-sm text-slate-600">Include member statement as PDF attachment</div>
-                </div>
-              </label>
-            </div>
-
-            {sendType === "now" && (
-              <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-                <Label>Recipients (one-time send)</Label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSendRecipientMode("all")}
-                    className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                      sendRecipientMode === "all"
-                        ? "border-blue-900 bg-blue-50 text-blue-900"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    <Mail className="w-4 h-4" />
-                    <div className="text-left">
-                      <div className="font-semibold">All Recipients</div>
-                      <div className="text-xs">Send to every member & guest (skips missing email)</div>
+            {/* Stats Card */}
+            <Card className="mb-6 border-slate-200 shadow-lg">
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="flex items-center gap-4">
+                    <Mail className="w-8 h-8 text-blue-900" />
+                    <div>
+                      <div className="text-sm text-slate-600">Total Members & Guests</div>
+                      <div className="text-2xl font-bold text-slate-900">
+                        {allRecipients.length}
+                      </div>
                     </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSendRecipientMode("selected")}
-                    className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                      sendRecipientMode === "selected"
-                        ? "border-blue-900 bg-blue-50 text-blue-900"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    <AlertCircle className="w-4 h-4" />
-                    <div className="text-left">
-                      <div className="font-semibold">Selected Recipients</div>
-                      <div className="text-xs">Pick specific members or guests</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <AlertCircle className="w-8 h-8 text-amber-600" />
+                    <div>
+                      <div className="text-sm text-slate-600">With Balance</div>
+                      <div className="text-2xl font-bold text-amber-600">
+                        {recipientsWithBalance.length}
+                      </div>
                     </div>
-                  </button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Mail className="w-8 h-8 text-green-600" />
+                    <div>
+                      <div className="text-sm text-slate-600">With Email</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {allRecipients.filter((r) => r.email).length}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                {sendRecipientMode === "selected" && (
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
-                    {allRecipients.map((rec) => (
-                      <label
-                        key={`${rec.kind}-${rec.id}`}
-                        className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={sendSelectedRecipientIds.includes(rec.key)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSendSelectedRecipientIds([...sendSelectedRecipientIds, rec.key]);
-                            } else {
-                              setSendSelectedRecipientIds(sendSelectedRecipientIds.filter((id) => id !== rec.key));
-                            }
-                          }}
-                          className="w-4 h-4 text-blue-900 rounded border-slate-300"
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-slate-900">{rec.name}</div>
-                          <div className="text-xs text-slate-500 flex items-center gap-2">
-                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-700 uppercase">
-                              {rec.kind}
-                            </span>
-                            <span>{rec.email || "No email"}</span>
-                          </div>
-                        </div>
-                        <div className="text-sm font-semibold text-amber-600">${rec.balance.toFixed(2)}</div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+              </CardContent>
+            </Card>
 
-            {sendType === "monthly" && (
-              <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Day of Month</Label>
-                    <Select value={String(scheduleDay)} onValueChange={(value) => setScheduleDay(Number(value))}>
-                      <SelectTrigger className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                          <SelectItem key={day} value={String(day)}>
-                            {day}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-slate-500">Short months send on the last day.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="scheduleTime">Time</Label>
-                    <input
-                      id="scheduleTime"
-                      type="time"
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg h-10"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Timezone</Label>
-                    <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
-                      <SelectTrigger className="h-10">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="America/New_York">America/New_York</SelectItem>
-                        <SelectItem value="America/Chicago">America/Chicago</SelectItem>
-                        <SelectItem value="America/Denver">America/Denver</SelectItem>
-                        <SelectItem value="America/Los_Angeles">America/Los_Angeles</SelectItem>
-                        <SelectItem value="UTC">UTC</SelectItem>
-                      </SelectContent>
-                    </Select>
+            {/* Email Template */}
+            <Card className="mb-6 border-slate-200 shadow-lg">
+              <CardHeader className="border-b border-slate-200 bg-slate-50">
+                <CardTitle>Email Template</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-6">
+                <div className="space-y-2">
+                  <Label>Send Schedule</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSendType('now')}
+                      className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                        sendType === 'now'
+                          ? 'border-blue-900 bg-blue-50 text-blue-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <Zap className="w-5 h-5" />
+                      <div className="text-left">
+                        <div className="font-semibold">Send Now</div>
+                        <div className="text-xs">One-time send</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSendType('monthly')}
+                      className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                        sendType === 'monthly'
+                          ? 'border-blue-900 bg-blue-50 text-blue-900'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <Clock className="w-5 h-5" />
+                      <div className="text-left">
+                        <div className="font-semibold">Monthly</div>
+                        <div className="text-xs">Auto-recurring</div>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Recipients</Label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleRecipientMode("all")}
-                      className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        scheduleRecipientMode === "all"
-                          ? "border-blue-900 bg-blue-50 text-blue-900"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                      }`}
-                    >
-                      <Mail className="w-4 h-4" />
-                      <div className="text-left">
-                        <div className="font-semibold">All Recipients</div>
-                        <div className="text-xs">Send to every member or guest (skips missing email)</div>
+                  <Label htmlFor="subject">Subject</Label>
+                  <input
+                    id="subject"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="body">Email Body</Label>
+                  <Textarea
+                    id="body"
+                    value={emailBody}
+                    onChange={(e) => setEmailBody(e.target.value)}
+                    rows={10}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Available variables: {'{member_name}'}, {'{hebrew_name}'}, {'{balance}'},{' '}
+                    {'{id}'}, {'{save_card_url}'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <input
+                    type="checkbox"
+                    id="attachInvoice"
+                    checked={attachInvoice}
+                    onChange={(e) => setAttachInvoice(e.target.checked)}
+                    className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
+                  />
+                  <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
+                    <FileText className="w-5 h-5 text-blue-900" />
+                    <div>
+                      <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
+                      <div className="text-sm text-slate-600">
+                        Include member statement as PDF attachment
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScheduleRecipientMode("selected")}
-                      className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                        scheduleRecipientMode === "selected"
-                          ? "border-blue-900 bg-blue-50 text-blue-900"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                      }`}
-                    >
-                      <AlertCircle className="w-4 h-4" />
-                      <div className="text-left">
-                        <div className="font-semibold">Selected Recipients</div>
-                        <div className="text-xs">Pick specific members or guests</div>
-                      </div>
-                    </button>
-                  </div>
-                  {scheduleRecipientMode === "selected" && (
-                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
-                      {allRecipients.map((person) => {
-                        return (
+                    </div>
+                  </label>
+                </div>
+
+                {sendType === 'now' && (
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
+                    <Label>Recipients (one-time send)</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSendRecipientMode('all')}
+                        className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                          sendRecipientMode === 'all'
+                            ? 'border-blue-900 bg-blue-50 text-blue-900'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <Mail className="w-4 h-4" />
+                        <div className="text-left">
+                          <div className="font-semibold">All Recipients</div>
+                          <div className="text-xs">
+                            Send to every member & guest (skips missing email)
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSendRecipientMode('selected')}
+                        className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                          sendRecipientMode === 'selected'
+                            ? 'border-blue-900 bg-blue-50 text-blue-900'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <AlertCircle className="w-4 h-4" />
+                        <div className="text-left">
+                          <div className="font-semibold">Selected Recipients</div>
+                          <div className="text-xs">Pick specific members or guests</div>
+                        </div>
+                      </button>
+                    </div>
+                    {sendRecipientMode === 'selected' && (
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                        {allRecipients.map((rec) => (
                           <label
-                            key={person.key}
+                            key={`${rec.kind}-${rec.id}`}
                             className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
                           >
                             <input
                               type="checkbox"
-                              checked={selectedRecipientIds.includes(person.key)}
+                              checked={sendSelectedRecipientIds.includes(rec.key)}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setSelectedRecipientIds([...selectedRecipientIds, person.key]);
+                                  setSendSelectedRecipientIds([
+                                    ...sendSelectedRecipientIds,
+                                    rec.key,
+                                  ]);
                                 } else {
-                                  setSelectedRecipientIds(selectedRecipientIds.filter((id) => id !== person.key));
+                                  setSendSelectedRecipientIds(
+                                    sendSelectedRecipientIds.filter((id) => id !== rec.key)
+                                  );
                                 }
                               }}
                               className="w-4 h-4 text-blue-900 rounded border-slate-300"
                             />
                             <div className="flex-1">
-                              <div className="text-sm font-medium text-slate-900">{person.name}</div>
-                              <div className="text-xs text-slate-500">{person.email || "No email"}</div>
+                              <div className="text-sm font-medium text-slate-900">{rec.name}</div>
+                              <div className="text-xs text-slate-500 flex items-center gap-2">
+                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-700 uppercase">
+                                  {rec.kind}
+                                </span>
+                                <span>{rec.email || 'No email'}</span>
+                              </div>
+                            </div>
+                            <div className="text-sm font-semibold text-amber-600">
+                              ${rec.balance.toFixed(2)}
                             </div>
                           </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <Button
-              onClick={sendType === "monthly" ? handleSaveSchedule : handleSendNow}
-              disabled={sendType === "monthly" ? savingSchedule : sending || recipientsWithBalance.length === 0}
-              className="w-full h-12 bg-blue-900 hover:bg-blue-800"
-            >
-              <Send className="w-5 h-5 mr-2" />
-              {sendType === "monthly"
-                ? savingSchedule
-                  ? "Saving..."
-                  : "Save Monthly Schedule"
-                : (() => {
-                    if (sending) return "Sending...";
-                    const baseList = sendRecipientMode === "selected"
-                      ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
-                      : allRecipients;
-                    const count = baseList.filter((r) => r.email).length;
-                    return `Send to ${count} Recipients`;
-                  })()}
-            </Button>
-
-            {sendType === "monthly" && (
-              <>
-                <p className="text-sm text-amber-600 text-center">
-                  Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
-                </p>
-                {scheduleMessage && (
-                  <p
-                    className={`text-sm text-center ${
-                      scheduleMessage.type === "error" ? "text-red-600" : "text-green-700"
-                    }`}
-                  >
-                    {scheduleMessage.text}
-                  </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
-              </>
+
+                {sendType === 'monthly' && (
+                  <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Day of Month</Label>
+                        <Select
+                          value={String(scheduleDay)}
+                          onValueChange={(value) => setScheduleDay(Number(value))}
+                        >
+                          <SelectTrigger className="h-10">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                              <SelectItem key={day} value={String(day)}>
+                                {day}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">Short months send on the last day.</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="scheduleTime">Time</Label>
+                        <input
+                          id="scheduleTime"
+                          type="time"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg h-10"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Timezone</Label>
+                        <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
+                          <SelectTrigger className="h-10">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="America/New_York">America/New_York</SelectItem>
+                            <SelectItem value="America/Chicago">America/Chicago</SelectItem>
+                            <SelectItem value="America/Denver">America/Denver</SelectItem>
+                            <SelectItem value="America/Los_Angeles">America/Los_Angeles</SelectItem>
+                            <SelectItem value="UTC">UTC</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Recipients</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setScheduleRecipientMode('all')}
+                          className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                            scheduleRecipientMode === 'all'
+                              ? 'border-blue-900 bg-blue-50 text-blue-900'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <Mail className="w-4 h-4" />
+                          <div className="text-left">
+                            <div className="font-semibold">All Recipients</div>
+                            <div className="text-xs">
+                              Send to every member or guest (skips missing email)
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScheduleRecipientMode('selected')}
+                          className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                            scheduleRecipientMode === 'selected'
+                              ? 'border-blue-900 bg-blue-50 text-blue-900'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <AlertCircle className="w-4 h-4" />
+                          <div className="text-left">
+                            <div className="font-semibold">Selected Recipients</div>
+                            <div className="text-xs">Pick specific members or guests</div>
+                          </div>
+                        </button>
+                      </div>
+                      {scheduleRecipientMode === 'selected' && (
+                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                          {allRecipients.map((person) => {
+                            return (
+                              <label
+                                key={person.key}
+                                className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRecipientIds.includes(person.key)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedRecipientIds([
+                                        ...selectedRecipientIds,
+                                        person.key,
+                                      ]);
+                                    } else {
+                                      setSelectedRecipientIds(
+                                        selectedRecipientIds.filter((id) => id !== person.key)
+                                      );
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                                />
+                                <div className="flex-1">
+                                  <div className="text-sm font-medium text-slate-900">
+                                    {person.name}
+                                  </div>
+                                  <div className="text-xs text-slate-500">
+                                    {person.email || 'No email'}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  onClick={sendType === 'monthly' ? handleSaveSchedule : handleSendNow}
+                  disabled={
+                    sendType === 'monthly'
+                      ? savingSchedule
+                      : sending || recipientsWithBalance.length === 0
+                  }
+                  className="w-full h-12 bg-blue-900 hover:bg-blue-800"
+                >
+                  <Send className="w-5 h-5 mr-2" />
+                  {sendType === 'monthly'
+                    ? savingSchedule
+                      ? 'Saving...'
+                      : 'Save Monthly Schedule'
+                    : (() => {
+                        if (sending) return 'Sending...';
+                        const baseList =
+                          sendRecipientMode === 'selected'
+                            ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+                            : allRecipients;
+                        const count = baseList.filter((r) => r.email).length;
+                        return `Send to ${count} Recipients`;
+                      })()}
+                </Button>
+
+                {sendType === 'monthly' && (
+                  <>
+                    <p className="text-sm text-amber-600 text-center">
+                      Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
+                    </p>
+                    {scheduleMessage && (
+                      <p
+                        className={`text-sm text-center ${
+                          scheduleMessage.type === 'error' ? 'text-red-600' : 'text-green-700'
+                        }`}
+                      >
+                        {scheduleMessage.text}
+                      </p>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Members/Guests Preview */}
+            <Card className="mb-6 border-slate-200 shadow-lg">
+              <CardHeader className="border-b border-slate-200 bg-slate-50">
+                <CardTitle>Members & Guests (balance shown)</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {allRecipients.length === 0 ? (
+                  <div className="p-12 text-center text-slate-500">No members or guests</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Name
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Type
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Email
+                          </th>
+                          <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                            Balance
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {allRecipients.map((rec) => (
+                          <tr
+                            key={`${rec.kind}-${rec.id}`}
+                            className="hover:bg-blue-50/30 transition-colors"
+                          >
+                            <td className="py-4 px-6">
+                              <div className="font-semibold text-slate-900">{rec.name}</div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <span className="inline-block px-2 py-1 rounded-full text-[11px] bg-slate-100 text-slate-700 uppercase font-semibold">
+                                {rec.kind}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6">
+                              {rec.email ? (
+                                <div className="text-sm text-slate-600">{rec.email}</div>
+                              ) : (
+                                <div className="text-sm text-red-600">No email</div>
+                              )}
+                            </td>
+                            <td className="py-4 px-6 text-right">
+                              <span className="text-lg font-bold text-amber-600">
+                                ${(rec.balance || 0).toFixed(2)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Send Log */}
+            {sendLog.length > 0 && (
+              <Card className="border-slate-200 shadow-lg">
+                <CardHeader className="border-b border-slate-200 bg-slate-50">
+                  <CardTitle>Send Log</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Member
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Status
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Details
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {sendLog.map((log, idx) => (
+                          <tr key={idx}>
+                            <td className="py-4 px-6 font-medium">{log.member}</td>
+                            <td className="py-4 px-6">
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                  log.status === 'sent'
+                                    ? 'bg-green-100 text-green-800'
+                                    : log.status === 'failed'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-slate-100 text-slate-800'
+                                }`}
+                              >
+                                {log.status}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-sm text-slate-600">
+                              {log.email || log.reason}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Members/Guests Preview */}
-        <Card className="mb-6 border-slate-200 shadow-lg">
-            <CardHeader className="border-b border-slate-200 bg-slate-50">
-              <CardTitle>Members & Guests (balance shown)</CardTitle>
-            </CardHeader>
-          <CardContent className="p-0">
-            {allRecipients.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
-                No members or guests
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Name</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Type</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Email</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {allRecipients.map((rec) => (
-                      <tr key={`${rec.kind}-${rec.id}`} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="py-4 px-6">
-                          <div className="font-semibold text-slate-900">{rec.name}</div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span className="inline-block px-2 py-1 rounded-full text-[11px] bg-slate-100 text-slate-700 uppercase font-semibold">
-                            {rec.kind}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6">
-                          {rec.email ? (
-                            <div className="text-sm text-slate-600">{rec.email}</div>
-                          ) : (
-                            <div className="text-sm text-red-600">No email</div>
-                          )}
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <span className="text-lg font-bold text-amber-600">
-                            ${(rec.balance || 0).toFixed(2)}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Send Log */}
-        {sendLog.length > 0 && (
-          <Card className="border-slate-200 shadow-lg">
-            <CardHeader className="border-b border-slate-200 bg-slate-50">
-              <CardTitle>Send Log</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Status</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {sendLog.map((log, idx) => (
-                      <tr key={idx}>
-                        <td className="py-4 px-6 font-medium">{log.member}</td>
-                        <td className="py-4 px-6">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            log.status === "sent" ? "bg-green-100 text-green-800" :
-                            log.status === "failed" ? "bg-red-100 text-red-800" :
-                            "bg-slate-100 text-slate-800"
-                          }`}>
-                            {log.status}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-sm text-slate-600">
-                          {log.email || log.reason}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        </>
+          </>
         )}
 
-        {viewMode === "monthly" && (
+        {viewMode === 'monthly' && (
           <>
             {/* Month Selection */}
             <Card className="mb-6 border-slate-200 shadow-lg">
@@ -841,10 +934,13 @@ export default function EmailManagement() {
             <Card className="border-slate-200 shadow-lg">
               <CardHeader className="border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center justify-between">
-                  <CardTitle>Monthly Statements - {monthOptions.find(m => m.value === selectedMonth)?.label || "No Data"}</CardTitle>
+                  <CardTitle>
+                    Monthly Statements -{' '}
+                    {monthOptions.find((m) => m.value === selectedMonth)?.label || 'No Data'}
+                  </CardTitle>
                   <div className="flex gap-2">
                     <Button
-                      onClick={() => handlePrint("all")}
+                      onClick={() => handlePrint('all')}
                       variant="outline"
                       className="h-9"
                       disabled={monthOptions.length === 0}
@@ -853,10 +949,12 @@ export default function EmailManagement() {
                       Print All
                     </Button>
                     <Button
-                      onClick={() => handlePrint("missing-email")}
+                      onClick={() => handlePrint('missing-email')}
                       variant="outline"
                       className="h-9"
-                      disabled={monthOptions.length === 0 || recipientsMissingEmailForMonth.length === 0}
+                      disabled={
+                        monthOptions.length === 0 || recipientsMissingEmailForMonth.length === 0
+                      }
                     >
                       <Printer className="w-4 h-4 mr-2" />
                       Print Missing Email
@@ -866,53 +964,68 @@ export default function EmailManagement() {
                         setSending(true);
                         setSendLog([]);
                         const log = [];
-                        
+
                         for (const recipient of allRecipients) {
                           const monthlyData = getRecipientMonthlyData(recipient);
                           if (!recipient.email) {
-                            log.push({ member: recipient.name, status: "skipped", reason: "No email" });
+                            log.push({
+                              member: recipient.name,
+                              status: 'skipped',
+                              reason: 'No email',
+                            });
                             continue;
                           }
 
                           try {
-                            const body = `Dear ${recipient.name},\n\nHere is your statement for ${monthOptions.find(m => m.value === selectedMonth)?.label}:\n\nCharges: $${monthlyData.charges.toFixed(2)}\nPayments: $${monthlyData.payments.toFixed(2)}\nNet for Month: $${monthlyData.balance.toFixed(2)}\n\nTransactions: ${monthlyData.transactions.length}\n\nThank you,\nSynagogue Administration`;
-                            
+                            const body = `Dear ${recipient.name},\n\nHere is your statement for ${monthOptions.find((m) => m.value === selectedMonth)?.label}:\n\nCharges: $${monthlyData.charges.toFixed(2)}\nPayments: $${monthlyData.payments.toFixed(2)}\nNet for Month: $${monthlyData.balance.toFixed(2)}\n\nTransactions: ${monthlyData.transactions.length}\n\nThank you,\nSynagogue Administration`;
+
                             await base44.integrations.Core.SendEmail({
                               to: recipient.email,
-                              subject: `Monthly Statement - ${monthOptions.find(m => m.value === selectedMonth)?.label}`,
+                              subject: `Monthly Statement - ${monthOptions.find((m) => m.value === selectedMonth)?.label}`,
                               body: body,
                               pdf: attachInvoice
                                 ? {
-                                    memberName: recipient.name || "Member",
-                                    memberId: recipient.ref?.member_id || recipient.ref?.guest_id || recipient.id,
+                                    memberName: recipient.name || 'Member',
+                                    memberId:
+                                      recipient.ref?.member_id ||
+                                      recipient.ref?.guest_id ||
+                                      recipient.id,
                                     balance: monthlyData.balance,
                                     statementDate: selectedMonth,
-                                    note: "This statement reflects your monthly activity.",
+                                    note: 'This statement reflects your monthly activity.',
                                   }
                                 : undefined,
                             });
 
-                            log.push({ member: recipient.name, status: "sent", email: recipient.email });
+                            log.push({
+                              member: recipient.name,
+                              status: 'sent',
+                              email: recipient.email,
+                            });
                           } catch (error) {
-                            log.push({ member: recipient.name, status: "failed", reason: error.message });
+                            log.push({
+                              member: recipient.name,
+                              status: 'failed',
+                              reason: error.message,
+                            });
                           }
                         }
 
                         setSendLog(log);
                         setSending(false);
-                        const sentCount = log.filter((item) => item.status === "sent").length;
-                        const failedCount = log.filter((item) => item.status === "failed").length;
+                        const sentCount = log.filter((item) => item.status === 'sent').length;
+                        const failedCount = log.filter((item) => item.status === 'failed').length;
                         toast({
-                          title: failedCount ? "Emails sent with issues" : "Emails sent",
+                          title: failedCount ? 'Emails sent with issues' : 'Emails sent',
                           description: `Sent ${sentCount} of ${log.length} emails.`,
-                          variant: failedCount ? "destructive" : "default",
+                          variant: failedCount ? 'destructive' : 'default',
                         });
                       }}
                       disabled={sending || monthOptions.length === 0}
                       className="bg-blue-900 hover:bg-blue-800 h-9"
                     >
                       <Mail className="w-4 h-4 mr-2" />
-                      {sending ? "Sending..." : "Email All"}
+                      {sending ? 'Sending...' : 'Email All'}
                     </Button>
                   </div>
                 </div>
@@ -922,19 +1035,31 @@ export default function EmailManagement() {
                   <table className="w-full">
                     <thead className="bg-slate-50 border-b border-slate-200">
                       <tr>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member/Guest</th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Email</th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Charges</th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Payments</th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Net</th>
-                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Transactions</th>
+                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                          Member/Guest
+                        </th>
+                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                          Email
+                        </th>
+                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                          Charges
+                        </th>
+                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                          Payments
+                        </th>
+                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                          Net
+                        </th>
+                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                          Transactions
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {allRecipients.map((recipient) => {
                         const monthlyData = getRecipientMonthlyData(recipient);
-                        const hasEmail = Boolean(String(recipient.email || "").trim());
-                        if (printFilter === "missing-email" && hasEmail) return null;
+                        const hasEmail = Boolean(String(recipient.email || '').trim());
+                        if (printFilter === 'missing-email' && hasEmail) return null;
                         return (
                           <tr key={recipient.key} className="hover:bg-blue-50/30 transition-colors">
                             <td className="py-4 px-6">
@@ -958,9 +1083,15 @@ export default function EmailManagement() {
                               </span>
                             </td>
                             <td className="py-4 px-6 text-right">
-                              <span className={`text-lg font-bold ${
-                                monthlyData.balance > 0 ? 'text-amber-600' : monthlyData.balance < 0 ? 'text-green-600' : 'text-slate-600'
-                              }`}>
+                              <span
+                                className={`text-lg font-bold ${
+                                  monthlyData.balance > 0
+                                    ? 'text-amber-600'
+                                    : monthlyData.balance < 0
+                                      ? 'text-green-600'
+                                      : 'text-slate-600'
+                                }`}
+                              >
                                 ${monthlyData.balance.toFixed(2)}
                               </span>
                             </td>
@@ -983,13 +1114,19 @@ export default function EmailManagement() {
                   <CardTitle>Send Log</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
-                <div className="overflow-x-auto print-overflow">
-                  <table className="w-full">
+                  <div className="overflow-x-auto print-overflow">
+                    <table className="w-full">
                       <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Status</th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Details</th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Member
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Status
+                          </th>
+                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                            Details
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -997,11 +1134,15 @@ export default function EmailManagement() {
                           <tr key={idx}>
                             <td className="py-4 px-6 font-medium">{log.member}</td>
                             <td className="py-4 px-6">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                log.status === "sent" ? "bg-green-100 text-green-800" :
-                                log.status === "failed" ? "bg-red-100 text-red-800" :
-                                "bg-slate-100 text-slate-800"
-                              }`}>
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                  log.status === 'sent'
+                                    ? 'bg-green-100 text-green-800'
+                                    : log.status === 'failed'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-slate-100 text-slate-800'
+                                }`}
+                              >
                                 {log.status}
                               </span>
                             </td>

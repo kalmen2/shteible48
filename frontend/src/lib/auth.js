@@ -1,4 +1,4 @@
-const TOKEN_KEY = "sh_token";
+const TOKEN_KEY = 'sh_token';
 
 export function getToken() {
   try {

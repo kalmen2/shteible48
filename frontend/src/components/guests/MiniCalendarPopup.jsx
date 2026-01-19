@@ -1,22 +1,45 @@
-import React, { useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek } from "date-fns";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { getHebrewDate, isShabbat, getParsha, hebrewDateToGregorian, getHebrewMonthsList } from "../calendar/hebrewDateConverter";
+import React, { useState } from 'react';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameMonth,
+  isSameDay,
+  addMonths,
+  subMonths,
+  startOfWeek,
+  endOfWeek,
+} from 'date-fns';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import {
+  getHebrewDate,
+  isShabbat,
+  getParsha,
+  hebrewDateToGregorian,
+  getHebrewMonthsList,
+} from '../calendar/hebrewDateConverter';
 
 export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [calendarMode, setCalendarMode] = useState("english");
+  const [calendarMode, setCalendarMode] = useState('english');
   const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedEvent, setSelectedEvent] = useState("");
-  const [selectedHonor, setSelectedHonor] = useState("");
-  const [manualAmount, setManualAmount] = useState("");
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [selectedHonor, setSelectedHonor] = useState('');
+  const [manualAmount, setManualAmount] = useState('');
 
   const { data: customEvents = [] } = useQuery({
     queryKey: ['inputTypes'],
@@ -25,13 +48,23 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
 
   const currentYear = currentMonth.getFullYear();
   const currentMonthNum = currentMonth.getMonth();
-  
+
   const years = Array.from({ length: 10 }, (_, i) => currentYear - 2 + i);
   const months = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
-  
+
   const currentHebrewDate = getHebrewDate(currentMonth);
   const hebrewYears = Array.from({ length: 10 }, (_, i) => currentHebrewDate.year - 2 + i);
   const hebrewMonthsList = getHebrewMonthsList(currentHebrewDate.year);
@@ -42,19 +75,25 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   const calendarEnd = endOfWeek(monthEnd);
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
-  const selectedEventData = selectedEvent ? customEvents.find(e => e.name === selectedEvent) : null;
+  const selectedEventData = selectedEvent
+    ? customEvents.find((e) => e.name === selectedEvent)
+    : null;
   const currentHonors = selectedEventData?.honors || [];
-  
+
   // Get selected honor data for fixed amount
-  const selectedHonorData = selectedHonor ? currentHonors.find(h => h.name === selectedHonor) : null;
-  const hasFixedAmount = selectedHonorData?.roles?.some(r => r.payment_type === "fixed");
-  const fixedAmount = selectedHonorData?.roles?.find(r => r.payment_type === "fixed")?.fixed_amount;
+  const selectedHonorData = selectedHonor
+    ? currentHonors.find((h) => h.name === selectedHonor)
+    : null;
+  const hasFixedAmount = selectedHonorData?.roles?.some((r) => r.payment_type === 'fixed');
+  const fixedAmount = selectedHonorData?.roles?.find(
+    (r) => r.payment_type === 'fixed'
+  )?.fixed_amount;
 
   const handleDateClick = (date) => {
     setSelectedDate(format(date, 'yyyy-MM-dd'));
-    setSelectedEvent("");
-    setSelectedHonor("");
-    setManualAmount("");
+    setSelectedEvent('');
+    setSelectedHonor('');
+    setManualAmount('');
   };
 
   const handleConfirm = () => {
@@ -63,25 +102,23 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
     const amount = hasFixedAmount ? fixedAmount : manualAmount;
     if (!amount || parseFloat(amount) <= 0) return;
 
-    const description = selectedHonor 
-      ? `${selectedEvent} - ${selectedHonor}` 
-      : selectedEvent;
+    const description = selectedHonor ? `${selectedEvent} - ${selectedHonor}` : selectedEvent;
 
     onEventSelected({
       date: selectedDate,
       amount: amount.toString(),
       description: description,
-      category: selectedEvent
+      category: selectedEvent,
     });
-    
+
     handleClose();
   };
 
   const handleClose = () => {
     setSelectedDate(null);
-    setSelectedEvent("");
-    setSelectedHonor("");
-    setManualAmount("");
+    setSelectedEvent('');
+    setSelectedHonor('');
+    setManualAmount('');
     onClose();
   };
 
@@ -89,26 +126,26 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-bold text-slate-900 mb-4">Select Date & Event</h2>
-        
+
         {/* Calendar Mode Toggle */}
         <div className="mb-4 flex justify-center">
           <div className="inline-flex rounded-lg bg-slate-100 p-1">
             <button
-              onClick={() => setCalendarMode("english")}
+              onClick={() => setCalendarMode('english')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                calendarMode === "english" 
-                  ? "bg-blue-900 text-white shadow-sm" 
-                  : "text-slate-600 hover:text-slate-900"
+                calendarMode === 'english'
+                  ? 'bg-blue-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               English Calendar
             </button>
             <button
-              onClick={() => setCalendarMode("hebrew")}
+              onClick={() => setCalendarMode('hebrew')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                calendarMode === "hebrew" 
-                  ? "bg-blue-900 text-white shadow-sm" 
-                  : "text-slate-600 hover:text-slate-900"
+                calendarMode === 'hebrew'
+                  ? 'bg-blue-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Hebrew Calendar
@@ -126,25 +163,33 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
             >
               <ChevronLeft className="h-5 w-5" />
             </Button>
-            
-            {calendarMode === "english" ? (
+
+            {calendarMode === 'english' ? (
               <div className="flex items-center gap-2">
                 <select
                   value={currentMonthNum}
-                  onChange={(e) => setCurrentMonth(new Date(currentYear, parseInt(e.target.value), 1))}
+                  onChange={(e) =>
+                    setCurrentMonth(new Date(currentYear, parseInt(e.target.value), 1))
+                  }
                   className="px-3 py-1.5 border border-slate-300 rounded-lg font-medium bg-white cursor-pointer"
                 >
                   {months.map((month, idx) => (
-                    <option key={idx} value={idx}>{month}</option>
+                    <option key={idx} value={idx}>
+                      {month}
+                    </option>
                   ))}
                 </select>
                 <select
                   value={currentYear}
-                  onChange={(e) => setCurrentMonth(new Date(parseInt(e.target.value), currentMonthNum, 1))}
+                  onChange={(e) =>
+                    setCurrentMonth(new Date(parseInt(e.target.value), currentMonthNum, 1))
+                  }
                   className="px-3 py-1.5 border border-slate-300 rounded-lg font-medium bg-white cursor-pointer"
                 >
-                  {years.map(year => (
-                    <option key={year} value={year}>{year}</option>
+                  {years.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
                   ))}
                 </select>
                 <span className="text-slate-500 text-sm ml-2">
@@ -156,25 +201,37 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                 <select
                   value={currentHebrewDate.monthNum}
                   onChange={(e) => {
-                    const newDate = hebrewDateToGregorian(currentHebrewDate.year, parseInt(e.target.value), 1);
+                    const newDate = hebrewDateToGregorian(
+                      currentHebrewDate.year,
+                      parseInt(e.target.value),
+                      1
+                    );
                     setCurrentMonth(newDate);
                   }}
                   className="px-3 py-1.5 border border-slate-300 rounded-lg font-medium bg-white cursor-pointer"
                 >
                   {hebrewMonthsList.map((month, idx) => (
-                    <option key={idx} value={idx + 1}>{month}</option>
+                    <option key={idx} value={idx + 1}>
+                      {month}
+                    </option>
                   ))}
                 </select>
                 <select
                   value={currentHebrewDate.year}
                   onChange={(e) => {
-                    const newDate = hebrewDateToGregorian(parseInt(e.target.value), currentHebrewDate.monthNum, 1);
+                    const newDate = hebrewDateToGregorian(
+                      parseInt(e.target.value),
+                      currentHebrewDate.monthNum,
+                      1
+                    );
                     setCurrentMonth(newDate);
                   }}
                   className="px-3 py-1.5 border border-slate-300 rounded-lg font-medium bg-white cursor-pointer"
                 >
-                  {hebrewYears.map(year => (
-                    <option key={year} value={year}>{year}</option>
+                  {hebrewYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
                   ))}
                 </select>
                 <span className="text-slate-500 text-sm ml-2">
@@ -182,7 +239,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                 </span>
               </div>
             )}
-            
+
             <Button
               variant="ghost"
               size="icon"
@@ -194,11 +251,16 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
 
           {/* Day Headers */}
           <div className="grid grid-cols-7 gap-2 mb-2">
-            {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map((day, i) => (
-              <div key={i} className={`text-center text-xs font-semibold py-2 ${i === 6 ? 'text-blue-900' : 'text-slate-600'}`}>
-                {day}
-              </div>
-            ))}
+            {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map(
+              (day, i) => (
+                <div
+                  key={i}
+                  className={`text-center text-xs font-semibold py-2 ${i === 6 ? 'text-blue-900' : 'text-slate-600'}`}
+                >
+                  {day}
+                </div>
+              )
+            )}
           </div>
 
           {/* Calendar Grid */}
@@ -210,7 +272,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
               const isSaturday = isShabbat(day);
               const hebrewDay = getHebrewDate(day);
               const parsha = isSaturday ? getParsha(day) : null;
-              
+
               return (
                 <button
                   key={i}
@@ -225,15 +287,19 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                   `}
                 >
                   <div className="flex flex-col">
-                    <span className={`text-sm font-bold ${isSelected ? 'text-white' : isSaturday ? 'text-blue-900' : 'text-slate-900'}`}>
+                    <span
+                      className={`text-sm font-bold ${isSelected ? 'text-white' : isSaturday ? 'text-blue-900' : 'text-slate-900'}`}
+                    >
                       {format(day, 'd')}
                     </span>
                     <span className={`text-xs ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
-                      {(hebrewDay.dayHebrew || hebrewDay.day)} {hebrewDay.month}
+                      {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
                     </span>
                   </div>
                   {isSaturday && isCurrentMonth && parsha && (
-                    <span className={`text-[10px] font-medium ${isSelected ? 'text-blue-100' : 'text-blue-700'}`}>
+                    <span
+                      className={`text-[10px] font-medium ${isSelected ? 'text-blue-100' : 'text-blue-700'}`}
+                    >
                       {parsha}
                     </span>
                   )}
@@ -265,11 +331,14 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
 
             <div className="space-y-2">
               <Label className="font-semibold">Select Event *</Label>
-              <Select value={selectedEvent} onValueChange={(v) => {
-                setSelectedEvent(v);
-                setSelectedHonor("");
-                setManualAmount("");
-              }}>
+              <Select
+                value={selectedEvent}
+                onValueChange={(v) => {
+                  setSelectedEvent(v);
+                  setSelectedHonor('');
+                  setManualAmount('');
+                }}
+              >
                 <SelectTrigger className="h-11">
                   <SelectValue placeholder="Choose an event..." />
                 </SelectTrigger>
@@ -280,7 +349,9 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                     </div>
                   ) : (
                     customEvents.map((event) => (
-                      <SelectItem key={event.id} value={event.name}>{event.name}</SelectItem>
+                      <SelectItem key={event.id} value={event.name}>
+                        {event.name}
+                      </SelectItem>
                     ))
                   )}
                 </SelectContent>
@@ -291,10 +362,13 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
             {selectedEvent && currentHonors.length > 0 && (
               <div className="space-y-2">
                 <Label className="font-semibold">Select Honor (Optional)</Label>
-                <Select value={selectedHonor} onValueChange={(v) => {
-                  setSelectedHonor(v);
-                  setManualAmount("");
-                }}>
+                <Select
+                  value={selectedHonor}
+                  onValueChange={(v) => {
+                    setSelectedHonor(v);
+                    setManualAmount('');
+                  }}
+                >
                   <SelectTrigger className="h-11">
                     <SelectValue placeholder="Choose an honor..." />
                   </SelectTrigger>
@@ -303,9 +377,8 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                     {currentHonors.map((honor, idx) => (
                       <SelectItem key={idx} value={honor.name}>
                         {honor.name}
-                        {honor.roles?.some(r => r.payment_type === "fixed") && 
-                          ` (Fixed: $${honor.roles.find(r => r.payment_type === "fixed")?.fixed_amount})`
-                        }
+                        {honor.roles?.some((r) => r.payment_type === 'fixed') &&
+                          ` (Fixed: $${honor.roles.find((r) => r.payment_type === 'fixed')?.fixed_amount})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -340,7 +413,10 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
               </Button>
               <Button
                 onClick={handleConfirm}
-                disabled={!selectedEvent || (!hasFixedAmount && (!manualAmount || parseFloat(manualAmount) <= 0))}
+                disabled={
+                  !selectedEvent ||
+                  (!hasFixedAmount && (!manualAmount || parseFloat(manualAmount) <= 0))
+                }
                 className="bg-blue-900 hover:bg-blue-800"
               >
                 <Check className="w-4 h-4 mr-2" />

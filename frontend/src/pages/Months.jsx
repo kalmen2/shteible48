@@ -1,17 +1,22 @@
-import React, { useState, useRef } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Printer, ChevronRight, Users, UserPlus, Mail, ChevronDown } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import React, { useState, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Printer, ChevronRight, Users, UserPlus, Mail, ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 // Parse YYYY-MM-DD as a local date (midnight local) to avoid timezone shifts
 const toLocalDate = (dateStr) => {
   if (!dateStr) return null;
-  const parts = String(dateStr).split("-").map(Number);
+  const parts = String(dateStr).split('-').map(Number);
   if (parts.length < 3) return null;
   const [y, m, d] = parts;
   if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
@@ -21,7 +26,7 @@ const toLocalDate = (dateStr) => {
 // Parse YYYY-MM as a local month (not UTC) to avoid shifting into prior/next month on some browsers (e.g., Safari, chrome and some users in other timezones)
 const toLocalMonthDate = (monthStr) => {
   if (!monthStr) return null;
-  const parts = String(monthStr).split("-").map(Number);
+  const parts = String(monthStr).split('-').map(Number);
   if (parts.length < 2) return null;
   const [y, m] = parts;
   if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
@@ -74,20 +79,20 @@ export default function Months() {
   });
 
   const template = templates[0] || {
-    header_title: "Shtiebel 48",
-    header_subtitle: "Manager",
+    header_title: 'Shtiebel 48',
+    header_subtitle: 'Manager',
     header_font_size: 32,
-    header_color: "#1e3a8a",
+    header_color: '#1e3a8a',
     show_member_id: true,
     show_email: true,
     show_charges_section: true,
     show_payments_section: true,
-    charges_color: "#d97706",
-    payments_color: "#16a34a",
-    balance_color: "#dc2626",
+    charges_color: '#d97706',
+    payments_color: '#16a34a',
+    balance_color: '#dc2626',
     body_font_size: 14,
-    footer_text: "Thank you for your support",
-    show_footer: true
+    footer_text: 'Thank you for your support',
+    show_footer: true,
   };
 
   const currentPlan = plans[0];
@@ -100,7 +105,7 @@ export default function Months() {
       months.push({
         value: format(date, 'yyyy-MM'),
         label: format(date, 'MMMM'),
-        date: date
+        date: date,
       });
     }
     return months;
@@ -111,13 +116,13 @@ export default function Months() {
   const monthsForYear = validYear ? generateMonthsForYear(parsedYear) : [];
 
   // Get transactions for a specific month
-  const getMonthlyTransactions = (monthValue, entityTransactions, idField) => {
+  const getMonthlyTransactions = (monthValue, entityTransactions, _idField) => {
     const baseMonth = toLocalMonthDate(monthValue);
     if (!baseMonth) return [];
     const monthStart = startOfMonth(baseMonth);
     const monthEnd = endOfMonth(baseMonth);
-    
-    return entityTransactions.filter(t => {
+
+    return entityTransactions.filter((t) => {
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
@@ -145,11 +150,11 @@ export default function Months() {
       : monthsForYear.filter((month) => hasMonthActivity(month.value));
 
   const getMemberCharges = (memberId) => {
-    return membershipCharges.filter(c => c.member_id === memberId && c.is_active);
+    return membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
   };
 
   const getMemberRecurringPayments = (memberId) => {
-    return recurringPayments.filter(p => p.member_id === memberId && p.is_active);
+    return recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
   };
 
   const getMemberTotalMonthly = (member) => {
@@ -161,7 +166,7 @@ export default function Months() {
     }
 
     const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
+    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
     const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
     if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
       return Math.max(0, standardAmount - subscriptionAmount);
@@ -177,11 +182,11 @@ export default function Months() {
   };
 
   const isMonthlyChargeDescription = (description) => {
-    const value = String(description || "").toLowerCase();
+    const value = String(description || '').toLowerCase();
     return (
-      value.includes("monthly membership") ||
-      value.includes("additional monthly payment") ||
-      value.includes("balance payoff plan")
+      value.includes('monthly membership') ||
+      value.includes('additional monthly payment') ||
+      value.includes('balance payoff plan')
     );
   };
 
@@ -191,36 +196,44 @@ export default function Months() {
     if (!baseMonth) return { transactions: [], charges: 0, payments: 0, balanceAsOfEndOfMonth: 0 };
     const monthStart = startOfMonth(baseMonth);
     const monthEnd = endOfMonth(baseMonth);
-    
-    const transactions = memberTransactions.filter(t => {
+
+    const transactions = memberTransactions.filter((t) => {
       if (t.member_id !== member.id) return false;
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
-    
-    const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    const charges = transactions
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const payments = transactions
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const totalMonthly = getMemberTotalMonthly(member);
     const monthlyChargesThisMonth = transactions
-      .filter(t => t.type === 'charge' && isMonthlyChargeDescription(t.description))
+      .filter((t) => t.type === 'charge' && isMonthlyChargeDescription(t.description))
       .reduce((sum, t) => sum + (t.amount || 0), 0);
-    
+
     // Calculate balance as of end of month
-    const allTransactionsUpToMonth = memberTransactions.filter(t => {
+    const allTransactionsUpToMonth = memberTransactions.filter((t) => {
       if (t.member_id !== member.id) return false;
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
       return transDate <= monthEnd;
     });
-    
-    const totalCharges = allTransactionsUpToMonth.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const totalPayments = allTransactionsUpToMonth.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    const totalCharges = allTransactionsUpToMonth
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalPayments = allTransactionsUpToMonth
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const missingMonthly = Math.max(0, totalMonthly - monthlyChargesThisMonth);
     const balanceAsOfEndOfMonth = totalCharges - totalPayments + missingMonthly;
-    
+
     return { transactions, charges, payments, balanceAsOfEndOfMonth };
   };
 
@@ -230,59 +243,71 @@ export default function Months() {
     if (!baseMonth) return { transactions: [], charges: 0, payments: 0, balanceAsOfEndOfMonth: 0 };
     const monthStart = startOfMonth(baseMonth);
     const monthEnd = endOfMonth(baseMonth);
-    
-    const transactions = guestTransactions.filter(t => {
+
+    const transactions = guestTransactions.filter((t) => {
       if (t.guest_id !== guest.id) return false;
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
       return transDate >= monthStart && transDate <= monthEnd;
     });
-    
-    const charges = transactions.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const payments = transactions.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
-    
+
+    const charges = transactions
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const payments = transactions
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+
     // Calculate balance as of end of month
-    const allTransactionsUpToMonth = guestTransactions.filter(t => {
+    const allTransactionsUpToMonth = guestTransactions.filter((t) => {
       if (t.guest_id !== guest.id) return false;
       if (!t.date) return false;
       const transDate = toLocalDate(t.date);
       if (!transDate) return false;
       return transDate <= monthEnd;
     });
-    
-    const totalCharges = allTransactionsUpToMonth.filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const totalPayments = allTransactionsUpToMonth.filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    const totalCharges = allTransactionsUpToMonth
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalPayments = allTransactionsUpToMonth
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const balanceAsOfEndOfMonth = totalCharges - totalPayments;
-    
+
     return { transactions, charges, payments, balanceAsOfEndOfMonth };
   };
 
   const handlePrintAll = (onlyNoEmail = false) => {
     let membersToPrint = membersWithActivity;
     let guestsToPrint = guestsWithActivity;
-    
+
     if (onlyNoEmail) {
-      membersToPrint = membersWithActivity.filter(m => !m.email);
-      guestsToPrint = guestsWithActivity.filter(g => !g.email);
+      membersToPrint = membersWithActivity.filter((m) => !m.email);
+      guestsToPrint = guestsWithActivity.filter((g) => !g.email);
     }
-    
+
     if (membersToPrint.length === 0 && guestsToPrint.length === 0) {
-      alert(onlyNoEmail ? 'No members or guests without email addresses' : 'No statements to print');
+      alert(
+        onlyNoEmail ? 'No members or guests without email addresses' : 'No statements to print'
+      );
       return;
     }
-    
+
     const printWindow = window.open('', '', 'height=800,width=800');
     printWindow.document.write('<html><head><title>Monthly Statements</title>');
-    printWindow.document.write('<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>');
+    printWindow.document.write(
+      '<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>'
+    );
     printWindow.document.write('</head><body>');
-    
+
     // Print members
     membersToPrint.forEach((member) => {
       const data = getMemberMonthlyData(member, selectedMonth);
-      const charges = data.transactions.filter(t => t.type === 'charge');
-      const payments = data.transactions.filter(t => t.type === 'payment');
-      
+      const charges = data.transactions.filter((t) => t.type === 'charge');
+      const payments = data.transactions.filter((t) => t.type === 'payment');
+
       printWindow.document.write(`
         <div style="page-break-after: always; padding: 40px;">
           <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 40px;">
@@ -298,9 +323,11 @@ export default function Months() {
           </div>
           <div style="margin-bottom: 30px; padding: 15px; background-color: #f8fafc; border-left: 4px solid ${template.header_color};">
             <div style="font-size: ${template.body_font_size}px; color: #64748b;">Statement Period</div>
-            <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find(m => m.value === selectedMonth)?.label} ${selectedYear}</div>
+            <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find((m) => m.value === selectedMonth)?.label} ${selectedYear}</div>
           </div>
-          ${template.show_charges_section && charges.length > 0 ? `
+          ${
+            template.show_charges_section && charges.length > 0
+              ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Charges</h3>
             <table style="width: 100%; border-collapse: collapse;">
@@ -312,13 +339,17 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${charges.map(charge => `
+                ${charges
+                  .map(
+                    (charge) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.charges_color};">$${charge.amount.toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </tbody>
               <tfoot>
                 <tr style="background-color: #fef3c7;">
@@ -328,8 +359,12 @@ export default function Months() {
               </tfoot>
             </table>
           </div>
-          ` : ''}
-          ${template.show_payments_section && payments.length > 0 ? `
+          `
+              : ''
+          }
+          ${
+            template.show_payments_section && payments.length > 0
+              ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Payments</h3>
             <table style="width: 100%; border-collapse: collapse;">
@@ -341,13 +376,17 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${payments.map(payment => `
+                ${payments
+                  .map(
+                    (payment) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.payments_color};">$${payment.amount.toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </tbody>
               <tfoot>
                 <tr style="background-color: #dcfce7;">
@@ -357,28 +396,34 @@ export default function Months() {
               </tfoot>
             </table>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div style="margin-top: 30px; padding: 20px; background-color: ${data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7'}; border-radius: 8px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="font-size: ${template.body_font_size + 2}px; font-weight: bold;">Balance Owed</span>
               <span style="font-size: ${Math.round(template.body_font_size * 1.7)}px; font-weight: bold; color: ${data.balanceAsOfEndOfMonth > 0 ? template.balance_color : template.payments_color};">$${data.balanceAsOfEndOfMonth.toFixed(2)}</span>
             </div>
           </div>
-          ${template.show_footer ? `
+          ${
+            template.show_footer
+              ? `
           <div style="margin-top: 40px; text-align: center; color: #94a3b8; font-size: ${Math.round(template.body_font_size * 0.9)}px;">
             <p>${template.footer_text}</p>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       `);
     });
-    
+
     // Print guests
     guestsToPrint.forEach((guest) => {
       const data = getGuestMonthlyData(guest, selectedMonth);
-      const charges = data.transactions.filter(t => t.type === 'charge');
-      const payments = data.transactions.filter(t => t.type === 'payment');
-      
+      const charges = data.transactions.filter((t) => t.type === 'charge');
+      const payments = data.transactions.filter((t) => t.type === 'payment');
+
       printWindow.document.write(`
         <div style="page-break-after: always; padding: 40px;">
           <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 40px;">
@@ -393,9 +438,11 @@ export default function Months() {
           </div>
           <div style="margin-bottom: 30px; padding: 15px; background-color: #f8fafc; border-left: 4px solid ${template.header_color};">
             <div style="font-size: ${template.body_font_size}px; color: #64748b;">Statement Period</div>
-            <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find(m => m.value === selectedMonth)?.label} ${selectedYear}</div>
+            <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find((m) => m.value === selectedMonth)?.label} ${selectedYear}</div>
           </div>
-          ${template.show_charges_section && charges.length > 0 ? `
+          ${
+            template.show_charges_section && charges.length > 0
+              ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Charges</h3>
             <table style="width: 100%; border-collapse: collapse;">
@@ -407,13 +454,17 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${charges.map(charge => `
+                ${charges
+                  .map(
+                    (charge) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.charges_color};">$${charge.amount.toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </tbody>
               <tfoot>
                 <tr style="background-color: #fef3c7;">
@@ -423,8 +474,12 @@ export default function Months() {
               </tfoot>
             </table>
           </div>
-          ` : ''}
-          ${template.show_payments_section && payments.length > 0 ? `
+          `
+              : ''
+          }
+          ${
+            template.show_payments_section && payments.length > 0
+              ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Payments</h3>
             <table style="width: 100%; border-collapse: collapse;">
@@ -436,13 +491,17 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${payments.map(payment => `
+                ${payments
+                  .map(
+                    (payment) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.payments_color};">$${payment.amount.toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </tbody>
               <tfoot>
                 <tr style="background-color: #dcfce7;">
@@ -452,22 +511,28 @@ export default function Months() {
               </tfoot>
             </table>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div style="margin-top: 30px; padding: 20px; background-color: ${data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7'}; border-radius: 8px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="font-size: ${template.body_font_size + 2}px; font-weight: bold;">Balance Owed</span>
               <span style="font-size: ${Math.round(template.body_font_size * 1.7)}px; font-weight: bold; color: ${data.balanceAsOfEndOfMonth > 0 ? template.balance_color : template.payments_color};">$${data.balanceAsOfEndOfMonth.toFixed(2)}</span>
             </div>
           </div>
-          ${template.show_footer ? `
+          ${
+            template.show_footer
+              ? `
           <div style="margin-top: 40px; text-align: center; color: #94a3b8; font-size: ${Math.round(template.body_font_size * 0.9)}px;">
             <p>${template.footer_text}</p>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       `);
     });
-    
+
     printWindow.document.write('</body></html>');
     printWindow.document.close();
     printWindow.print();
@@ -477,13 +542,17 @@ export default function Months() {
   };
 
   const handlePrintSingle = (person, isGuest = false) => {
-    const data = isGuest ? getGuestMonthlyData(person, selectedMonth) : getMemberMonthlyData(person, selectedMonth);
-    const charges = data.transactions.filter(t => t.type === 'charge');
-    const payments = data.transactions.filter(t => t.type === 'payment');
-    
+    const data = isGuest
+      ? getGuestMonthlyData(person, selectedMonth)
+      : getMemberMonthlyData(person, selectedMonth);
+    const charges = data.transactions.filter((t) => t.type === 'charge');
+    const payments = data.transactions.filter((t) => t.type === 'payment');
+
     const printWindow = window.open('', '', 'height=800,width=800');
     printWindow.document.write('<html><head><title>Statement - ' + person.full_name + '</title>');
-    printWindow.document.write('<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>');
+    printWindow.document.write(
+      '<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>'
+    );
     printWindow.document.write('</head><body>');
     printWindow.document.write(`
       <div style="padding: 40px;">
@@ -500,7 +569,7 @@ export default function Months() {
         </div>
         <div style="margin-bottom: 30px; padding: 15px; background-color: #f8fafc; border-left: 4px solid ${template.header_color};">
           <div style="font-size: ${template.body_font_size}px; color: #64748b;">Statement Period</div>
-          <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find(m => m.value === selectedMonth)?.label} ${selectedYear}</div>
+          <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find((m) => m.value === selectedMonth)?.label} ${selectedYear}</div>
         </div>
     `);
 
@@ -518,7 +587,7 @@ export default function Months() {
             </thead>
             <tbody>
       `);
-      charges.forEach(charge => {
+      charges.forEach((charge) => {
         printWindow.document.write(`
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
@@ -554,7 +623,7 @@ export default function Months() {
             </thead>
             <tbody>
       `);
-      payments.forEach(payment => {
+      payments.forEach((payment) => {
         printWindow.document.write(`
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
@@ -583,11 +652,15 @@ export default function Months() {
             <span style="font-size: ${Math.round(template.body_font_size * 1.7)}px; font-weight: bold; color: ${data.balanceAsOfEndOfMonth > 0 ? template.balance_color : template.payments_color};">$${data.balanceAsOfEndOfMonth.toFixed(2)}</span>
           </div>
         </div>
-        ${template.show_footer ? `
+        ${
+          template.show_footer
+            ? `
         <div style="margin-top: 40px; text-align: center; color: #94a3b8; font-size: ${Math.round(template.body_font_size * 0.9)}px;">
           <p>${template.footer_text}</p>
         </div>
-        ` : ''}
+        `
+            : ''
+        }
       </div>
     `);
     printWindow.document.write('</body></html>');
@@ -631,10 +704,14 @@ export default function Months() {
             </CardHeader>
             <CardContent className="p-0">
               {!validYear && (
-                <div className="p-6 text-sm text-amber-700 bg-amber-50">Enter a year to see months.</div>
+                <div className="p-6 text-sm text-amber-700 bg-amber-50">
+                  Enter a year to see months.
+                </div>
               )}
               {validYear && monthsWithActivity.length === 0 && (
-                <div className="p-6 text-sm text-slate-500">No months with activity for {selectedYear}.</div>
+                <div className="p-6 text-sm text-slate-500">
+                  No months with activity for {selectedYear}.
+                </div>
               )}
               {validYear && monthsWithActivity.length > 0 && (
                 <div className="divide-y divide-slate-100">
@@ -668,15 +745,11 @@ export default function Months() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <Button
-              variant="ghost"
-              onClick={() => setSelectedMonth(null)}
-              className="mb-2 -ml-2"
-            >
+            <Button variant="ghost" onClick={() => setSelectedMonth(null)} className="mb-2 -ml-2">
               ← Back to Months
             </Button>
             <h1 className="text-4xl font-bold text-slate-900 mb-2">
-              {monthsForYear.find(m => m.value === selectedMonth)?.label} {selectedYear}
+              {monthsForYear.find((m) => m.value === selectedMonth)?.label} {selectedYear}
             </h1>
             <p className="text-slate-600">Monthly statements for all members and guests</p>
           </div>
@@ -711,42 +784,114 @@ export default function Months() {
         <div ref={printRef} style={{ display: 'none' }}>
           {membersWithActivity.map((member) => {
             const data = getMemberMonthlyData(member, selectedMonth);
-            const charges = data.transactions.filter(t => t.type === 'charge');
-            const payments = data.transactions.filter(t => t.type === 'payment');
+            const charges = data.transactions.filter((t) => t.type === 'charge');
+            const payments = data.transactions.filter((t) => t.type === 'payment');
             return (
-              <div key={member.id} style={{ pageBreakAfter: 'always', padding: '40px', fontFamily: 'Arial, sans-serif' }}>
-                <h1 style={{ fontSize: '32px', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '30px' }}>Shtiebel 48</h1>
+              <div
+                key={member.id}
+                style={{
+                  pageBreakAfter: 'always',
+                  padding: '40px',
+                  fontFamily: 'Arial, sans-serif',
+                }}
+              >
+                <h1
+                  style={{
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#1e3a8a',
+                    marginBottom: '30px',
+                  }}
+                >
+                  Shtiebel 48
+                </h1>
                 <div style={{ marginBottom: '20px', fontSize: '18px', fontWeight: 'bold' }}>
                   Statement for {member.full_name}
                 </div>
                 <div style={{ marginBottom: '30px', fontSize: '16px', color: '#64748b' }}>
-                  Period: {monthsForYear.find(m => m.value === selectedMonth)?.label} {selectedYear}
+                  Period: {monthsForYear.find((m) => m.value === selectedMonth)?.label}{' '}
+                  {selectedYear}
                 </div>
 
                 {/* Charges Section */}
                 {charges.length > 0 && (
                   <div style={{ marginBottom: '30px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '15px', borderBottom: '2px solid #1e3a8a', paddingBottom: '8px' }}>
+                    <h3
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        marginBottom: '15px',
+                        borderBottom: '2px solid #1e3a8a',
+                        paddingBottom: '8px',
+                      }}
+                    >
                       Charges
                     </h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc' }}>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Date</th>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Description</th>
-                          <th style={{ textAlign: 'right', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Amount</th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Date
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Description
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'right',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Amount
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {charges.map((charge, idx) => (
                           <tr key={idx}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {charge.description}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px', textAlign: 'right', color: '#d97706' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                                textAlign: 'right',
+                                color: '#d97706',
+                              }}
+                            >
                               ${charge.amount.toFixed(2)}
                             </td>
                           </tr>
@@ -754,8 +899,21 @@ export default function Months() {
                       </tbody>
                       <tfoot>
                         <tr style={{ backgroundColor: '#fef3c7' }}>
-                          <td colSpan="2" style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}>Total Charges</td>
-                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#d97706' }}>
+                          <td
+                            colSpan="2"
+                            style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}
+                          >
+                            Total Charges
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px',
+                              textAlign: 'right',
+                              fontWeight: 'bold',
+                              fontSize: '14px',
+                              color: '#d97706',
+                            }}
+                          >
                             ${data.charges.toFixed(2)}
                           </td>
                         </tr>
@@ -767,27 +925,82 @@ export default function Months() {
                 {/* Payments Section */}
                 {payments.length > 0 && (
                   <div style={{ marginBottom: '30px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '15px', borderBottom: '2px solid #1e3a8a', paddingBottom: '8px' }}>
+                    <h3
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        marginBottom: '15px',
+                        borderBottom: '2px solid #1e3a8a',
+                        paddingBottom: '8px',
+                      }}
+                    >
                       Payments
                     </h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc' }}>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Date</th>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Description</th>
-                          <th style={{ textAlign: 'right', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Amount</th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Date
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Description
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'right',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Amount
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {payments.map((payment, idx) => (
                           <tr key={idx}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {payment.description}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px', textAlign: 'right', color: '#16a34a' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                                textAlign: 'right',
+                                color: '#16a34a',
+                              }}
+                            >
                               ${payment.amount.toFixed(2)}
                             </td>
                           </tr>
@@ -795,8 +1008,21 @@ export default function Months() {
                       </tbody>
                       <tfoot>
                         <tr style={{ backgroundColor: '#dcfce7' }}>
-                          <td colSpan="2" style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}>Total Payments</td>
-                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#16a34a' }}>
+                          <td
+                            colSpan="2"
+                            style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}
+                          >
+                            Total Payments
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px',
+                              textAlign: 'right',
+                              fontWeight: 'bold',
+                              fontSize: '14px',
+                              color: '#16a34a',
+                            }}
+                          >
                             ${data.payments.toFixed(2)}
                           </td>
                         </tr>
@@ -806,10 +1032,31 @@ export default function Months() {
                 )}
 
                 {/* Balance Summary */}
-                <div style={{ marginTop: '30px', padding: '20px', backgroundColor: data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '16px', fontWeight: 'bold' }}>Balance Owed (as of end of month)</span>
-                    <span style={{ fontSize: '24px', fontWeight: 'bold', color: data.balanceAsOfEndOfMonth > 0 ? '#d97706' : '#16a34a' }}>
+                <div
+                  style={{
+                    marginTop: '30px',
+                    padding: '20px',
+                    backgroundColor: data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                      Balance Owed (as of end of month)
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '24px',
+                        fontWeight: 'bold',
+                        color: data.balanceAsOfEndOfMonth > 0 ? '#d97706' : '#16a34a',
+                      }}
+                    >
                       ${data.balanceAsOfEndOfMonth.toFixed(2)}
                     </span>
                   </div>
@@ -819,42 +1066,114 @@ export default function Months() {
           })}
           {guestsWithActivity.map((guest) => {
             const data = getGuestMonthlyData(guest, selectedMonth);
-            const charges = data.transactions.filter(t => t.type === 'charge');
-            const payments = data.transactions.filter(t => t.type === 'payment');
+            const charges = data.transactions.filter((t) => t.type === 'charge');
+            const payments = data.transactions.filter((t) => t.type === 'payment');
             return (
-              <div key={guest.id} style={{ pageBreakAfter: 'always', padding: '40px', fontFamily: 'Arial, sans-serif' }}>
-                <h1 style={{ fontSize: '32px', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '30px' }}>Shtiebel 48</h1>
+              <div
+                key={guest.id}
+                style={{
+                  pageBreakAfter: 'always',
+                  padding: '40px',
+                  fontFamily: 'Arial, sans-serif',
+                }}
+              >
+                <h1
+                  style={{
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#1e3a8a',
+                    marginBottom: '30px',
+                  }}
+                >
+                  Shtiebel 48
+                </h1>
                 <div style={{ marginBottom: '20px', fontSize: '18px', fontWeight: 'bold' }}>
                   Statement for {guest.full_name}
                 </div>
                 <div style={{ marginBottom: '30px', fontSize: '16px', color: '#64748b' }}>
-                  Period: {monthsForYear.find(m => m.value === selectedMonth)?.label} {selectedYear}
+                  Period: {monthsForYear.find((m) => m.value === selectedMonth)?.label}{' '}
+                  {selectedYear}
                 </div>
 
                 {/* Charges Section */}
                 {charges.length > 0 && (
                   <div style={{ marginBottom: '30px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '15px', borderBottom: '2px solid #1e3a8a', paddingBottom: '8px' }}>
+                    <h3
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        marginBottom: '15px',
+                        borderBottom: '2px solid #1e3a8a',
+                        paddingBottom: '8px',
+                      }}
+                    >
                       Charges
                     </h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc' }}>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Date</th>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Description</th>
-                          <th style={{ textAlign: 'right', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Amount</th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Date
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Description
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'right',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Amount
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {charges.map((charge, idx) => (
                           <tr key={idx}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {charge.description}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px', textAlign: 'right', color: '#d97706' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                                textAlign: 'right',
+                                color: '#d97706',
+                              }}
+                            >
                               ${charge.amount.toFixed(2)}
                             </td>
                           </tr>
@@ -862,8 +1181,21 @@ export default function Months() {
                       </tbody>
                       <tfoot>
                         <tr style={{ backgroundColor: '#fef3c7' }}>
-                          <td colSpan="2" style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}>Total Charges</td>
-                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#d97706' }}>
+                          <td
+                            colSpan="2"
+                            style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}
+                          >
+                            Total Charges
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px',
+                              textAlign: 'right',
+                              fontWeight: 'bold',
+                              fontSize: '14px',
+                              color: '#d97706',
+                            }}
+                          >
                             ${data.charges.toFixed(2)}
                           </td>
                         </tr>
@@ -875,27 +1207,82 @@ export default function Months() {
                 {/* Payments Section */}
                 {payments.length > 0 && (
                   <div style={{ marginBottom: '30px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '15px', borderBottom: '2px solid #1e3a8a', paddingBottom: '8px' }}>
+                    <h3
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        marginBottom: '15px',
+                        borderBottom: '2px solid #1e3a8a',
+                        paddingBottom: '8px',
+                      }}
+                    >
                       Payments
                     </h3>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc' }}>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Date</th>
-                          <th style={{ textAlign: 'left', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Description</th>
-                          <th style={{ textAlign: 'right', padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>Amount</th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Date
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Description
+                          </th>
+                          <th
+                            style={{
+                              textAlign: 'right',
+                              padding: '10px',
+                              borderBottom: '1px solid #e2e8f0',
+                              fontSize: '14px',
+                            }}
+                          >
+                            Amount
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {payments.map((payment, idx) => (
                           <tr key={idx}>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                              }}
+                            >
                               {payment.description}
                             </td>
-                            <td style={{ padding: '10px', borderBottom: '1px solid #e2e8f0', fontSize: '14px', textAlign: 'right', color: '#16a34a' }}>
+                            <td
+                              style={{
+                                padding: '10px',
+                                borderBottom: '1px solid #e2e8f0',
+                                fontSize: '14px',
+                                textAlign: 'right',
+                                color: '#16a34a',
+                              }}
+                            >
                               ${payment.amount.toFixed(2)}
                             </td>
                           </tr>
@@ -903,8 +1290,21 @@ export default function Months() {
                       </tbody>
                       <tfoot>
                         <tr style={{ backgroundColor: '#dcfce7' }}>
-                          <td colSpan="2" style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}>Total Payments</td>
-                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', fontSize: '14px', color: '#16a34a' }}>
+                          <td
+                            colSpan="2"
+                            style={{ padding: '10px', fontWeight: 'bold', fontSize: '14px' }}
+                          >
+                            Total Payments
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px',
+                              textAlign: 'right',
+                              fontWeight: 'bold',
+                              fontSize: '14px',
+                              color: '#16a34a',
+                            }}
+                          >
                             ${data.payments.toFixed(2)}
                           </td>
                         </tr>
@@ -914,10 +1314,31 @@ export default function Months() {
                 )}
 
                 {/* Balance Summary */}
-                <div style={{ marginTop: '30px', padding: '20px', backgroundColor: data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '16px', fontWeight: 'bold' }}>Balance Owed (as of end of month)</span>
-                    <span style={{ fontSize: '24px', fontWeight: 'bold', color: data.balanceAsOfEndOfMonth > 0 ? '#d97706' : '#16a34a' }}>
+                <div
+                  style={{
+                    marginTop: '30px',
+                    padding: '20px',
+                    backgroundColor: data.balanceAsOfEndOfMonth > 0 ? '#fef3c7' : '#dcfce7',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                      Balance Owed (as of end of month)
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '24px',
+                        fontWeight: 'bold',
+                        color: data.balanceAsOfEndOfMonth > 0 ? '#d97706' : '#16a34a',
+                      }}
+                    >
                       ${data.balanceAsOfEndOfMonth.toFixed(2)}
                     </span>
                   </div>
@@ -937,18 +1358,24 @@ export default function Months() {
           </CardHeader>
           <CardContent className="p-0">
             {members.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
-                No members yet
-              </div>
+              <div className="p-12 text-center text-slate-500">No members yet</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Member</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Payments This Month</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance (End of Month)</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Member
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Payments This Month
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Balance (End of Month)
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -965,9 +1392,11 @@ export default function Months() {
                             </span>
                           </td>
                           <td className="py-4 px-6 text-right">
-                            <span className={`text-lg font-bold ${
-                              data.balanceAsOfEndOfMonth > 0 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
+                            <span
+                              className={`text-lg font-bold ${
+                                data.balanceAsOfEndOfMonth > 0 ? 'text-amber-600' : 'text-green-600'
+                              }`}
+                            >
                               ${data.balanceAsOfEndOfMonth.toFixed(2)}
                             </span>
                           </td>
@@ -1002,18 +1431,24 @@ export default function Months() {
           </CardHeader>
           <CardContent className="p-0">
             {guests.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
-                No guests yet
-              </div>
+              <div className="p-12 text-center text-slate-500">No guests yet</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Guest</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Payments This Month</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance (End of Month)</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Guest
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Payments This Month
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Balance (End of Month)
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1030,9 +1465,11 @@ export default function Months() {
                             </span>
                           </td>
                           <td className="py-4 px-6 text-right">
-                            <span className={`text-lg font-bold ${
-                              data.balanceAsOfEndOfMonth > 0 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
+                            <span
+                              className={`text-lg font-bold ${
+                                data.balanceAsOfEndOfMonth > 0 ? 'text-amber-600' : 'text-green-600'
+                              }`}
+                            >
                               ${data.balanceAsOfEndOfMonth.toFixed(2)}
                             </span>
                           </td>

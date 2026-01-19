@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
-import { getToken } from "@/lib/auth";
-import { base44 } from "@/api/base44Client";
+import React, { useEffect, useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { getToken } from '@/lib/auth';
+import { base44 } from '@/api/base44Client';
 
 export default function ProtectedRoute({ children }) {
   const token = getToken();

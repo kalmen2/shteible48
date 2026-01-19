@@ -1,5 +1,5 @@
-import { initializeApp, getApps } from "firebase/app";
-import { GoogleAuthProvider, getAuth, signInWithPopup } from "firebase/auth";
+import { initializeApp, getApps } from 'firebase/app';
+import { GoogleAuthProvider, getAuth, signInWithPopup } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,7 +14,7 @@ export function isFirebaseConfigured() {
 
 function getFirebaseApp() {
   if (!isFirebaseConfigured()) {
-    throw new Error("Firebase is not configured (missing VITE_FIREBASE_* env vars)");
+    throw new Error('Firebase is not configured (missing VITE_FIREBASE_* env vars)');
   }
   if (getApps().length) return getApps()[0];
   return initializeApp(firebaseConfig);

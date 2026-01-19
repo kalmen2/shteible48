@@ -1,17 +1,28 @@
-import React, { useState, useRef } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Trash2, Calendar, UserPlus, Pencil, Printer } from "lucide-react";
-import { format } from "date-fns";
-import { Link } from "react-router-dom";
-import { toast } from "@/components/ui/use-toast";
-import GuestInvoiceTemplate from "../components/guests/GuestInvoiceTemplate";
+import React, { useState, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Search, Trash2, UserPlus, Pencil, Printer } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { toast } from '@/components/ui/use-toast';
+import GuestInvoiceTemplate from '../components/guests/GuestInvoiceTemplate';
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -19,20 +30,20 @@ const createPageUrl = (page) => {
 };
 
 export default function Guests() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("alpha"); // "alpha" or "balance"
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('alpha'); // "alpha" or "balance"
   const [addGuestDialogOpen, setAddGuestDialogOpen] = useState(false);
   const [editGuestDialogOpen, setEditGuestDialogOpen] = useState(false);
   const [editingGuest, setEditingGuest] = useState(null);
   const [printGuest, setPrintGuest] = useState(null);
   const [selectedGuestIds, setSelectedGuestIds] = useState([]);
   const invoiceRef = useRef();
-  
+
   const [newGuest, setNewGuest] = useState({
-    full_name: "",
-    email: "",
-    phone: "",
-    address: ""
+    full_name: '',
+    email: '',
+    phone: '',
+    address: '',
   });
 
   const queryClient = useQueryClient();
@@ -48,16 +59,17 @@ export default function Guests() {
   });
 
   const filteredGuests = guests
-    .filter(g => 
-      g.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.phone?.includes(searchQuery)
+    .filter(
+      (g) =>
+        g.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        g.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        g.phone?.includes(searchQuery)
     )
     .sort((a, b) => {
-      if (sortBy === "balance") {
+      if (sortBy === 'balance') {
         return (b.total_owed || 0) - (a.total_owed || 0);
       }
-      return (a.full_name || "").localeCompare(b.full_name || "");
+      return (a.full_name || '').localeCompare(b.full_name || '');
     });
 
   const createGuestMutation = useMutation({
@@ -65,7 +77,7 @@ export default function Guests() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['guests'] });
       setAddGuestDialogOpen(false);
-      setNewGuest({ full_name: "", email: "", phone: "", address: "" });
+      setNewGuest({ full_name: '', email: '', phone: '', address: '' });
     },
   });
 
@@ -76,8 +88,8 @@ export default function Guests() {
       setEditGuestDialogOpen(false);
       setEditingGuest(null);
       toast({
-        title: "Guest updated",
-        description: "Changes saved successfully.",
+        title: 'Guest updated',
+        description: 'Changes saved successfully.',
       });
     },
     onError: async (error, variables) => {
@@ -87,17 +99,19 @@ export default function Guests() {
         if (current) {
           const matches = Object.entries(variables.data || {}).every(([key, value]) => {
             if (value === undefined) return true;
-            return String(current[key] ?? "") === String(value);
+            return String(current[key] ?? '') === String(value);
           });
           if (matches) {
             queryClient.setQueryData(['guests'], (prev = []) =>
-              Array.isArray(prev) ? prev.map((g) => (g.id === current.id ? { ...g, ...current } : g)) : prev
+              Array.isArray(prev)
+                ? prev.map((g) => (g.id === current.id ? { ...g, ...current } : g))
+                : prev
             );
             setEditGuestDialogOpen(false);
             setEditingGuest(null);
             toast({
-              title: "Guest updated",
-              description: "Changes saved successfully.",
+              title: 'Guest updated',
+              description: 'Changes saved successfully.',
             });
             return;
           }
@@ -106,9 +120,9 @@ export default function Guests() {
         // fall through to error toast
       }
       toast({
-        title: "Update failed",
-        description: error?.message || "Unable to save guest changes.",
-        variant: "destructive",
+        title: 'Update failed',
+        description: error?.message || 'Unable to save guest changes.',
+        variant: 'destructive',
       });
     },
   });
@@ -132,7 +146,7 @@ export default function Guests() {
         full_name: newGuest.full_name.trim(),
         email: newGuest.email.trim() || undefined,
         phone: newGuest.phone.trim() || undefined,
-        address: newGuest.address.trim() || undefined
+        address: newGuest.address.trim() || undefined,
       });
     }
   };
@@ -144,11 +158,11 @@ export default function Guests() {
 
   const handleSaveGuestEdit = () => {
     if (editingGuest) {
-      const fullName = String(editingGuest.full_name || "").trim();
-      const email = String(editingGuest.email || "").trim();
-      const phone = String(editingGuest.phone || "").trim();
-      const address = String(editingGuest.address || "").trim();
-      const notes = String(editingGuest.notes || "").trim();
+      const fullName = String(editingGuest.full_name || '').trim();
+      const email = String(editingGuest.email || '').trim();
+      const phone = String(editingGuest.phone || '').trim();
+      const address = String(editingGuest.address || '').trim();
+      const notes = String(editingGuest.notes || '').trim();
       const targetId = editingGuest.id || editingGuest.guest_id;
       updateGuestMutation.mutate({
         id: targetId,
@@ -158,7 +172,7 @@ export default function Guests() {
           phone: phone || undefined,
           address: address || undefined,
           notes: notes || undefined,
-        }
+        },
       });
     }
   };
@@ -169,7 +183,9 @@ export default function Guests() {
       const printContent = invoiceRef.current;
       if (printContent) {
         const printWindow = window.open('', '', 'height=800,width=800');
-        printWindow.document.write('<html><head><title>Guest Invoice - ' + guest.full_name + '</title>');
+        printWindow.document.write(
+          '<html><head><title>Guest Invoice - ' + guest.full_name + '</title>'
+        );
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
         printWindow.document.write('</body></html>');
@@ -181,7 +197,7 @@ export default function Guests() {
   };
 
   const getGuestTransactions = (guestId) => {
-    return guestTransactions.filter(t => t.guest_id === guestId);
+    return guestTransactions.filter((t) => t.guest_id === guestId);
   };
 
   const toggleGuestSelection = (id) => {
@@ -206,7 +222,7 @@ export default function Guests() {
   };
 
   const handleDeleteGuest = (guest) => {
-    const ok = window.confirm(`Delete ${guest.full_name || "this guest"}? This cannot be undone.`);
+    const ok = window.confirm(`Delete ${guest.full_name || 'this guest'}? This cannot be undone.`);
     if (!ok) return;
     deleteGuestsMutation.mutate([guest.id]);
   };
@@ -243,7 +259,7 @@ export default function Guests() {
               className="border-red-200 text-red-700 hover:bg-red-50"
             >
               {deleteGuestsMutation.isPending
-                ? "Deleting..."
+                ? 'Deleting...'
                 : `Delete Selected (${selectedGuestIds.length})`}
             </Button>
             <Dialog open={addGuestDialogOpen} onOpenChange={setAddGuestDialogOpen}>
@@ -263,7 +279,7 @@ export default function Guests() {
                     <Input
                       id="full_name"
                       value={newGuest.full_name}
-                      onChange={(e) => setNewGuest({...newGuest, full_name: e.target.value})}
+                      onChange={(e) => setNewGuest({ ...newGuest, full_name: e.target.value })}
                       //placeholder="John Doe"
                       required
                       className="h-11"
@@ -275,7 +291,7 @@ export default function Guests() {
                       id="email"
                       type="email"
                       value={newGuest.email}
-                      onChange={(e) => setNewGuest({...newGuest, email: e.target.value})}
+                      onChange={(e) => setNewGuest({ ...newGuest, email: e.target.value })}
                       //placeholder="john@example.com"
                       className="h-11"
                     />
@@ -285,7 +301,7 @@ export default function Guests() {
                     <Input
                       id="phone"
                       value={newGuest.phone}
-                      onChange={(e) => setNewGuest({...newGuest, phone: e.target.value})}
+                      onChange={(e) => setNewGuest({ ...newGuest, phone: e.target.value })}
                       //placeholder="123-456-7890"
                       className="h-11"
                     />
@@ -295,13 +311,17 @@ export default function Guests() {
                     <Input
                       id="address"
                       value={newGuest.address}
-                      onChange={(e) => setNewGuest({...newGuest, address: e.target.value})}
+                      onChange={(e) => setNewGuest({ ...newGuest, address: e.target.value })}
                       //placeholder="123 Main St"
                       className="h-11"
                     />
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
-                    <Button type="button" variant="outline" onClick={() => setAddGuestDialogOpen(false)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAddGuestDialogOpen(false)}
+                    >
                       Cancel
                     </Button>
                     <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
@@ -322,7 +342,7 @@ export default function Guests() {
           <CardContent className="p-0">
             {filteredGuests.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                {guests.length === 0 ? "No guests yet" : "No guests found matching your search"}
+                {guests.length === 0 ? 'No guests yet' : 'No guests found matching your search'}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -340,10 +360,18 @@ export default function Guests() {
                           className="w-4 h-4 text-blue-900 rounded border-slate-300"
                         />
                       </th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Guest</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Balance Owed</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Transactions</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Guest
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Balance Owed
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Transactions
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -366,13 +394,19 @@ export default function Guests() {
                             >
                               {guest.full_name}
                             </Link>
-                            {guest.email && <div className="text-sm text-slate-500">{guest.email}</div>}
-                            {guest.phone && <div className="text-xs text-slate-400">{guest.phone}</div>}
+                            {guest.email && (
+                              <div className="text-sm text-slate-500">{guest.email}</div>
+                            )}
+                            {guest.phone && (
+                              <div className="text-xs text-slate-400">{guest.phone}</div>
+                            )}
                           </td>
                           <td className="py-4 px-6 text-right">
-                            <span className={`text-lg font-bold ${
-                              (guest.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
-                            }`}>
+                            <span
+                              className={`text-lg font-bold ${
+                                (guest.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
+                              }`}
+                            >
                               ${(guest.total_owed || 0).toFixed(2)}
                             </span>
                           </td>
@@ -433,7 +467,7 @@ export default function Guests() {
                 <Label>Full Name *</Label>
                 <Input
                   value={editingGuest.full_name}
-                  onChange={(e) => setEditingGuest({...editingGuest, full_name: e.target.value})}
+                  onChange={(e) => setEditingGuest({ ...editingGuest, full_name: e.target.value })}
                   className="h-11"
                 />
               </div>
@@ -441,8 +475,8 @@ export default function Guests() {
                 <Label>Email</Label>
                 <Input
                   type="email"
-                  value={editingGuest.email || ""}
-                  onChange={(e) => setEditingGuest({...editingGuest, email: e.target.value})}
+                  value={editingGuest.email || ''}
+                  onChange={(e) => setEditingGuest({ ...editingGuest, email: e.target.value })}
                   placeholder="email@example.com"
                   className="h-11"
                 />
@@ -450,8 +484,8 @@ export default function Guests() {
               <div className="space-y-2">
                 <Label>Phone</Label>
                 <Input
-                  value={editingGuest.phone || ""}
-                  onChange={(e) => setEditingGuest({...editingGuest, phone: e.target.value})}
+                  value={editingGuest.phone || ''}
+                  onChange={(e) => setEditingGuest({ ...editingGuest, phone: e.target.value })}
                   placeholder="123-456-7890"
                   className="h-11"
                 />
@@ -459,8 +493,8 @@ export default function Guests() {
               <div className="space-y-2">
                 <Label>Address</Label>
                 <Input
-                  value={editingGuest.address || ""}
-                  onChange={(e) => setEditingGuest({...editingGuest, address: e.target.value})}
+                  value={editingGuest.address || ''}
+                  onChange={(e) => setEditingGuest({ ...editingGuest, address: e.target.value })}
                   placeholder="123 Main St"
                   className="h-11"
                 />
@@ -468,8 +502,8 @@ export default function Guests() {
               <div className="space-y-2">
                 <Label>Notes</Label>
                 <Input
-                  value={editingGuest.notes || ""}
-                  onChange={(e) => setEditingGuest({...editingGuest, notes: e.target.value})}
+                  value={editingGuest.notes || ''}
+                  onChange={(e) => setEditingGuest({ ...editingGuest, notes: e.target.value })}
                   placeholder="Additional notes..."
                   className="h-11"
                 />
@@ -494,8 +528,12 @@ export default function Guests() {
             ref={invoiceRef}
             guest={printGuest}
             transactions={getGuestTransactions(printGuest.id)}
-            totalCharges={getGuestTransactions(printGuest.id).filter(t => t.type === 'charge').reduce((sum, t) => sum + (t.amount || 0), 0)}
-            totalPayments={getGuestTransactions(printGuest.id).filter(t => t.type === 'payment').reduce((sum, t) => sum + (t.amount || 0), 0)}
+            totalCharges={getGuestTransactions(printGuest.id)
+              .filter((t) => t.type === 'charge')
+              .reduce((sum, t) => sum + (t.amount || 0), 0)}
+            totalPayments={getGuestTransactions(printGuest.id)
+              .filter((t) => t.type === 'payment')
+              .reduce((sum, t) => sum + (t.amount || 0), 0)}
           />
         </div>
       )}

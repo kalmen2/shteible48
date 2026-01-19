@@ -1,20 +1,42 @@
-import React, { useState, useRef } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Printer, Plus, DollarSign, Calendar, Receipt, CreditCard, Repeat, Trash2, ChevronDown, Pencil } from "lucide-react";
-import { Link } from "react-router-dom";
-import { format } from "date-fns";
-import { toLocalDate, todayISO } from "@/utils/dates";
-import { toast } from "@/components/ui/use-toast";
-import InvoiceTemplate from "../components/member/InvoiceTemplate";
-import { getParsha, isShabbat, getHolidaysByDate, getHebrewDate } from "../components/calendar/hebrewDateConverter";
-import MiniCalendarPopup from "../components/guests/MiniCalendarPopup";
+import React, { useState, useRef } from 'react';
+import { base44 } from '@/api/base44Client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  ArrowLeft,
+  Printer,
+  Plus,
+  DollarSign,
+  Calendar,
+  Receipt,
+  CreditCard,
+  Repeat,
+  Trash2,
+  ChevronDown,
+  Pencil,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { format } from 'date-fns';
+import { toLocalDate, todayISO } from '@/utils/dates';
+import { toast } from '@/components/ui/use-toast';
+import InvoiceTemplate from '../components/member/InvoiceTemplate';
+import {
+  getParsha,
+  isShabbat,
+  getHolidaysByDate,
+  getHebrewDate,
+} from '../components/calendar/hebrewDateConverter';
+import MiniCalendarPopup from '../components/guests/MiniCalendarPopup';
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -30,22 +52,22 @@ export default function MemberDetail() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [chargeDialogOpen, setChargeDialogOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDescription, setPaymentDescription] = useState("");
-  const [monthlyAmount, setMonthlyAmount] = useState("");
-  const [payoffAmount, setPayoffAmount] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [monthlyAmount, setMonthlyAmount] = useState('');
+  const [payoffAmount, setPayoffAmount] = useState('');
   const [donationDialogOpen, setDonationDialogOpen] = useState(false);
-  const [donationAmount, setDonationAmount] = useState("");
-  const [donationDescription, setDonationDescription] = useState("");
-  const [chargeAmount, setChargeAmount] = useState("");
-  const [chargeDescription, setChargeDescription] = useState("");
+  const [donationAmount, setDonationAmount] = useState('');
+  const [donationDescription, setDonationDescription] = useState('');
+  const [chargeAmount, setChargeAmount] = useState('');
+  const [chargeDescription, setChargeDescription] = useState('');
   const [chargeDate, setChargeDate] = useState(todayISO());
   const [editMember, setEditMember] = useState({
-    english_name: "",
-    hebrew_name: "",
-    email: "",
-    phone: "",
-    address: "",
+    english_name: '',
+    hebrew_name: '',
+    email: '',
+    phone: '',
+    address: '',
   });
   const invoiceRef = useRef();
 
@@ -82,7 +104,8 @@ export default function MemberDetail() {
 
   const { data: recurringPayments = [] } = useQuery({
     queryKey: ['recurringPayments', memberId],
-    queryFn: () => base44.entities.RecurringPayment.filter({ member_id: memberId, is_active: true }),
+    queryFn: () =>
+      base44.entities.RecurringPayment.filter({ member_id: memberId, is_active: true }),
     enabled: !!memberId,
   });
 
@@ -91,15 +114,15 @@ export default function MemberDetail() {
       return await base44.entities.Transaction.create(paymentData);
     },
     onError: (error) => {
-      console.error("addPaymentMutation failed", error);
+      console.error('addPaymentMutation failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setPaymentDialogOpen(false);
-      setPaymentAmount("");
-      setPaymentDescription("");
+      setPaymentAmount('');
+      setPaymentDescription('');
     },
   });
 
@@ -108,15 +131,15 @@ export default function MemberDetail() {
       return await base44.entities.Transaction.create(chargeData);
     },
     onError: (error) => {
-      console.error("addChargeMutation failed", error);
+      console.error('addChargeMutation failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setChargeDialogOpen(false);
-      setChargeAmount("");
-      setChargeDescription("");
+      setChargeAmount('');
+      setChargeDescription('');
       setChargeDate(todayISO());
     },
   });
@@ -128,8 +151,8 @@ export default function MemberDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       setDonationDialogOpen(false);
-      setDonationAmount("");
-      setDonationDescription("");
+      setDonationAmount('');
+      setDonationDescription('');
     },
   });
 
@@ -138,29 +161,12 @@ export default function MemberDetail() {
       await base44.entities.Transaction.delete(transaction.id);
     },
     onError: (error) => {
-      console.error("deleteMemberTransaction failed", error);
+      console.error('deleteMemberTransaction failed', error);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
-    },
-  });
-
-  const createRecurringPaymentMutation = useMutation({
-    mutationFn: async (data) => {
-      return await base44.entities.RecurringPayment.create(data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recurringPayments', memberId] });
-      setRecurringDialogOpen(false);
-      setPayoffDialogOpen(false);
-      setMonthlyAmount("");
-      setPayoffAmount("");
-      setCardNumber("");
-      setExpiryDate("");
-      setCvv("");
-      setCardName("");
     },
   });
 
@@ -177,7 +183,7 @@ export default function MemberDetail() {
       return { previous };
     },
     onError: (error, _id, context) => {
-      console.error("cancelRecurringPayment failed", error);
+      console.error('cancelRecurringPayment failed', error);
       if (context?.previous) {
         queryClient.setQueryData(['recurringPayments', memberId], context.previous);
       }
@@ -195,15 +201,17 @@ export default function MemberDetail() {
       if (updated?.id) {
         queryClient.setQueryData(['member', memberId], updated);
         queryClient.setQueryData(['members'], (prev = []) =>
-          Array.isArray(prev) ? prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)) : prev
+          Array.isArray(prev)
+            ? prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m))
+            : prev
         );
       }
       queryClient.invalidateQueries({ queryKey: ['member', memberId] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
       setEditDialogOpen(false);
       toast({
-        title: "Member updated",
-        description: "Changes saved successfully.",
+        title: 'Member updated',
+        description: 'Changes saved successfully.',
       });
     },
     onError: async (error, variables) => {
@@ -213,17 +221,19 @@ export default function MemberDetail() {
         if (current) {
           const matches = Object.entries(variables.data || {}).every(([key, value]) => {
             if (value === undefined) return true;
-            return String(current[key] ?? "") === String(value);
+            return String(current[key] ?? '') === String(value);
           });
           if (matches) {
             queryClient.setQueryData(['member', memberId], current);
             queryClient.setQueryData(['members'], (prev = []) =>
-              Array.isArray(prev) ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m)) : prev
+              Array.isArray(prev)
+                ? prev.map((m) => (m.id === current.id ? { ...m, ...current } : m))
+                : prev
             );
             setEditDialogOpen(false);
             toast({
-              title: "Member updated",
-              description: "Changes saved successfully.",
+              title: 'Member updated',
+              description: 'Changes saved successfully.',
             });
             return;
           }
@@ -232,9 +242,9 @@ export default function MemberDetail() {
         // fall through to error toast
       }
       toast({
-        title: "Update failed",
-        description: error?.message || "Unable to save member changes.",
-        variant: "destructive",
+        title: 'Update failed',
+        description: error?.message || 'Unable to save member changes.',
+        variant: 'destructive',
       });
     },
   });
@@ -244,10 +254,10 @@ export default function MemberDetail() {
     addPaymentMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
-      type: "payment",
-      description: paymentDescription || "Payment received",
+      type: 'payment',
+      description: paymentDescription || 'Payment received',
       amount: parseFloat(paymentAmount),
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
     });
   };
 
@@ -258,8 +268,8 @@ export default function MemberDetail() {
     addDonationMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
-      type: "donation",
-      description: donationDescription || "Donation",
+      type: 'donation',
+      description: donationDescription || 'Donation',
       amount,
       date: new Date().toISOString().split('T')[0],
     });
@@ -272,8 +282,8 @@ export default function MemberDetail() {
     addChargeMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
-      type: "charge",
-      description: chargeDescription || "Manual charge",
+      type: 'charge',
+      description: chargeDescription || 'Manual charge',
       amount,
       date: chargeDate,
     });
@@ -283,7 +293,7 @@ export default function MemberDetail() {
     addChargeMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
-      type: "charge",
+      type: 'charge',
       description: eventData.description,
       amount: parseFloat(eventData.amount),
       date: eventData.date,
@@ -323,7 +333,7 @@ export default function MemberDetail() {
     base44.payments
       .createSubscriptionCheckout({
         memberId,
-        paymentType: "additional_monthly",
+        paymentType: 'additional_monthly',
         amountPerMonth,
         successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
         cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
@@ -340,7 +350,7 @@ export default function MemberDetail() {
     base44.payments
       .createSubscriptionCheckout({
         memberId,
-        paymentType: "balance_payoff",
+        paymentType: 'balance_payoff',
         amountPerMonth,
         payoffTotal: member.total_owed || 0,
         successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
@@ -353,23 +363,23 @@ export default function MemberDetail() {
 
   const openEditDialog = () => {
     setEditMember({
-      english_name: String(member?.english_name || ""),
-      hebrew_name: String(member?.hebrew_name || ""),
-      email: String(member?.email || ""),
-      phone: String(member?.phone || ""),
-      address: String(member?.address || ""),
+      english_name: String(member?.english_name || ''),
+      hebrew_name: String(member?.hebrew_name || ''),
+      email: String(member?.email || ''),
+      phone: String(member?.phone || ''),
+      address: String(member?.address || ''),
     });
     setEditDialogOpen(true);
   };
 
   const handleSaveEdit = (e) => {
     e.preventDefault();
-    const englishName = String(editMember.english_name || "").trim();
-    const hebrewName = String(editMember.hebrew_name || "").trim();
-    const email = String(editMember.email || "").trim();
-    const phone = String(editMember.phone || "").trim();
-    const address = String(editMember.address || "").trim();
-    const full_name = englishName || hebrewName || member.full_name || "";
+    const englishName = String(editMember.english_name || '').trim();
+    const hebrewName = String(editMember.hebrew_name || '').trim();
+    const email = String(editMember.email || '').trim();
+    const phone = String(editMember.phone || '').trim();
+    const address = String(editMember.address || '').trim();
+    const full_name = englishName || hebrewName || member.full_name || '';
     const targetId = member?.id || memberId;
     updateMemberMutation.mutate({
       id: targetId,
@@ -388,7 +398,9 @@ export default function MemberDetail() {
     const printContent = invoiceRef.current;
     const printWindow = window.open('', '', 'height=800,width=800');
     printWindow.document.write('<html><head><title>Invoice</title>');
-    printWindow.document.write('<style>body{font-family:Arial,sans-serif;padding:40px;} table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;} th{background:#f8f9fa;font-weight:600;} .header{margin-bottom:30px;} .total{font-size:1.2em;font-weight:bold;margin-top:20px;}</style>');
+    printWindow.document.write(
+      '<style>body{font-family:Arial,sans-serif;padding:40px;} table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;} th{background:#f8f9fa;font-weight:600;} .header{margin-bottom:30px;} .total{font-size:1.2em;font-weight:bold;margin-top:20px;}</style>'
+    );
     printWindow.document.write('</head><body>');
     printWindow.document.write(printContent.innerHTML);
     printWindow.document.write('</body></html>');
@@ -406,23 +418,23 @@ export default function MemberDetail() {
   }, [transactions]);
 
   const getSpecialDayLabel = (date) => {
-    if (!date) return "";
-    const key = format(date, "yyyy-MM-dd");
+    if (!date) return '';
+    const key = format(date, 'yyyy-MM-dd');
     const holidays = holidayMap[key];
     if (holidays && holidays.length > 0) {
-      return holidays.join(", ");
+      return holidays.join(', ');
     }
     if (isShabbat(date)) {
       const parsha = getParsha(date);
-      return parsha ? `Shabbat - ${parsha}` : "Shabbat";
+      return parsha ? `Shabbat - ${parsha}` : 'Shabbat';
     }
-    return "";
+    return '';
   };
 
   const getHebrewDateLabel = (date) => {
-    if (!date) return "";
+    if (!date) return '';
     const hebrew = getHebrewDate(date);
-    if (!hebrew) return "";
+    if (!hebrew) return '';
     const dayLabel = hebrew.dayHebrew || hebrew.day;
     return `${dayLabel} ${hebrew.month}`;
   };
@@ -435,8 +447,8 @@ export default function MemberDetail() {
     );
   }
 
-  const charges = transactions.filter(t => t.type === 'charge');
-  const payments = transactions.filter(t => t.type === 'payment');
+  const charges = transactions.filter((t) => t.type === 'charge');
+  const payments = transactions.filter((t) => t.type === 'payment');
   const totalCharges = charges.reduce((sum, t) => sum + (t.amount || 0), 0);
   const totalPayments = payments.reduce((sum, t) => sum + (t.amount || 0), 0);
 
@@ -444,7 +456,10 @@ export default function MemberDetail() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Back Button */}
-        <Link to={createPageUrl('Members')} className="inline-flex items-center text-blue-900 hover:text-blue-700 mb-6 font-medium">
+        <Link
+          to={createPageUrl('Members')}
+          className="inline-flex items-center text-blue-900 hover:text-blue-700 mb-6 font-medium"
+        >
           <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Members
         </Link>
@@ -455,19 +470,37 @@ export default function MemberDetail() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
               <div className="flex-1">
                 <h1 className="text-3xl font-bold text-slate-900 mb-1">{member.full_name}</h1>
-                {member.member_id && <div className="text-sm text-slate-500 font-mono mb-3">Member ID: {member.member_id}</div>}
+                {member.member_id && (
+                  <div className="text-sm text-slate-500 font-mono mb-3">
+                    Member ID: {member.member_id}
+                  </div>
+                )}
                 <div className="space-y-2 text-slate-600">
-                  {member.email && <div className="flex items-center gap-2"><span className="font-medium">Email:</span> {member.email}</div>}
-                  {member.phone && <div className="flex items-center gap-2"><span className="font-medium">Phone:</span> {member.phone}</div>}
-                  {member.address && <div className="flex items-center gap-2"><span className="font-medium">Address:</span> {member.address}</div>}
+                  {member.email && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Email:</span> {member.email}
+                    </div>
+                  )}
+                  {member.phone && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Phone:</span> {member.phone}
+                    </div>
+                  )}
+                  {member.address && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">Address:</span> {member.address}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex flex-col items-end gap-3">
                 <div className="text-right">
                   <div className="text-sm text-slate-600 mb-1">Current Balance</div>
-                  <div className={`text-4xl font-bold ${
-                    (member.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
-                  }`}>
+                  <div
+                    className={`text-4xl font-bold ${
+                      (member.total_owed || 0) > 0 ? 'text-amber-600' : 'text-green-600'
+                    }`}
+                  >
                     ${(member.total_owed || 0).toFixed(2)}
                   </div>
                 </div>
@@ -532,11 +565,19 @@ export default function MemberDetail() {
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setChargeDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setChargeDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
-                          <Button type="submit" className="bg-amber-600 hover:bg-amber-700" disabled={addChargeMutation.isPending}>
-                            {addChargeMutation.isPending ? "Saving..." : "Add Charge"}
+                          <Button
+                            type="submit"
+                            className="bg-amber-600 hover:bg-amber-700"
+                            disabled={addChargeMutation.isPending}
+                          >
+                            {addChargeMutation.isPending ? 'Saving...' : 'Add Charge'}
                           </Button>
                         </div>
                       </form>
@@ -590,13 +631,21 @@ export default function MemberDetail() {
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setPaymentDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPaymentDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-green-600 hover:bg-green-700">
                             Record Payment
                           </Button>
-                          <Button type="button" className="bg-blue-900 hover:bg-blue-800" onClick={handleStripePayment}>
+                          <Button
+                            type="button"
+                            className="bg-blue-900 hover:bg-blue-800"
+                            onClick={handleStripePayment}
+                          >
                             Pay with Card (Stripe)
                           </Button>
                         </div>
@@ -631,20 +680,31 @@ export default function MemberDetail() {
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setDonationDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDonationDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
-                          <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={addDonationMutation.isPending}>
-                            {addDonationMutation.isPending ? "Saving..." : "Record Donation"}
+                          <Button
+                            type="submit"
+                            className="bg-green-600 hover:bg-green-700"
+                            disabled={addDonationMutation.isPending}
+                          >
+                            {addDonationMutation.isPending ? 'Saving...' : 'Record Donation'}
                           </Button>
                         </div>
                       </form>
                     </DialogContent>
                   </Dialog>
-                  
+
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="border-blue-900 text-blue-900 hover:bg-blue-50">
+                      <Button
+                        variant="outline"
+                        className="border-blue-900 text-blue-900 hover:bg-blue-50"
+                      >
                         <Repeat className="w-4 h-4 mr-2" />
                         Monthly
                         <ChevronDown className="w-4 h-4 ml-2" />
@@ -665,7 +725,10 @@ export default function MemberDetail() {
                   </DropdownMenu>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-50">
+                      <Button
+                        variant="outline"
+                        className="border-slate-300 text-slate-700 hover:bg-slate-50"
+                      >
                         Actions
                         <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
@@ -697,10 +760,11 @@ export default function MemberDetail() {
                       <form onSubmit={handleRecurringPaymentSubmit} className="space-y-4 mt-4">
                         <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                           <div className="text-sm text-slate-600">
-                            Set up an additional monthly payment that will be automatically charged to the member's card.
+                            Set up an additional monthly payment that will be automatically charged
+                            to the member&apos;s card.
                           </div>
                         </div>
-                        
+
                         <div className="space-y-2">
                           <Label htmlFor="monthlyAmount">Monthly Amount *</Label>
                           <Input
@@ -714,13 +778,17 @@ export default function MemberDetail() {
                             className="h-11"
                           />
                         </div>
-                        
+
                         <div className="text-sm text-slate-600">
                           You’ll enter card details securely in Stripe Checkout.
                         </div>
-                        
+
                         <div className="flex justify-end gap-3 pt-4">
-                          <Button type="button" variant="outline" onClick={() => setRecurringDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setRecurringDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
                           <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
@@ -730,7 +798,7 @@ export default function MemberDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
-                  
+
                   <Dialog open={payoffDialogOpen} onOpenChange={setPayoffDialogOpen}>
                     <DialogContent className="max-w-md">
                       <DialogHeader>
@@ -739,48 +807,53 @@ export default function MemberDetail() {
                           Set Up Balance Payoff Plan
                         </DialogTitle>
                       </DialogHeader>
-                        <form onSubmit={handlePayoffSubmit} className="space-y-4 mt-4">
-                          <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                            <div className="text-sm font-semibold text-slate-900 mb-1">
-                              Current Balance: ${(member.total_owed || 0).toFixed(2)}
-                            </div>
-                            <div className="text-sm text-slate-600">
-                              Set a monthly amount to automatically charge. The final month will charge the remaining balance.
-                            </div>
+                      <form onSubmit={handlePayoffSubmit} className="space-y-4 mt-4">
+                        <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                          <div className="text-sm font-semibold text-slate-900 mb-1">
+                            Current Balance: ${(member.total_owed || 0).toFixed(2)}
                           </div>
-                          
-                          <div className="space-y-2">
-                            <Label htmlFor="payoffAmount">Monthly Payment Amount *</Label>
-                            <Input
-                              id="payoffAmount"
-                              type="number"
-                              step="0.01"
-                              value={payoffAmount}
-                              onChange={(e) => {
-                                const val = parseFloat(e.target.value) || 0;
-                                setPayoffAmount(e.target.value);
-                              }}
-                              placeholder="0.00"
-                              required
-                              className="h-11"
-                            />
-                            {payoffAmount && (
-                              <div className="text-xs text-slate-600">
-                                Estimated months: {Math.ceil((member.total_owed || 0) / parseFloat(payoffAmount))}
-                              </div>
-                            )}
-                          </div>
-                          
                           <div className="text-sm text-slate-600">
-                            You’ll enter card details securely in Stripe Checkout.
+                            Set a monthly amount to automatically charge. The final month will
+                            charge the remaining balance.
                           </div>
-                          
-                          <div className="flex justify-end gap-3 pt-4">
-                            <Button type="button" variant="outline" onClick={() => setPayoffDialogOpen(false)}>
-                              Cancel
-                            </Button>
-                            <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
-                              Set Up Payment Plan
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="payoffAmount">Monthly Payment Amount *</Label>
+                          <Input
+                            id="payoffAmount"
+                            type="number"
+                            step="0.01"
+                            value={payoffAmount}
+                            onChange={(e) => {
+                              setPayoffAmount(e.target.value);
+                            }}
+                            placeholder="0.00"
+                            required
+                            className="h-11"
+                          />
+                          {payoffAmount && (
+                            <div className="text-xs text-slate-600">
+                              Estimated months:{' '}
+                              {Math.ceil((member.total_owed || 0) / parseFloat(payoffAmount))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="text-sm text-slate-600">
+                          You’ll enter card details securely in Stripe Checkout.
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPayoffDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-amber-600 hover:bg-amber-700">
+                            Set Up Payment Plan
                           </Button>
                         </div>
                       </form>
@@ -798,7 +871,9 @@ export default function MemberDetail() {
                           <Input
                             id="editEnglishName"
                             value={editMember.english_name}
-                            onChange={(e) => setEditMember({ ...editMember, english_name: e.target.value })}
+                            onChange={(e) =>
+                              setEditMember({ ...editMember, english_name: e.target.value })
+                            }
                             placeholder="English name"
                           />
                         </div>
@@ -807,7 +882,9 @@ export default function MemberDetail() {
                           <Input
                             id="editHebrewName"
                             value={editMember.hebrew_name}
-                            onChange={(e) => setEditMember({ ...editMember, hebrew_name: e.target.value })}
+                            onChange={(e) =>
+                              setEditMember({ ...editMember, hebrew_name: e.target.value })
+                            }
                             placeholder="Hebrew name"
                           />
                         </div>
@@ -817,7 +894,9 @@ export default function MemberDetail() {
                             id="editEmail"
                             type="email"
                             value={editMember.email}
-                            onChange={(e) => setEditMember({ ...editMember, email: e.target.value })}
+                            onChange={(e) =>
+                              setEditMember({ ...editMember, email: e.target.value })
+                            }
                             placeholder="email@example.com"
                           />
                         </div>
@@ -826,7 +905,9 @@ export default function MemberDetail() {
                           <Input
                             id="editPhone"
                             value={editMember.phone}
-                            onChange={(e) => setEditMember({ ...editMember, phone: e.target.value })}
+                            onChange={(e) =>
+                              setEditMember({ ...editMember, phone: e.target.value })
+                            }
                             placeholder="(555) 555-5555"
                           />
                         </div>
@@ -835,22 +916,31 @@ export default function MemberDetail() {
                           <Input
                             id="editAddress"
                             value={editMember.address}
-                            onChange={(e) => setEditMember({ ...editMember, address: e.target.value })}
+                            onChange={(e) =>
+                              setEditMember({ ...editMember, address: e.target.value })
+                            }
                             placeholder="123 Main St"
                           />
                         </div>
                         <div className="flex justify-end gap-3 pt-2">
-                          <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setEditDialogOpen(false)}
+                          >
                             Cancel
                           </Button>
-                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800" disabled={updateMemberMutation.isPending}>
-                            {updateMemberMutation.isPending ? "Saving..." : "Save Changes"}
+                          <Button
+                            type="submit"
+                            className="bg-blue-900 hover:bg-blue-800"
+                            disabled={updateMemberMutation.isPending}
+                          >
+                            {updateMemberMutation.isPending ? 'Saving...' : 'Save Changes'}
                           </Button>
                         </div>
                       </form>
                     </DialogContent>
                   </Dialog>
-                  
                 </div>
               </div>
             </div>
@@ -869,19 +959,22 @@ export default function MemberDetail() {
             <CardContent className="pt-4">
               <div className="space-y-3">
                 {recurringPayments.map((payment) => (
-                  <div key={payment.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
+                  <div
+                    key={payment.id}
+                    className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200"
+                  >
                     <div>
                       <div className="font-semibold text-slate-900">
-                        {payment.payment_type === "membership"
-                          ? "Monthly Membership"
-                          : payment.payment_type === "additional_monthly"
-                            ? "Additional Monthly Payment"
-                            : "Balance Payoff Plan"}
+                        {payment.payment_type === 'membership'
+                          ? 'Monthly Membership'
+                          : payment.payment_type === 'additional_monthly'
+                            ? 'Additional Monthly Payment'
+                            : 'Balance Payoff Plan'}
                       </div>
                       <div className="text-sm text-slate-600">
                         ${payment.amount_per_month.toFixed(2)}/month • Stripe
                       </div>
-                      {payment.payment_type === "balance_payoff" && payment.remaining_amount && (
+                      {payment.payment_type === 'balance_payoff' && payment.remaining_amount && (
                         <div className="text-xs text-amber-600 mt-1">
                           Remaining: ${payment.remaining_amount.toFixed(2)}
                         </div>
@@ -909,7 +1002,9 @@ export default function MemberDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">Total Charges</div>
-                  <div className="text-2xl font-bold text-slate-900">${totalCharges.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-slate-900">
+                    ${totalCharges.toFixed(2)}
+                  </div>
                 </div>
                 <Receipt className="w-8 h-8 text-amber-600" />
               </div>
@@ -920,7 +1015,9 @@ export default function MemberDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">Total Payments</div>
-                  <div className="text-2xl font-bold text-slate-900">${totalPayments.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-slate-900">
+                    ${totalPayments.toFixed(2)}
+                  </div>
                 </div>
                 <DollarSign className="w-8 h-8 text-green-600" />
               </div>
@@ -954,11 +1051,21 @@ export default function MemberDetail() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Date</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Description</th>
-                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">Type</th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">Amount</th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">Actions</th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Date
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Description
+                      </th>
+                      <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                        Type
+                      </th>
+                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
+                        Amount
+                      </th>
+                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -971,18 +1078,24 @@ export default function MemberDetail() {
                               <>
                                 <div>{txDate ? format(txDate, 'MMM d, yyyy') : 'N/A'}</div>
                                 {txDate && (
-                                  <div className="text-xs text-slate-500 mt-1">{getHebrewDateLabel(txDate)}</div>
+                                  <div className="text-xs text-slate-500 mt-1">
+                                    {getHebrewDateLabel(txDate)}
+                                  </div>
                                 )}
                               </>
                             );
                           })()}
                         </td>
                         <td className="py-4 px-6">
-                          <div className="font-medium text-slate-900">{transaction.description}</div>
+                          <div className="font-medium text-slate-900">
+                            {transaction.description}
+                          </div>
                           {(() => {
                             const txDate = toLocalDate(transaction.date);
                             const label = getSpecialDayLabel(txDate);
-                            return label ? <div className="text-sm text-slate-500 mt-1">{label}</div> : null;
+                            return label ? (
+                              <div className="text-sm text-slate-500 mt-1">{label}</div>
+                            ) : null;
                           })()}
                         </td>
                         <td className="py-4 px-6">
@@ -1012,8 +1125,12 @@ export default function MemberDetail() {
                                   : 'text-green-600'
                             }`}
                           >
-                            {transaction.type === 'charge' ? '+' : transaction.type === 'donation' ? '+' : '-'}$
-                            {transaction.amount.toFixed(2)}
+                            {transaction.type === 'charge'
+                              ? '+'
+                              : transaction.type === 'donation'
+                                ? '+'
+                                : '-'}
+                            ${transaction.amount.toFixed(2)}
                           </span>
                         </td>
                         <td className="py-4 px-6 text-center">
@@ -1022,7 +1139,8 @@ export default function MemberDetail() {
                             variant="ghost"
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => {
-                              const needsBalanceChange = transaction.type === 'charge' || transaction.type === 'payment';
+                              const needsBalanceChange =
+                                transaction.type === 'charge' || transaction.type === 'payment';
                               const message = needsBalanceChange
                                 ? 'Delete this transaction? This will adjust the member balance.'
                                 : 'Delete this donation?';

@@ -1,7 +1,15 @@
-
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Users, Receipt, Calendar, DollarSign, Mail, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  Users,
+  Receipt,
+  Calendar,
+  DollarSign,
+  Mail,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 
 const createPageUrl = (page) => {
   const [pageName, queryString] = page.split('?');
@@ -13,7 +21,7 @@ export default function Layout({ children, currentPageName }) {
 
   useEffect(() => {
     try {
-      setIsCollapsed(localStorage.getItem("sidebar-collapsed") === "true");
+      setIsCollapsed(localStorage.getItem('sidebar-collapsed') === 'true');
     } catch {
       setIsCollapsed(false);
     }
@@ -21,20 +29,20 @@ export default function Layout({ children, currentPageName }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem("sidebar-collapsed", String(isCollapsed));
+      localStorage.setItem('sidebar-collapsed', String(isCollapsed));
     } catch {
       // ignore
     }
   }, [isCollapsed]);
 
   const navItems = [
-    { name: "Dashboard", icon: DollarSign, page: "Dashboard" },
-    { name: "Members", icon: Users, page: "Members" },
-    { name: "Guests / Old", icon: Users, page: "Guests" },
-    { name: "Transactions", icon: Calendar, page: "Calendar" },
-    { name: "Months", icon: Receipt, page: "Months" },
-    { name: "Emails", icon: Mail, page: "EmailManagement" },
-    { name: "Settings", icon: Settings, page: "Settings" }
+    { name: 'Dashboard', icon: DollarSign, page: 'Dashboard' },
+    { name: 'Members', icon: Users, page: 'Members' },
+    { name: 'Guests / Old', icon: Users, page: 'Guests' },
+    { name: 'Transactions', icon: Calendar, page: 'Calendar' },
+    { name: 'Months', icon: Receipt, page: 'Months' },
+    { name: 'Emails', icon: Mail, page: 'EmailManagement' },
+    { name: 'Settings', icon: Settings, page: 'Settings' },
   ];
 
   const sidebarWidth = isCollapsed ? 80 : 256;
@@ -51,7 +59,7 @@ export default function Layout({ children, currentPageName }) {
           <div className="flex items-start justify-between gap-2">
             <div
               className={`overflow-hidden transition-all duration-300 ${
-                isCollapsed ? "max-w-0 opacity-0" : "max-w-xs opacity-100"
+                isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
               }`}
             >
               <h1 className="text-xl font-bold">Shtiebel 48</h1>
@@ -62,10 +70,14 @@ export default function Layout({ children, currentPageName }) {
               type="button"
               onClick={() => setIsCollapsed((prev) => !prev)}
               className="rounded-md p-2 text-blue-100 hover:bg-blue-800 hover:text-white transition-colors"
-              aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+              {isCollapsed ? (
+                <ChevronRight className="w-5 h-5" />
+              ) : (
+                <ChevronLeft className="w-5 h-5" />
+              )}
             </button>
           </div>
         </div>
@@ -82,19 +94,19 @@ export default function Layout({ children, currentPageName }) {
                   to={createPageUrl(item.page)}
                   title={isCollapsed ? item.name : undefined}
                   className={`group flex items-center rounded-lg transition-all duration-200 ${
-                    isCollapsed ? "justify-center px-2 py-3" : "gap-3 px-4 py-3"
+                    isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3'
                   } ${
                     isActive
                       ? 'bg-blue-800/80 text-white shadow-lg ring-1 ring-white/10'
                       : 'text-blue-100 hover:bg-blue-800/50'
-                  } ${isCollapsed ? "hover:scale-[1.03]" : "hover:translate-x-1"}`}
+                  } ${isCollapsed ? 'hover:scale-[1.03]' : 'hover:translate-x-1'}`}
                 >
                   <Icon
-                    className={`w-5 h-5 transition-transform duration-300 ${isActive ? "scale-110" : "group-hover:scale-105"}`}
+                    className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-105'}`}
                   />
                   <span
                     className={`font-medium transition-all duration-300 ${
-                      isCollapsed ? "max-w-0 opacity-0" : "max-w-xs opacity-100"
+                      isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
                     }`}
                   >
                     {item.name}
