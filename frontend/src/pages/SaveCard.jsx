@@ -1,18 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
-
 export default function SaveCard() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
-  const [status, setStatus] = useState('loading');
-  const [message, setMessage] = useState('Redirecting you to Stripe to save your card...');
+  const [status] = useState('loading');
+  const [message] = useState('Redirecting you to Stripe to save your card...');
 
   useEffect(() => {
     if (!token) {
-      setStatus('error');
-      setMessage('Missing or invalid link. Please request a new save-card link.');
+      window.location.href = '/save-card/error?reason=invalid';
       return;
     }
 
@@ -21,7 +19,11 @@ export default function SaveCard() {
         const res = await fetch(`${API_BASE_URL}/payments/public/save-card-session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({
+            token,
+            successPath: '/save-card/success',
+            cancelPath: '/save-card/error?reason=cancel',
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.url) {
@@ -29,8 +31,10 @@ export default function SaveCard() {
         }
         window.location.href = data.url;
       } catch (err) {
-        setStatus('error');
-        setMessage(err?.message || 'Failed to redirect to Stripe.');
+        const msg = (err?.message || '').toLowerCase();
+        const isExpired = msg.includes('expired') || msg.includes('invalid');
+        const reason = isExpired ? 'invalid' : 'error';
+        window.location.href = `/save-card/error?reason=${encodeURIComponent(reason)}`;
       }
     };
 

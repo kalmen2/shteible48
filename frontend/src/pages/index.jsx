@@ -11,6 +11,8 @@ import Months from './Months';
 import Settings from './Settings';
 import Landing from './Landing';
 import SaveCard from './SaveCard';
+import SaveCardSuccess from './SaveCardSuccess';
+import SaveCardError from './SaveCardError';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -51,6 +53,8 @@ function PagesContent() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/save-card" element={<SaveCard />} />
+      <Route path="/save-card/success" element={<SaveCardSuccess />} />
+      <Route path="/save-card/error" element={<SaveCardError />} />
 
       <Route
         path="/*"
