@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from 'lucide-react';
+import { DayPicker } from 'react-day-picker';
+import 'react-day-picker/dist/style.css';
 import {
   format,
   startOfMonth,
@@ -239,6 +241,49 @@ export default function Calendar() {
     return getParsha(shabbat);
   };
 
+  const DayCell = ({ date, activeModifiers }) => {
+    const isOutside = activeModifiers?.outside;
+    const isSaturday = isShabbat(date);
+    const isFriday = isErevShabbat(date);
+    const hebrewDay = getHebrewDate(date);
+    const parsha = isSaturday ? getParsha(date) : null;
+    const holidayNames = holidayMap[format(date, 'yyyy-MM-dd')];
+
+    return (
+      <div className="flex flex-col h-full justify-between">
+        <div className="flex flex-col items-start w-full">
+          <span
+            className={`text-lg font-bold ${
+              isOutside
+                ? 'text-slate-400'
+                : isSaturday
+                  ? 'text-blue-900'
+                  : 'text-slate-900'
+            }`}
+          >
+            {format(date, 'd')}
+          </span>
+          <span className="text-xs text-slate-500 mt-1">
+            {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
+          </span>
+        </div>
+        {isSaturday && parsha && !isOutside ? (
+          <div className="flex flex-col items-start">
+            <span className="text-xs font-semibold text-blue-700">{parsha}</span>
+          </div>
+        ) : null}
+        {!isOutside && holidayNames?.length ? (
+          <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
+            {holidayNames.join(', ')}
+          </div>
+        ) : null}
+        {isFriday && !isOutside ? (
+          <div className="text-[10px] text-blue-700">Erev Shabbat</div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -370,78 +415,124 @@ export default function Calendar() {
             </div>
           </CardHeader>
           <CardContent className="p-6">
-            {/* Day Headers */}
-            <div className="grid grid-cols-7 gap-2 mb-4">
-              {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map(
-                (day, i) => (
-                  <div
-                    key={i}
-                    className={`text-center font-semibold py-3 ${
-                      i === 6 ? 'text-blue-900' : 'text-slate-700'
-                    }`}
-                  >
-                    {day}
-                  </div>
-                )
-              )}
-            </div>
-
-            {/* Calendar Grid */}
-            <div className="grid grid-cols-7 gap-2">
-              {days.map((day, i) => {
-                const isCurrentMonth = isSameMonth(day, currentMonth);
-                const isToday = isSameDay(day, new Date());
-                const isSaturday = isShabbat(day);
-                const isFriday = isErevShabbat(day);
-                const hebrewDay = getHebrewDate(day);
-                const parsha = isSaturday ? getParsha(day) : null;
-                const holidayNames = holidayMap[format(day, 'yyyy-MM-dd')];
-
-                return (
-                  <button
-                    key={i}
-                    onClick={() => handleDateClick(day)}
-                    disabled={!isCurrentMonth}
-                    className={`
-                      min-h-[100px] p-3 rounded-lg border-2 transition-all
-                      flex flex-col items-start justify-between
-                      ${!isCurrentMonth ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed' : 'bg-white border-slate-200'}
-                      ${isCurrentMonth ? 'hover:border-blue-500 hover:shadow-md cursor-pointer' : ''}
-                      ${isToday ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : ''}
-                      ${isSaturday && isCurrentMonth ? 'bg-blue-50 border-blue-300' : ''}
-                      ${isFriday && isCurrentMonth ? 'bg-blue-50/50' : ''}
-                    `}
-                  >
-                    <div className="flex flex-col items-start w-full">
-                      <span
-                        className={`text-lg font-bold ${
-                          isToday
-                            ? 'text-amber-700'
-                            : isSaturday
-                              ? 'text-blue-900'
-                              : 'text-slate-900'
+            {calendarMode === 'english' ? (
+              <DayPicker
+                mode="single"
+                month={currentMonth}
+                onMonthChange={setCurrentMonth}
+                selected={selectedDate ? new Date(selectedDate) : undefined}
+                onDayClick={(day, modifiers) => {
+                  if (modifiers?.outside) return;
+                  handleDateClick(day);
+                }}
+                weekStartsOn={0}
+                showOutsideDays
+                fixedWeeks
+                disableNavigation
+                modifiers={{
+                  shabbat: (day) => isShabbat(day),
+                  erev: (day) => isErevShabbat(day),
+                  holiday: (day) => Boolean(holidayMap[format(day, 'yyyy-MM-dd')]),
+                  today: (day) => isSameDay(day, new Date()),
+                }}
+                modifiersClassNames={{
+                  today: 'border-amber-500 bg-amber-50 ring-2 ring-amber-500',
+                  shabbat: 'bg-blue-50 border-blue-300',
+                  erev: 'bg-blue-50/50',
+                  holiday: 'border-amber-500/70',
+                  outside: 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed hover:border-slate-100 hover:shadow-none',
+                }}
+                classNames={{
+                  root: 'rdp w-full flex justify-center',
+                  months: 'w-full',
+                  month: 'w-full',
+                  caption: 'hidden',
+                  table: 'w-full border-collapse',
+                  head_row: 'grid grid-cols-7 gap-2 mb-3',
+                  head_cell: 'text-center text-slate-700 font-semibold text-sm',
+                  row: 'grid grid-cols-7 gap-2 mb-2',
+                  cell: 'p-0',
+                  day: 'w-full h-28 p-3 rounded-lg border-2 bg-white text-left align-top transition-all hover:border-blue-500 hover:shadow-sm focus:outline-none',
+                  day_selected: 'border-blue-600 bg-blue-50',
+                }}
+                components={{ DayContent: DayCell }}
+              />
+            ) : (
+              <>
+                {/* Day Headers */}
+                <div className="grid grid-cols-7 gap-2 mb-4">
+                  {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map(
+                    (day, i) => (
+                      <div
+                        key={i}
+                        className={`text-center font-semibold py-3 ${
+                          i === 6 ? 'text-blue-900' : 'text-slate-700'
                         }`}
                       >
-                        {format(day, 'd')}
-                      </span>
-                      <span className="text-xs text-slate-500 mt-1">
-                        {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
-                      </span>
-                    </div>
-                    {isSaturday && isCurrentMonth && parsha && (
-                      <div className="flex flex-col items-start">
-                        <span className="text-xs font-semibold text-blue-700">{parsha}</span>
+                        {day}
                       </div>
-                    )}
-                    {isCurrentMonth && holidayNames?.length ? (
-                      <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
-                        {holidayNames.join(', ')}
-                      </div>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
+                    )
+                  )}
+                </div>
+
+                {/* Calendar Grid */}
+                <div className="grid grid-cols-7 gap-2">
+                  {days.map((day, i) => {
+                    const isCurrentMonth = isSameMonth(day, currentMonth);
+                    const isToday = isSameDay(day, new Date());
+                    const isSaturday = isShabbat(day);
+                    const isFriday = isErevShabbat(day);
+                    const hebrewDay = getHebrewDate(day);
+                    const parsha = isSaturday ? getParsha(day) : null;
+                    const holidayNames = holidayMap[format(day, 'yyyy-MM-dd')];
+
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => handleDateClick(day)}
+                        disabled={!isCurrentMonth}
+                        className={`
+                          min-h-[100px] p-3 rounded-lg border-2 transition-all
+                          flex flex-col items-start justify-between
+                          ${!isCurrentMonth ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed' : 'bg-white border-slate-200'}
+                          ${isCurrentMonth ? 'hover:border-blue-500 hover:shadow-md cursor-pointer' : ''}
+                          ${isToday ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : ''}
+                          ${isSaturday && isCurrentMonth ? 'bg-blue-50 border-blue-300' : ''}
+                          ${isFriday && isCurrentMonth ? 'bg-blue-50/50' : ''}
+                        `}
+                      >
+                        <div className="flex flex-col items-start w-full">
+                          <span
+                            className={`text-lg font-bold ${
+                              isToday
+                                ? 'text-amber-700'
+                                : isSaturday
+                                  ? 'text-blue-900'
+                                  : 'text-slate-900'
+                            }`}
+                          >
+                            {format(day, 'd')}
+                          </span>
+                          <span className="text-xs text-slate-500 mt-1">
+                            {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
+                          </span>
+                        </div>
+                        {isSaturday && isCurrentMonth && parsha && (
+                          <div className="flex flex-col items-start">
+                            <span className="text-xs font-semibold text-blue-700">{parsha}</span>
+                          </div>
+                        )}
+                        {isCurrentMonth && holidayNames?.length ? (
+                          <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
+                            {holidayNames.join(', ')}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {/* Legend */}
             <div className="mt-6 pt-6 border-t border-slate-200">
