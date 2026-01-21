@@ -197,19 +197,36 @@ export default function Members() {
   const deleteMembersMutation = useMutation({
     mutationFn: async (ids) => {
       for (const id of ids) {
+        // Cancel any active membership subscription first
+        const membershipSub = recurringPayments.find(
+          (p) => p.member_id === id && p.payment_type === 'membership' && p.is_active
+        );
+        if (membershipSub) {
+          await base44.payments.cancelSubscription({ recurringPaymentId: membershipSub.id });
+        }
         await base44.entities.Member.delete(id);
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
       setSelectedMemberIds([]);
     },
   });
 
   const deleteMemberMutation = useMutation({
-    mutationFn: (id) => base44.entities.Member.delete(id),
+    mutationFn: async (id) => {
+      const membershipSub = recurringPayments.find(
+        (p) => p.member_id === id && p.payment_type === 'membership' && p.is_active
+      );
+      if (membershipSub) {
+        await base44.payments.cancelSubscription({ recurringPaymentId: membershipSub.id });
+      }
+      return base44.entities.Member.delete(id);
+    },
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
       setSelectedMemberIds((prev) => prev.filter((memberId) => memberId !== id));
     },
   });
@@ -441,12 +458,31 @@ export default function Members() {
     }
   };
 
-  const deactivateMembership = (member) => {
-    updateMemberMutation.mutate({
-      id: member.id,
-      data: { membership_active: false },
-    });
+  const deactivateMembership = async (member) => {
     setDeactivateDialogOpen(false);
+    try {
+      const membershipSub = recurringPayments.find(
+        (p) => p.member_id === member.id && p.payment_type === 'membership' && p.is_active
+      );
+
+      if (membershipSub) {
+        await base44.payments.cancelSubscription({ recurringPaymentId: membershipSub.id });
+      }
+
+      await updateMemberMutation.mutateAsync({
+        id: member.id,
+        data: { membership_active: false },
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+    } catch (err) {
+      toast({
+        title: 'Deactivation failed',
+        description: err?.message || 'Unable to deactivate membership right now.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const openPaymentDialog = (member) => {

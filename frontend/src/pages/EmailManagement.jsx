@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
+import { resolveStatementTemplate } from '@/utils/statementTemplate';
 import {
   Mail,
   Send,
@@ -15,6 +16,8 @@ import {
   Zap,
   Printer,
   Calendar as CalendarIcon,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   Select,
@@ -71,6 +74,11 @@ export default function EmailManagement() {
     queryFn: () => base44.entities.MembershipCharge.listAll('-created_date'),
   });
 
+  const { data: statementTemplates = [] } = useQuery({
+    queryKey: ['statementTemplates'],
+    queryFn: () => base44.entities.StatementTemplate.list('-created_date', 1),
+  });
+
   const { data: recurringPayments = [] } = useQuery({
     queryKey: ['recurringPayments'],
     queryFn: () => base44.entities.RecurringPayment.filter({ is_active: true }),
@@ -93,6 +101,7 @@ export default function EmailManagement() {
 
   const schedule = schedules[0];
   const currentPlan = plans[0];
+
 
   useEffect(() => {
     const handleAfterPrint = () => setPrintFilter('all');
@@ -210,6 +219,12 @@ export default function EmailManagement() {
     }
   }, [monthOptions, selectedMonth]);
 
+  const hasSavedTemplate = statementTemplates.length > 0;
+  const resolvedTemplate = React.useMemo(
+    () => resolveStatementTemplate(statementTemplates[0]),
+    [statementTemplates]
+  );
+
   // Get transactions for selected month
   const getMonthlyTransactions = (transactions, id, idField) => {
     const baseMonth = toLocalMonthDate(selectedMonth);
@@ -245,6 +260,14 @@ export default function EmailManagement() {
   }, [allRecipients]);
 
   const handlePrint = (mode) => {
+    if (!hasSavedTemplate) {
+      toast({
+        title: 'Save a statement template first',
+        description: 'Create and save a template in Settings before printing statements.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setPrintFilter(mode);
     setTimeout(() => window.print(), 0);
   };
@@ -278,6 +301,10 @@ export default function EmailManagement() {
       setScheduleMessage({ type: 'error', text: 'Select at least one recipient.' });
       return;
     }
+    if (attachInvoice && !hasSavedTemplate) {
+      setScheduleMessage({ type: 'error', text: 'Save a statement template in Settings before attaching invoices.' });
+      return;
+    }
     saveScheduleMutation.mutate({
       enabled: true,
       day_of_month: scheduleDay,
@@ -293,6 +320,14 @@ export default function EmailManagement() {
   };
 
   const handleSendNow = async () => {
+    if (attachInvoice && !hasSavedTemplate) {
+      toast({
+        title: 'Save a statement template first',
+        description: 'Save your statement template in Settings before attaching invoices.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setSending(true);
     setSendLog([]);
     const log = [];
@@ -341,6 +376,7 @@ export default function EmailManagement() {
               balance: rec.balance || 0,
               statementDate: format(new Date(), 'yyyy-MM-dd'),
               note: 'Please remit payment at your earliest convenience.',
+              template: resolvedTemplate,
             }
           : undefined;
 
@@ -385,7 +421,7 @@ export default function EmailManagement() {
               <h1 className="text-4xl font-bold text-slate-900 mb-2">Email Management</h1>
               <p className="text-slate-600">Send monthly balance reminders to members</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap justify-end">
               <button
                 onClick={() => setViewMode('send')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${
@@ -521,6 +557,7 @@ export default function EmailManagement() {
                     id="attachInvoice"
                     checked={attachInvoice}
                     onChange={(e) => setAttachInvoice(e.target.checked)}
+                    disabled={!hasSavedTemplate}
                     className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
                   />
                   <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
@@ -529,6 +566,7 @@ export default function EmailManagement() {
                       <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
                       <div className="text-sm text-slate-600">
                         Include member statement as PDF attachment
+                        {!hasSavedTemplate && ' (save a template to enable)'}
                       </div>
                     </div>
                   </label>
@@ -943,7 +981,7 @@ export default function EmailManagement() {
                       onClick={() => handlePrint('all')}
                       variant="outline"
                       className="h-9"
-                      disabled={monthOptions.length === 0}
+                      disabled={monthOptions.length === 0 || !hasSavedTemplate}
                     >
                       <Printer className="w-4 h-4 mr-2" />
                       Print All
@@ -953,7 +991,9 @@ export default function EmailManagement() {
                       variant="outline"
                       className="h-9"
                       disabled={
-                        monthOptions.length === 0 || recipientsMissingEmailForMonth.length === 0
+                        monthOptions.length === 0 ||
+                        recipientsMissingEmailForMonth.length === 0 ||
+                        !hasSavedTemplate
                       }
                     >
                       <Printer className="w-4 h-4 mr-2" />
@@ -961,6 +1001,14 @@ export default function EmailManagement() {
                     </Button>
                     <Button
                       onClick={async () => {
+                        if (attachInvoice && !hasSavedTemplate) {
+                          toast({
+                            title: 'Save a statement template first',
+                            description: 'Save your statement template in Settings before attaching invoices.',
+                            variant: 'destructive',
+                          });
+                          return;
+                        }
                         setSending(true);
                         setSendLog([]);
                         const log = [];
@@ -993,6 +1041,7 @@ export default function EmailManagement() {
                                     balance: monthlyData.balance,
                                     statementDate: selectedMonth,
                                     note: 'This statement reflects your monthly activity.',
+                                    template: resolvedTemplate,
                                   }
                                 : undefined,
                             });

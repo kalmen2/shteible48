@@ -150,7 +150,9 @@ async function runMonthlyEmailScheduler() {
   const plans = await store.list("MembershipPlan", "-created_date", 1);
   const membershipCharges = await store.filter("MembershipCharge", { is_active: true }, "-created_date", 10000);
   const recurringPayments = await store.filter("RecurringPayment", { is_active: true }, "-created_date", 10000);
+  const templates = await store.list("StatementTemplate", "-created_date", 1);
   const currentPlan = plans[0];
+  const activeTemplate = templates[0];
   const selected = normalizeSelectedIds(schedule.selected_member_ids);
   const recipients =
     schedule.send_to === "selected"
@@ -183,6 +185,7 @@ async function runMonthlyEmailScheduler() {
         balance: balanceValue,
         statementDate: currentMonth,
         note: "This statement reflects your current balance.",
+        template: activeTemplate,
       });
       attachments = [
         {
@@ -193,6 +196,9 @@ async function runMonthlyEmailScheduler() {
     }
 
     try {
+        if (schedule.attach_invoice && !activeTemplate) {
+          return { ok: false, error: "No statement template saved" };
+        }
       await sendEmail({
         to: record.email,
         subject: schedule.subject,

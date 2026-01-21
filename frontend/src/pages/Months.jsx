@@ -326,7 +326,7 @@ export default function Months() {
             <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find((m) => m.value === selectedMonth)?.label} ${selectedYear}</div>
           </div>
           ${
-            template.show_charges_section && charges.length > 0
+            template.show_charges_section
               ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Charges</h3>
@@ -339,17 +339,21 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${charges
-                  .map(
-                    (charge) => `
+                ${
+                  charges.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No charges this period.</td></tr>`
+                    : charges
+                        .map(
+                          (charge) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.charges_color};">$${charge.amount.toFixed(2)}</td>
                   </tr>
                 `
-                  )
-                  .join('')}
+                        )
+                        .join('')
+                }
               </tbody>
               <tfoot>
                 <tr style="background-color: #fef3c7;">
@@ -363,7 +367,7 @@ export default function Months() {
               : ''
           }
           ${
-            template.show_payments_section && payments.length > 0
+            template.show_payments_section
               ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Payments</h3>
@@ -376,17 +380,21 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${payments
-                  .map(
-                    (payment) => `
+                ${
+                  payments.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No payments this period.</td></tr>`
+                    : payments
+                        .map(
+                          (payment) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.payments_color};">$${payment.amount.toFixed(2)}</td>
                   </tr>
                 `
-                  )
-                  .join('')}
+                        )
+                        .join('')
+                }
               </tbody>
               <tfoot>
                 <tr style="background-color: #dcfce7;">
@@ -441,7 +449,7 @@ export default function Months() {
             <div style="font-size: ${Math.round(template.body_font_size * 1.3)}px; font-weight: bold; color: ${template.header_color};">${monthsForYear.find((m) => m.value === selectedMonth)?.label} ${selectedYear}</div>
           </div>
           ${
-            template.show_charges_section && charges.length > 0
+            template.show_charges_section
               ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Charges</h3>
@@ -454,17 +462,21 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${charges
-                  .map(
-                    (charge) => `
+                ${
+                  charges.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No charges this period.</td></tr>`
+                    : charges
+                        .map(
+                          (charge) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.charges_color};">$${charge.amount.toFixed(2)}</td>
                   </tr>
                 `
-                  )
-                  .join('')}
+                        )
+                        .join('')
+                }
               </tbody>
               <tfoot>
                 <tr style="background-color: #fef3c7;">
@@ -478,7 +490,7 @@ export default function Months() {
               : ''
           }
           ${
-            template.show_payments_section && payments.length > 0
+            template.show_payments_section
               ? `
           <div style="margin-bottom: 30px;">
             <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Payments</h3>
@@ -491,17 +503,21 @@ export default function Months() {
                 </tr>
               </thead>
               <tbody>
-                ${payments
-                  .map(
-                    (payment) => `
+                ${
+                  payments.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No payments this period.</td></tr>`
+                    : payments
+                        .map(
+                          (payment) => `
                   <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.description}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.payments_color};">$${payment.amount.toFixed(2)}</td>
                   </tr>
                 `
-                  )
-                  .join('')}
+                        )
+                        .join('')
+                }
               </tbody>
               <tfoot>
                 <tr style="background-color: #dcfce7;">
@@ -573,7 +589,7 @@ export default function Months() {
         </div>
     `);
 
-    if (template.show_charges_section && charges.length > 0) {
+    if (template.show_charges_section) {
       printWindow.document.write(`
         <div style="margin-bottom: 30px;">
           <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Charges</h3>
@@ -586,17 +602,21 @@ export default function Months() {
               </tr>
             </thead>
             <tbody>
-      `);
-      charges.forEach((charge) => {
-        printWindow.document.write(`
+                ${
+                  charges.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No charges this period.</td></tr>`
+                    : charges
+                        .map(
+                          (charge) => `
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.date ? format(new Date(charge.date), 'MMM d, yyyy') : 'N/A'}</td>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${charge.description}</td>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.charges_color};">$${charge.amount.toFixed(2)}</td>
           </tr>
-        `);
-      });
-      printWindow.document.write(`
+        `
+                        )
+                        .join('')
+                }
             </tbody>
             <tfoot>
               <tr style="background-color: #fef3c7;">
@@ -609,7 +629,7 @@ export default function Months() {
       `);
     }
 
-    if (template.show_payments_section && payments.length > 0) {
+    if (template.show_payments_section) {
       printWindow.document.write(`
         <div style="margin-bottom: 30px;">
           <h3 style="font-size: ${template.body_font_size + 2}px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid ${template.header_color}; padding-bottom: 8px;">Payments</h3>
@@ -622,17 +642,21 @@ export default function Months() {
               </tr>
             </thead>
             <tbody>
-      `);
-      payments.forEach((payment) => {
-        printWindow.document.write(`
+                ${
+                  payments.length === 0
+                    ? `<tr><td colspan="3" style="padding: 10px; color: #64748b;">No payments this period.</td></tr>`
+                    : payments
+                        .map(
+                          (payment) => `
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.date ? format(new Date(payment.date), 'MMM d, yyyy') : 'N/A'}</td>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px;">${payment.description}</td>
             <td style="padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: ${template.body_font_size}px; text-align: right; color: ${template.payments_color};">$${payment.amount.toFixed(2)}</td>
           </tr>
-        `);
-      });
-      printWindow.document.write(`
+        `
+                        )
+                        .join('')
+                }
             </tbody>
             <tfoot>
               <tr style="background-color: #dcfce7;">

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, Trash2, UserPlus, Pencil, Printer } from 'lucide-react';
+import { Search, Trash2, UserPlus, Pencil, Printer, FileText, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
 import GuestInvoiceTemplate from '../components/guests/GuestInvoiceTemplate';
@@ -57,6 +57,13 @@ export default function Guests() {
     queryKey: ['guestTransactions'],
     queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
   });
+
+  const { data: statementTemplates = [] } = useQuery({
+    queryKey: ['statementTemplates'],
+    queryFn: () => base44.entities.StatementTemplate.list('-created_date', 1),
+  });
+
+  const hasSavedTemplate = statementTemplates.length > 0;
 
   const filteredGuests = guests
     .filter(
@@ -178,6 +185,14 @@ export default function Guests() {
   };
 
   const handlePrintInvoice = (guest) => {
+    if (!hasSavedTemplate) {
+      toast({
+        title: 'Save a statement template first',
+        description: 'Create and save a template in Settings before printing invoices.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setPrintGuest(guest);
     setTimeout(() => {
       const printContent = invoiceRef.current;
@@ -185,6 +200,9 @@ export default function Guests() {
         const printWindow = window.open('', '', 'height=800,width=800');
         printWindow.document.write(
           '<html><head><title>Guest Invoice - ' + guest.full_name + '</title>'
+        );
+        printWindow.document.write(
+          '<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>'
         );
         printWindow.document.write('</head><body>');
         printWindow.document.write(printContent.innerHTML);
@@ -227,12 +245,20 @@ export default function Guests() {
     deleteGuestsMutation.mutate([guest.id]);
   };
 
+  const printGuestTransactions = printGuest ? getGuestTransactions(printGuest.id) : [];
+  const printCharges = printGuestTransactions.filter((t) => t.type === 'charge');
+  const printPayments = printGuestTransactions.filter((t) => t.type === 'payment');
+  const printTotalCharges = printCharges.reduce((sum, t) => sum + (t.amount || 0), 0);
+  const printTotalPayments = printPayments.reduce((sum, t) => sum + (t.amount || 0), 0);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header with Search and Add Button */}
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold text-slate-900">Guests / Old</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold text-slate-900">Guests / Old</h1>
+          </div>
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -527,13 +553,11 @@ export default function Guests() {
           <GuestInvoiceTemplate
             ref={invoiceRef}
             guest={printGuest}
-            transactions={getGuestTransactions(printGuest.id)}
-            totalCharges={getGuestTransactions(printGuest.id)
-              .filter((t) => t.type === 'charge')
-              .reduce((sum, t) => sum + (t.amount || 0), 0)}
-            totalPayments={getGuestTransactions(printGuest.id)
-              .filter((t) => t.type === 'payment')
-              .reduce((sum, t) => sum + (t.amount || 0), 0)}
+            charges={printCharges}
+            payments={printPayments}
+            totalCharges={printTotalCharges}
+            totalPayments={printTotalPayments}
+            template={statementTemplates[0]}
           />
         </div>
       )}

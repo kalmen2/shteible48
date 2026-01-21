@@ -24,6 +24,8 @@ import {
   Trash2,
   ChevronDown,
   Pencil,
+  FileText,
+  AlertCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -81,6 +83,13 @@ export default function MemberDetail() {
     },
     enabled: !!memberId,
   });
+
+  const { data: statementTemplates = [] } = useQuery({
+    queryKey: ['statementTemplates'],
+    queryFn: () => base44.entities.StatementTemplate.list('-created_date', 1),
+  });
+
+  const hasSavedTemplate = statementTemplates.length > 0;
 
   const { data: transactions = [], isLoading: transactionsLoading } = useQuery({
     queryKey: ['transactions', memberId],
@@ -395,11 +404,19 @@ export default function MemberDetail() {
   };
 
   const handlePrint = () => {
+    if (!hasSavedTemplate) {
+      toast({
+        title: 'Save a statement template first',
+        description: 'Create and save a template in Settings before printing invoices.',
+        variant: 'destructive',
+      });
+      return;
+    }
     const printContent = invoiceRef.current;
     const printWindow = window.open('', '', 'height=800,width=800');
     printWindow.document.write('<html><head><title>Invoice</title>');
     printWindow.document.write(
-      '<style>body{font-family:Arial,sans-serif;padding:40px;} table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;} th{background:#f8f9fa;font-weight:600;} .header{margin-bottom:30px;} .total{font-size:1.2em;font-weight:bold;margin-top:20px;}</style>'
+      '<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>'
     );
     printWindow.document.write('</head><body>');
     printWindow.document.write(printContent.innerHTML);
@@ -1170,6 +1187,7 @@ export default function MemberDetail() {
             payments={payments}
             totalCharges={totalCharges}
             totalPayments={totalPayments}
+            template={statementTemplates[0]}
           />
         </div>
         <MiniCalendarPopup
