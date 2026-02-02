@@ -6,6 +6,12 @@ function centsToDollars(cents) {
   return Math.round(n) / 100;
 }
 
+function dollarsToCents(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
 function isoDateFromUnixSeconds(sec) {
   const ms = Number(sec) * 1000;
   const d = new Date(ms);
@@ -62,6 +68,22 @@ async function createInvoiceTransactionIfMissing(store, entity, invoiceId, type,
   return true;
 }
 
+async function hasPaymentIntentTransaction(store, entity, paymentIntentId, type) {
+  if (!paymentIntentId) return false;
+  const [existing] = await store.filter(
+    entity,
+    { stripe_payment_intent_id: String(paymentIntentId), type },
+    undefined,
+    1
+  );
+  return Boolean(existing);
+}
+
+async function createPaymentIntentTransactionIfMissing(store, entity, paymentIntentId, type, payload) {
+  if (await hasPaymentIntentTransaction(store, entity, paymentIntentId, type)) return false;
+  return await createRecordOnce(store, entity, payload);
+}
+
 async function markEventProcessed({ store, event }) {
   if (!event?.id) return false;
   if (typeof store.ensureWebhookEventIndex === "function") {
@@ -99,6 +121,98 @@ async function recordOneTimePayment({ store, memberId, memberName, amountCents, 
   }
 }
 
+async function recordMembershipFirstMonthPayment({
+  store,
+  memberId,
+  memberName,
+  amountCents,
+  standardAmountCents,
+  payoffAmountCents,
+  stripePaymentIntentId,
+  subscriptionId,
+  customerId,
+  createdAtSeconds,
+}) {
+  const amount = centsToDollars(amountCents);
+  const date = isoDateFromUnixSeconds(createdAtSeconds || Math.floor(Date.now() / 1000));
+  const monthLabel = monthLabelFromUnixSeconds(createdAtSeconds || Math.floor(Date.now() / 1000));
+  const monthKey = String(date || "").slice(0, 7);
+  const descBase = `Monthly Membership - ${monthLabel}`;
+  const chargeId = stripePaymentIntentId ? `membership-first-month:${stripePaymentIntentId}:charge` : undefined;
+  const paymentId = stripePaymentIntentId ? `membership-first-month:${stripePaymentIntentId}:payment` : undefined;
+
+  const chargePayload = {
+    id: chargeId,
+    member_id: String(memberId),
+    member_name: memberName || undefined,
+    type: "charge",
+    description: descBase,
+    amount,
+    date,
+    provider: "stripe",
+    monthly_key: monthKey || undefined,
+    stripe_subscription_id: subscriptionId,
+    stripe_customer_id: customerId,
+  };
+
+  const paymentPayload = {
+    id: paymentId,
+    member_id: String(memberId),
+    member_name: memberName || undefined,
+    type: "payment",
+    description: `${descBase} (Stripe)`,
+    amount,
+    date,
+    provider: "stripe",
+    stripe_subscription_id: subscriptionId,
+    stripe_customer_id: customerId,
+    stripe_payment_intent_id: stripePaymentIntentId || undefined,
+  };
+
+  const chargeCreated = await createRecordOnce(store, "Transaction", chargePayload);
+
+  const paymentCreated = await createPaymentIntentTransactionIfMissing(
+    store,
+    "Transaction",
+    stripePaymentIntentId,
+    "payment",
+    paymentPayload
+  );
+
+  if (!chargeCreated && !paymentCreated) return null;
+
+  const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+  let balanceResult = null;
+  if (paymentCreated && member) {
+    const currentBalanceCents = dollarsToCents(member.total_owed || 0);
+    const standardCents = Number(standardAmountCents);
+    const payoffCents = Number(payoffAmountCents || 0);
+    let reductionCents =
+      Number.isFinite(standardCents) && standardCents > 0
+        ? standardCents + (Number.isFinite(payoffCents) ? payoffCents : 0)
+        : Number(amountCents);
+    if (!Number.isFinite(reductionCents) || reductionCents < 0) {
+      reductionCents = 0;
+    }
+    if (Number.isFinite(currentBalanceCents) && currentBalanceCents >= 0) {
+      reductionCents = Math.min(currentBalanceCents, reductionCents);
+    }
+    if (Number.isFinite(currentBalanceCents) && currentBalanceCents >= 0) {
+      reductionCents = Math.min(currentBalanceCents, reductionCents);
+    }
+    const newBalanceCents = Math.max(0, currentBalanceCents - reductionCents);
+    await store.update("Member", member.id, { total_owed: centsToDollars(newBalanceCents) });
+    balanceResult = {
+      currentBalanceCents,
+      newBalanceCents,
+      standardCents,
+      payoffCents,
+    };
+  }
+
+  return balanceResult;
+}
+
 async function recordGuestOneTimePayment({ store, guestId, guestName, amountCents, description, stripePaymentIntentId }) {
   const amount = centsToDollars(amountCents);
 
@@ -121,9 +235,34 @@ async function recordGuestOneTimePayment({ store, guestId, guestName, amountCent
   }
 }
 
-async function upsertRecurringFromCheckout({ store, memberId, memberName, paymentType, amountCents, customerId, subscriptionId }) {
+function firstOfNextMonthUtcFrom(baseDate) {
+  const base = baseDate instanceof Date ? baseDate : new Date();
+  const year = base.getUTCFullYear();
+  const month = base.getUTCMonth();
+  return new Date(Date.UTC(year, month + 1, 1, 0, 0, 0));
+}
+
+async function upsertRecurringFromCheckout({
+  store,
+  memberId,
+  memberName,
+  paymentType,
+  amountCents,
+  customerId,
+  subscriptionId,
+  billingAnchorDate,
+}) {
   const today = new Date();
-  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  let nextCharge = null;
+  if (billingAnchorDate) {
+    const parsed = new Date(billingAnchorDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      nextCharge = parsed;
+    }
+  }
+  if (!nextCharge) {
+    nextCharge = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  }
 
   // Try to find existing record for this subscription
   const existing = await store.filter("RecurringPayment", { stripe_subscription_id: String(subscriptionId) }, undefined, 1);
@@ -135,7 +274,7 @@ async function upsertRecurringFromCheckout({ store, memberId, memberName, paymen
     amount_per_month: centsToDollars(amountCents),
     is_active: true,
     start_date: today.toISOString().split("T")[0],
-    next_charge_date: nextMonth.toISOString().split("T")[0],
+    next_charge_date: nextCharge.toISOString().split("T")[0],
     stripe_customer_id: customerId || undefined,
     stripe_subscription_id: subscriptionId || undefined,
   };
@@ -177,7 +316,141 @@ async function upsertGuestRecurringFromCheckout({ store, guestId, guestName, pay
   await store.create("RecurringPayment", base);
 }
 
-async function recordSubscriptionInvoicePayment({ store, subscriptionId, customerId, amountPaidCents, periodStart, memberId, paymentType, invoiceId }) {
+async function deactivateMemberPayoffPlans({ store, stripe, memberId }) {
+  const payoffRecs = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), payment_type: "balance_payoff", is_active: true },
+    "-created_date",
+    1000
+  );
+  if (!payoffRecs.length) return;
+  const endedDate = new Date().toISOString().split("T")[0];
+  for (const rec of payoffRecs) {
+    if (rec.stripe_subscription_id) {
+      try {
+        await stripe.subscriptions.cancel(String(rec.stripe_subscription_id));
+      } catch (err) {
+        console.warn("Failed to cancel payoff subscription", rec.stripe_subscription_id, err?.message || err);
+      }
+    }
+    await store.update("RecurringPayment", rec.id, {
+      is_active: false,
+      ended_date: endedDate,
+      amount_per_month: 0,
+      remaining_amount: 0,
+    });
+  }
+}
+
+async function detachMemberPayoffSubscriptions({ store, stripe, memberId }) {
+  const payoffRecs = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), payment_type: "balance_payoff", is_active: true },
+    "-created_date",
+    1000
+  );
+  if (!payoffRecs.length) return;
+  for (const rec of payoffRecs) {
+    if (rec.stripe_subscription_id) {
+      const subId = rec.stripe_subscription_id;
+      await store.update("RecurringPayment", rec.id, {
+        stripe_subscription_id: null,
+      });
+      try {
+        await stripe.subscriptions.cancel(String(subId));
+      } catch (err) {
+        console.warn("Failed to cancel payoff subscription", subId, err?.message || err);
+      }
+    }
+  }
+}
+
+async function updateMembershipSubscriptionAmount({
+  store,
+  stripe,
+  memberId,
+  subscriptionId,
+  standardAmountCents,
+}) {
+  if (!subscriptionId) return;
+  let standardCents = Number(standardAmountCents);
+  if (!Number.isFinite(standardCents) || standardCents <= 0) {
+    const plans = await store.list("MembershipPlan", "-created_date", 1);
+    standardCents = dollarsToCents(plans[0]?.standard_amount || 0);
+  }
+  if (!Number.isFinite(standardCents) || standardCents <= 0) return;
+
+  const memberCharges = await store.filter(
+    "MembershipCharge",
+    { member_id: String(memberId), is_active: true },
+    "-created_date",
+    10000
+  );
+  const recurring = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), is_active: true },
+    "-created_date",
+    10000
+  );
+  const chargesTotalCents = memberCharges.reduce(
+    (sum, c) => sum + dollarsToCents(c.amount || 0),
+    0
+  );
+  const recurringNonMembershipCents = recurring
+    .filter((p) => p.payment_type !== "membership" && p.payment_type !== "balance_payoff")
+    .reduce((sum, p) => sum + dollarsToCents(p.amount_per_month || 0), 0);
+  const newTotalCents = standardCents + chargesTotalCents + recurringNonMembershipCents;
+  if (!Number.isFinite(newTotalCents) || newTotalCents <= 0) return;
+
+  const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
+  const item = sub?.items?.data?.[0];
+  const currentCents = item?.price?.unit_amount;
+  const productId = item?.price?.product;
+
+  if (!Number.isFinite(currentCents) || currentCents !== newTotalCents) {
+    if (productId) {
+      const newPrice = await stripe.prices.create({
+        unit_amount: newTotalCents,
+        currency: process.env.STRIPE_CURRENCY || "usd",
+        product: productId,
+        recurring: { interval: "month" },
+      });
+      await stripe.subscriptionItems.update(item.id, {
+        price: newPrice.id,
+        proration_behavior: "none",
+      });
+    }
+  }
+
+  await stripe.subscriptions.update(String(subscriptionId), {
+    metadata: {
+      ...(sub?.metadata || {}),
+      amountCents: String(newTotalCents),
+      standardAmountCents: String(standardCents),
+      payoffAmountCents: "0",
+    },
+  });
+
+  const membershipRec = recurring.find((p) => p.payment_type === "membership");
+  if (membershipRec?.id) {
+    await store.update("RecurringPayment", membershipRec.id, {
+      amount_per_month: centsToDollars(newTotalCents),
+    });
+  }
+}
+
+async function recordSubscriptionInvoicePayment({
+  store,
+  subscriptionId,
+  customerId,
+  amountPaidCents,
+  periodStart,
+  memberId,
+  paymentType,
+  invoiceId,
+  standardAmountCents,
+  payoffAmountCents,
+}) {
   const amount = centsToDollars(amountPaidCents);
   const date = isoDateFromUnixSeconds(periodStart);
   const monthLabel = monthLabelFromUnixSeconds(periodStart);
@@ -223,15 +496,38 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
     : createRecordOnce(store, "Transaction", paymentPayload));
 
   if (!paymentCreated && !chargeCreated) {
-    return;
+    return null;
   }
 
   // Net effect is zero if we also update member.total_owed by +charge and -payment.
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
+  let balanceResult = null;
   if (paymentCreated && member) {
-    const currentBalance = Number(member.total_owed || 0);
-    const newBalance = Math.max(0, currentBalance - amount);
-    await store.update("Member", member.id, { total_owed: newBalance });
+    const currentBalanceCents = dollarsToCents(member.total_owed || 0);
+    let reductionCents = Number(amountPaidCents);
+    let standardCents = null;
+    let payoffCents = null;
+    if (paymentType === "membership") {
+      standardCents = Number(standardAmountCents);
+      payoffCents = Number(payoffAmountCents || 0);
+      if (Number.isFinite(standardCents) && standardCents > 0) {
+        reductionCents =
+          standardCents + (Number.isFinite(payoffCents) ? payoffCents : 0);
+      }
+    }
+    if (!Number.isFinite(reductionCents) || reductionCents < 0) {
+      reductionCents = 0;
+    }
+    const newBalanceCents = Math.max(0, currentBalanceCents - reductionCents);
+    await store.update("Member", member.id, { total_owed: centsToDollars(newBalanceCents) });
+    if (paymentType === "membership") {
+      balanceResult = {
+        currentBalanceCents,
+        newBalanceCents,
+        standardCents,
+        payoffCents,
+      };
+    }
   }
 
   // Update RecurringPayment bookkeeping
@@ -254,6 +550,8 @@ async function recordSubscriptionInvoicePayment({ store, subscriptionId, custome
       await store.update("RecurringPayment", rec.id, patch);
     }
   }
+
+  return balanceResult;
 }
 
 // Try to resolve a member even when the id coming from Stripe metadata is missing or stale.
@@ -377,6 +675,14 @@ async function recordLatestSubscriptionInvoice({
   const periodStart = invoice.lines?.data?.[0]?.period?.start || invoice.created;
 
   if (memberId) {
+    const standardAmountCents =
+      Number(invoice?.metadata?.standardAmountCents ?? 0) ||
+      Number(invoice?.lines?.data?.[0]?.metadata?.standardAmountCents ?? 0) ||
+      Number(sub?.metadata?.standardAmountCents ?? 0);
+    const payoffAmountCents =
+      Number(invoice?.metadata?.payoffAmountCents ?? 0) ||
+      Number(invoice?.lines?.data?.[0]?.metadata?.payoffAmountCents ?? 0) ||
+      Number(sub?.metadata?.payoffAmountCents ?? 0);
     await recordSubscriptionInvoicePayment({
       store,
       subscriptionId: String(subscriptionId),
@@ -386,6 +692,8 @@ async function recordLatestSubscriptionInvoice({
       memberId,
       paymentType,
       invoiceId,
+      standardAmountCents,
+      payoffAmountCents,
     });
   } else if (guestId) {
     await recordGuestSubscriptionInvoicePayment({
@@ -465,7 +773,146 @@ function createStripeWebhookHandler({ store }) {
           const md = session.metadata || {};
           const memberId = md.memberId;
           const guestId = md.guestId;
-          if (memberId) {
+          const paymentType = md.paymentType;
+          const applyMonth = md.applyMonth === "next_month" ? "next_month" : "this_month";
+          const isMembershipFirstMonth =
+            md.kind === "membership_first_month" && paymentType === "membership" && applyMonth === "this_month";
+
+          if (memberId && isMembershipFirstMonth) {
+            const amountCents = Number(md.amountCents || session.amount_total || 0);
+            const standardAmountCents = Number(md.standardAmountCents || md.standard_amount_cents || 0);
+            const payoffAmountCents = Number(md.payoffAmountCents || md.payoff_amount_cents || 0);
+            const member = await findMemberByAnyId(store, {
+              memberId,
+              stripeCustomerId: session.customer,
+            });
+            const resolvedMemberId = member?.id || memberId;
+            if (!resolvedMemberId || !session.customer) {
+              throw new Error("Missing member or customer for membership activation");
+            }
+
+            let paymentMethodId;
+            if (session.payment_intent) {
+              const paymentIntent = await stripe.paymentIntents.retrieve(String(session.payment_intent));
+              paymentMethodId = paymentIntent?.payment_method ? String(paymentIntent.payment_method) : undefined;
+            }
+
+            if (paymentMethodId) {
+              await stripe.customers.update(String(session.customer), {
+                invoice_settings: { default_payment_method: paymentMethodId },
+              });
+              if (member) {
+                await store.update("Member", String(member.id), {
+                  stripe_customer_id: session.customer,
+                  stripe_default_payment_method_id: paymentMethodId,
+                });
+              }
+            }
+
+            const baseDate = session.created ? new Date(session.created * 1000) : new Date();
+            const anchorDate = firstOfNextMonthUtcFrom(baseDate);
+            const anchorSeconds = Math.floor(anchorDate.getTime() / 1000);
+
+            const price = await stripe.prices.create(
+              {
+                unit_amount: amountCents,
+                currency: process.env.STRIPE_CURRENCY || "usd",
+                recurring: { interval: "month" },
+                product_data: { name: "Monthly Membership" },
+              },
+              { idempotencyKey: `membership-first-month-price:${session.id}` }
+            );
+
+            const subscription = await stripe.subscriptions.create(
+              {
+                customer: session.customer,
+                default_payment_method: paymentMethodId || undefined,
+                items: [
+                  {
+                    price: price.id,
+                    quantity: 1,
+                  },
+                ],
+                billing_cycle_anchor: anchorSeconds,
+                proration_behavior: "none",
+                metadata: {
+                  memberId: String(resolvedMemberId),
+                  paymentType: "membership",
+                  amountCents: String(amountCents),
+                  applyMonth: "this_month",
+                  standardAmountCents: String(standardAmountCents),
+                  payoffAmountCents: String(payoffAmountCents),
+                },
+              },
+              { idempotencyKey: `membership-first-month:${session.id}` }
+            );
+
+            await upsertRecurringFromCheckout({
+              store,
+              memberId: resolvedMemberId,
+              memberName: md.memberName,
+              paymentType: "membership",
+              amountCents,
+              customerId: session.customer,
+              subscriptionId: subscription.id,
+              billingAnchorDate: anchorDate.toISOString().split("T")[0],
+            });
+
+            await detachMemberPayoffSubscriptions({
+              store,
+              stripe,
+              memberId: resolvedMemberId,
+            });
+
+            await store.update("Member", String(resolvedMemberId), {
+              membership_active: true,
+              stripe_subscription_id: subscription.id,
+              stripe_customer_id: session.customer,
+            });
+
+            const balanceResult = await recordMembershipFirstMonthPayment({
+              store,
+              memberId: resolvedMemberId,
+              memberName: md.memberName,
+              amountCents,
+              standardAmountCents,
+              payoffAmountCents,
+              stripePaymentIntentId: session.payment_intent,
+              subscriptionId: subscription.id,
+              customerId: session.customer,
+              createdAtSeconds: session.created,
+            });
+            if (balanceResult) {
+              const {
+                currentBalanceCents,
+                newBalanceCents,
+                standardCents,
+                payoffCents,
+              } = balanceResult;
+              const shouldDropPayoff =
+                Number.isFinite(standardCents) &&
+                standardCents > 0 &&
+                Number.isFinite(payoffCents) &&
+                payoffCents > 0 &&
+                standardCents + payoffCents > currentBalanceCents;
+              const shouldEndPayoff =
+                Number.isFinite(newBalanceCents) && newBalanceCents <= 0;
+              if (shouldDropPayoff || shouldEndPayoff) {
+                await deactivateMemberPayoffPlans({
+                  store,
+                  stripe,
+                  memberId: resolvedMemberId,
+                });
+                await updateMembershipSubscriptionAmount({
+                  store,
+                  stripe,
+                  memberId: resolvedMemberId,
+                  subscriptionId: subscription.id,
+                  standardAmountCents: standardCents,
+                });
+              }
+            }
+          } else if (memberId) {
             await recordOneTimePayment({
               store,
               memberId,
@@ -492,6 +939,7 @@ function createStripeWebhookHandler({ store }) {
           const memberId = md.memberId;
           const paymentType = md.paymentType || "additional_monthly";
           const guestId = md.guestId;
+          let billingAnchorDate = md.billingAnchor;
           const member = await findMemberByAnyId(store, {
             memberId,
             stripeCustomerId: session.customer,
@@ -508,9 +956,15 @@ function createStripeWebhookHandler({ store }) {
               amountCents: Number(md.amountCents || 0),
               customerId: session.customer,
               subscriptionId: session.subscription,
+              billingAnchorDate,
             });
 
             if (member && paymentType === "membership") {
+              await detachMemberPayoffSubscriptions({
+                store,
+                stripe,
+                memberId: resolvedMemberId,
+              });
               await store.update("Member", String(member.id), {
                 membership_active: true,
                 stripe_subscription_id: session.subscription,
@@ -578,9 +1032,10 @@ function createStripeWebhookHandler({ store }) {
           let memberId = md.memberId;
           let guestId = md.guestId;
           let paymentType = md.paymentType;
+          let sub;
 
           if (!memberId && !guestId) {
-            const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
+            sub = await stripe.subscriptions.retrieve(String(subscriptionId));
             if (sub?.metadata) {
               memberId = memberId || sub.metadata.memberId;
               guestId = guestId || sub.metadata.guestId;
@@ -599,16 +1054,66 @@ function createStripeWebhookHandler({ store }) {
           paymentType = paymentType || "additional_monthly";
 
           if (memberId) {
-            await recordSubscriptionInvoicePayment({
+            if (!sub) {
+              sub = await stripe.subscriptions.retrieve(String(subscriptionId));
+            }
+            const standardAmountCents =
+              Number(md.standardAmountCents ?? md.standard_amount_cents ?? 0) ||
+              Number(sub?.metadata?.standardAmountCents ?? 0) ||
+              Number(sub?.metadata?.standard_amount_cents ?? 0);
+            const payoffAmountCents =
+              Number(md.payoffAmountCents ?? md.payoff_amount_cents ?? 0) ||
+              Number(sub?.metadata?.payoffAmountCents ?? 0) ||
+              Number(sub?.metadata?.payoff_amount_cents ?? 0);
+            const resolvedMember = await findMemberByAnyId(store, {
+              memberId,
+              stripeCustomerId: invoice.customer,
+              subscriptionId,
+            });
+            const resolvedMemberId = resolvedMember?.id || memberId;
+            const balanceResult = await recordSubscriptionInvoicePayment({
               store,
               subscriptionId,
               customerId: invoice.customer,
               amountPaidCents: invoice.amount_paid,
               periodStart: firstLine.period?.start || invoice.created,
-              memberId,
+              memberId: resolvedMemberId,
               paymentType,
               invoiceId: invoice.id,
+              standardAmountCents,
+              payoffAmountCents,
             });
+
+            if (paymentType === "membership" && balanceResult) {
+              const {
+                currentBalanceCents,
+                newBalanceCents,
+                standardCents,
+                payoffCents,
+              } = balanceResult;
+              const shouldDropPayoff =
+                Number.isFinite(standardCents) &&
+                standardCents > 0 &&
+                Number.isFinite(payoffCents) &&
+                payoffCents > 0 &&
+                standardCents + payoffCents > currentBalanceCents;
+              const shouldEndPayoff =
+                Number.isFinite(newBalanceCents) && newBalanceCents <= 0;
+              if (shouldDropPayoff || shouldEndPayoff) {
+                await deactivateMemberPayoffPlans({
+                  store,
+                  stripe,
+                  memberId: resolvedMemberId,
+                });
+                await updateMembershipSubscriptionAmount({
+                  store,
+                  stripe,
+                  memberId: resolvedMemberId,
+                  subscriptionId,
+                  standardAmountCents: standardCents,
+                });
+              }
+            }
 
             // For payoff plans, cancel when remaining is <= 0.
             if (paymentType === "balance_payoff") {

@@ -48,6 +48,7 @@ const ENTITY_FIELD_ALLOWLIST = {
     "show_footer",
   ],
   EmailSchedule: [
+    "name",
     "id",
     "enabled",
     "day_of_month",
@@ -81,6 +82,33 @@ function getBalanceDeltaFromTransaction(transaction, direction) {
   if (transaction?.type === "charge") return sign * amount;
   if (transaction?.type === "payment") return sign * -amount;
   return 0;
+}
+
+function getMonthKey(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}`;
+}
+
+function getMonthLabel(date, timeZone) {
+  return new Intl.DateTimeFormat("en-US", { timeZone, month: "short", year: "numeric" }).format(
+    date
+  );
+}
+
+function getDateOnly(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 async function assertRelatedExists(store, entity, id, fieldName) {
@@ -143,6 +171,39 @@ async function applyGuestBalanceDelta(store, guestId, delta) {
   await store.update("Guest", guest.id, { total_owed: current + delta });
 }
 
+async function createInitialStandardCharge(store, member) {
+  const plans = await store.list("MembershipPlan", "-created_date", 1);
+  const standardAmount = Number(plans[0]?.standard_amount);
+  if (!Number.isFinite(standardAmount) || standardAmount <= 0) return;
+
+  const timeZone = process.env.BILLING_TIME_ZONE || "UTC";
+  const now = new Date();
+  const monthKey = getMonthKey(now, timeZone);
+  const label = getMonthLabel(now, timeZone);
+  const date = getDateOnly(now, timeZone);
+  const existing = await store.filter(
+    "Transaction",
+    { member_id: member.id, type: "charge", monthly_key: monthKey },
+    undefined,
+    1
+  );
+  if (existing[0]) return;
+
+  const created = await store.create("Transaction", {
+    id: `member-signup-standard:${member.id}:${monthKey}`,
+    member_id: member.id,
+    member_name: member.full_name || member.english_name || member.hebrew_name || undefined,
+    type: "charge",
+    description: `Standard Monthly - ${label}`,
+    amount: standardAmount,
+    date,
+    provider: "system",
+    monthly_key: monthKey,
+  });
+  const delta = getBalanceDeltaFromTransaction(created, "create");
+  await applyMemberBalanceDelta(store, created.member_id, delta);
+}
+
 /** @param {{ store: { list: Function, filter: Function, create: Function, bulkCreate: Function, update: Function, remove: Function } }} deps */
 function createEntitiesRouter({ store }) {
   const router = express.Router();
@@ -203,7 +264,8 @@ function createEntitiesRouter({ store }) {
 
       const payload = sanitizeEntityData(entity, req.body ?? {});
       if (entity === "Transaction") {
-        await assertRelatedExists(store, "Member", payload.member_id, "member_id");
+        const resolved = await resolveMemberIdForUpdate(store, payload.member_id);
+        payload.member_id = resolved.resolvedId;
         const created = await store.create(entity, payload);
         const delta = getBalanceDeltaFromTransaction(created, "create");
         await applyMemberBalanceDelta(store, created.member_id, delta);
@@ -217,6 +279,9 @@ function createEntitiesRouter({ store }) {
         return res.status(201).json(created);
       }
       const created = await store.create(entity, payload);
+      if (entity === "Member") {
+        await createInitialStandardCharge(store, created);
+      }
       res.status(201).json(created);
     } catch (err) {
       next(err);
@@ -246,7 +311,8 @@ function createEntitiesRouter({ store }) {
       }
       if (entity === "Transaction") {
         for (const item of sanitizedItems) {
-          await assertRelatedExists(store, "Member", item.member_id, "member_id");
+          const resolved = await resolveMemberIdForUpdate(store, item.member_id);
+          item.member_id = resolved.resolvedId;
         }
         const createdItems = await store.bulkCreate(entity, sanitizedItems);
         const deltasByMember = new Map();
@@ -279,6 +345,11 @@ function createEntitiesRouter({ store }) {
         return res.status(201).json(createdItems);
       }
       const createdItems = await store.bulkCreate(entity, sanitizedItems);
+      if (entity === "Member") {
+        for (const member of createdItems) {
+          await createInitialStandardCharge(store, member);
+        }
+      }
       res.status(201).json(createdItems);
     } catch (err) {
       next(err);
