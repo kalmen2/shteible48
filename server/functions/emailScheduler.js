@@ -38,6 +38,8 @@ function daysInMonth(year, month) {
 function normalizeSchedule(schedule) {
   if (!schedule) return null;
   return {
+    id: schedule.id,
+    name: schedule.name ? String(schedule.name) : "",
     enabled: Boolean(schedule.enabled),
     day_of_month: Number(schedule.day_of_month ?? 1),
     hour: Number(schedule.hour ?? 9),
@@ -56,25 +58,15 @@ function computeMemberBalance(member, plan, charges, recurringPayments) {
   const standardAmount = Number(plan?.standard_amount || 0);
   const totalOwed = Number(member.total_owed || 0);
 
-  if (!member?.membership_active) {
-    return totalOwed + standardAmount;
-  }
-
-  const memberRecurring = (recurringPayments || []).filter((p) => p.member_id === member.id && p.is_active);
-  const membershipSub = memberRecurring.find((p) => p.payment_type === "membership");
-  const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
-  let monthlyDue = standardAmount;
-
-  if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
-    monthlyDue = Math.max(0, standardAmount - subscriptionAmount);
-  } else {
-    const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
-    const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
-      monthlyDue = Math.max(0, standardAmount - chargesTotal);
-    }
-  }
-
+  const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
+  const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+  const recurringTotal = (recurringPayments || [])
+    .filter((p) => p.member_id === member.id && p.is_active && p.payment_type !== "membership")
+    .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
+  const monthlyDue =
+    standardAmount +
+    (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
+    (Number.isFinite(recurringTotal) ? recurringTotal : 0);
   return totalOwed + monthlyDue;
 }
 
@@ -130,19 +122,25 @@ async function runMonthlyEmailScheduler() {
   const db = await connectMongo();
   const store = createMongoEntityStore({ db });
 
-  const schedules = await store.filter("EmailSchedule", { id: "default" }, undefined, 1);
-  const schedule = normalizeSchedule(schedules[0]);
-  if (!schedule || !schedule.enabled) return { ok: true, skipped: "disabled" };
-
-  const nowParts = getZonedParts(new Date(), schedule.time_zone);
-  const targetDay = Math.min(schedule.day_of_month, daysInMonth(nowParts.year, nowParts.month));
-  if (nowParts.day !== targetDay || nowParts.hour !== schedule.hour || nowParts.minute !== schedule.minute) {
-    return { ok: true, skipped: "not_time" };
+  const scheduleRecords = await store.list("EmailSchedule", "-created_date", 200);
+  const dueSchedules = [];
+  for (const record of scheduleRecords) {
+    const schedule = normalizeSchedule(record);
+    if (!schedule || !schedule.enabled) continue;
+    const nowParts = getZonedParts(new Date(), schedule.time_zone);
+    const targetDay = Math.min(schedule.day_of_month, daysInMonth(nowParts.year, nowParts.month));
+    if (nowParts.day !== targetDay || nowParts.hour !== schedule.hour || nowParts.minute !== schedule.minute) {
+      continue;
+    }
+    const currentMonth = monthKeyFromParts(nowParts);
+    if (schedule.last_sent_month === currentMonth) {
+      continue;
+    }
+    dueSchedules.push({ schedule, currentMonth });
   }
 
-  const currentMonth = monthKeyFromParts(nowParts);
-  if (schedule.last_sent_month === currentMonth) {
-    return { ok: true, skipped: "already_sent" };
+  if (!dueSchedules.length) {
+    return { ok: true, skipped: "not_time" };
   }
 
   const members = await store.list("Member", "-created_date", 10000);
@@ -153,70 +151,80 @@ async function runMonthlyEmailScheduler() {
   const templates = await store.list("StatementTemplate", "-created_date", 1);
   const currentPlan = plans[0];
   const activeTemplate = templates[0];
-  const selected = normalizeSelectedIds(schedule.selected_member_ids);
-  const recipients =
-    schedule.send_to === "selected"
-      ? [
-          ...members.filter((m) => selected.memberIds.has(m.id)),
-          ...guests.filter((g) => selected.guestIds.has(g.id)),
-        ]
-      : members;
-
   let sent = 0;
   let skippedNoEmail = 0;
   const failed = [];
-  for (const record of recipients) {
-    if (!record.email) {
-      skippedNoEmail += 1;
-      continue;
-    }
-    const isGuest = Boolean(record.guest_id || (!record.member_id && record.membership_active === undefined));
-    const balanceValue = isGuest
-      ? computeGuestBalance(record)
-      : computeMemberBalance(record, currentPlan, membershipCharges, recurringPayments);
-    const body = applyTemplate(schedule.body, record, balanceValue);
-    let finalBody = body;
-    let attachments;
 
-    if (schedule.attach_invoice) {
-      const pdfBuffer = await createBalancePdf({
-        memberName: record.full_name || record.english_name || record.hebrew_name || "Member",
-        memberId: record.member_id || record.id,
-        balance: balanceValue,
-        statementDate: currentMonth,
-        note: "This statement reflects your current balance.",
-        template: activeTemplate,
-      });
-      attachments = [
-        {
-          filename: `Statement-${(record.full_name || record.member_id || "member").replace(/\s+/g, "_")}.pdf`,
-          content: pdfBuffer,
-        },
-      ];
-    }
+  for (const entry of dueSchedules) {
+    const schedule = entry.schedule;
+    const currentMonth = entry.currentMonth;
+    const selected = normalizeSelectedIds(schedule.selected_member_ids);
+    const recipients =
+      schedule.send_to === "selected"
+        ? [
+            ...members.filter((m) => selected.memberIds.has(m.id)),
+            ...guests.filter((g) => selected.guestIds.has(g.id)),
+          ]
+        : members;
 
-    try {
-        if (schedule.attach_invoice && !activeTemplate) {
-          return { ok: false, error: "No statement template saved" };
+    for (const record of recipients) {
+      if (!record.email) {
+        skippedNoEmail += 1;
+        continue;
+      }
+      const isGuest = Boolean(record.guest_id || (!record.member_id && record.membership_active === undefined));
+      const balanceValue = isGuest
+        ? computeGuestBalance(record)
+        : computeMemberBalance(record, currentPlan, membershipCharges, recurringPayments);
+      const body = applyTemplate(schedule.body, record, balanceValue);
+      let attachments;
+
+      if (schedule.attach_invoice) {
+        if (!activeTemplate) {
+          failed.push({
+            id: record.id,
+            email: record.email,
+            reason: "No statement template saved",
+          });
+          continue;
         }
-      await sendEmail({
-        to: record.email,
-        subject: schedule.subject,
-        text: finalBody,
-        attachments,
-      });
-      sent += 1;
-    } catch (err) {
-      failed.push({
-        id: record.id,
-        email: record.email,
-        reason: err?.message || "Failed to send",
-      });
+        const pdfBuffer = await createBalancePdf({
+          memberName: record.full_name || record.english_name || record.hebrew_name || "Member",
+          memberId: record.member_id || record.id,
+          balance: balanceValue,
+          statementDate: currentMonth,
+          note: "This statement reflects your current balance.",
+          template: activeTemplate,
+        });
+        attachments = [
+          {
+            filename: `Statement-${(record.full_name || record.member_id || "member").replace(/\s+/g, "_")}.pdf`,
+            content: pdfBuffer,
+          },
+        ];
+      }
+
+      try {
+        await sendEmail({
+          to: record.email,
+          subject: schedule.subject,
+          text: body,
+          attachments,
+        });
+        sent += 1;
+      } catch (err) {
+        failed.push({
+          id: record.id,
+          email: record.email,
+          reason: err?.message || "Failed to send",
+        });
+      }
     }
+
+    await store.update("EmailSchedule", schedule.id, { last_sent_month: currentMonth });
   }
 
-  await store.update("EmailSchedule", schedules[0].id, { last_sent_month: currentMonth });
-  return { ok: true, sent, skippedNoEmail, failed };
+  return { ok: true, sent, skippedNoEmail, failed, schedules: dueSchedules.length };
 }
 
 module.exports = {

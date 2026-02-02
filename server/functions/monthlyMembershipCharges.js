@@ -55,12 +55,12 @@ async function runMonthlyMembershipCharges() {
 
   const plans = await store.list("MembershipPlan", "-created_date", 1);
   const currentPlan = plans[0];
-  const amount = Number(currentPlan?.standard_amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
+  const standardAmount = Number(currentPlan?.standard_amount);
+  if (!Number.isFinite(standardAmount) || standardAmount <= 0) {
     return { ok: true, skipped: "no_plan" };
   }
 
-  const members = await store.filter("Member", { membership_active: true }, "-created_date", 10000);
+  const members = await store.list("Member", "-created_date", 10000);
   if (!members.length) {
     return { ok: true, skipped: "no_members" };
   }
@@ -103,7 +103,7 @@ async function runMonthlyMembershipCharges() {
     const hasChargeThisMonth = charges.some((t) => {
       const desc = String(t.description || "");
       const date = String(t.date || "");
-      return desc.startsWith("Monthly Membership") && date.startsWith(currentMonth);
+      return desc.startsWith("Standard Monthly") && date.startsWith(currentMonth);
     });
 
     if (hasChargeThisMonth) {
@@ -117,8 +117,8 @@ async function runMonthlyMembershipCharges() {
         member_id: member.id,
         member_name: member.full_name || member.english_name || member.hebrew_name || undefined,
         type: "charge",
-        description: `Monthly Membership - ${label}`,
-        amount,
+        description: `Standard Monthly - ${label}`,
+        amount: standardAmount,
         date: chargeDate,
         provider: "system",
         monthly_key: currentMonth,
@@ -131,7 +131,7 @@ async function runMonthlyMembershipCharges() {
       throw err;
     }
 
-    const newBalance = (member.total_owed || 0) + amount;
+    const newBalance = (member.total_owed || 0) + standardAmount;
     await store.update("Member", member.id, { total_owed: newBalance });
     charged += 1;
   }

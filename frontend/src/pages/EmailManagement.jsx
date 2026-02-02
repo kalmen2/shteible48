@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/use-toast';
 import { resolveStatementTemplate } from '@/utils/statementTemplate';
 import {
@@ -46,6 +47,8 @@ export default function EmailManagement() {
   const [scheduleRecipientMode, setScheduleRecipientMode] = useState('all');
   const [selectedRecipientIds, setSelectedRecipientIds] = useState([]);
   const [scheduleMessage, setScheduleMessage] = useState(null);
+  const [scheduleId, setScheduleId] = useState(null);
+  const [scheduleName, setScheduleName] = useState('');
 
   // One-time send recipient selection
   const [sendRecipientMode, setSendRecipientMode] = useState('all'); // "all" or "selected"
@@ -96,10 +99,16 @@ export default function EmailManagement() {
 
   const { data: schedules = [] } = useQuery({
     queryKey: ['emailSchedule'],
-    queryFn: () => base44.entities.EmailSchedule.list('-created_date', 1),
+    queryFn: () => base44.entities.EmailSchedule.list('-created_date', 50),
   });
 
-  const schedule = schedules[0];
+  useEffect(() => {
+    if (!scheduleId && schedules.length > 0) {
+      setScheduleId(schedules[0].id);
+    }
+  }, [scheduleId, schedules]);
+
+  const schedule = schedules.find((item) => item.id === scheduleId) || null;
   const currentPlan = plans[0];
 
 
@@ -116,27 +125,18 @@ export default function EmailManagement() {
   const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
-
-    if (!member.membership_active) {
-      return standardAmount;
-    }
-
-    const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
-    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
-    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
-      return Math.max(0, standardAmount - subscriptionAmount);
-    }
-
     const chargesTotal = getMemberCharges(member.id).reduce(
       (sum, c) => sum + Number(c.amount || 0),
       0
     );
-    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
-      return Math.max(0, standardAmount - chargesTotal);
-    }
-
-    return standardAmount;
+    const recurringTotal = getMemberRecurringPayments(member.id)
+      .filter((p) => p.payment_type !== 'membership')
+      .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
+    return (
+      standardAmount +
+      (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
+      (Number.isFinite(recurringTotal) ? recurringTotal : 0)
+    );
   };
 
   useEffect(() => {
@@ -147,6 +147,7 @@ export default function EmailManagement() {
     setScheduleTime(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
     setScheduleTimezone(schedule.time_zone || 'America/New_York');
     setScheduleRecipientMode(schedule.send_to === 'selected' ? 'selected' : 'all');
+    setScheduleName(schedule.name || 'Monthly Schedule');
     const normalizedSelected = Array.isArray(schedule.selected_member_ids)
       ? schedule.selected_member_ids.map((id) => {
           if (typeof id === 'string' && id.includes(':')) return id;
@@ -162,6 +163,17 @@ export default function EmailManagement() {
     if (schedule.body) setEmailBody(schedule.body);
     if (typeof schedule.attach_invoice === 'boolean') setAttachInvoice(schedule.attach_invoice);
   }, [schedule, members, guests]);
+
+  const resetScheduleForm = () => {
+    setScheduleId(null);
+    setScheduleName('');
+    setScheduleDay(1);
+    setScheduleTime('09:00');
+    setScheduleTimezone('America/New_York');
+    setScheduleRecipientMode('all');
+    setSelectedRecipientIds([]);
+    setScheduleMessage(null);
+  };
 
   const allRecipients = [
     ...members.map((m) => ({
@@ -274,17 +286,35 @@ export default function EmailManagement() {
 
   const saveScheduleMutation = useMutation({
     mutationFn: async (payload) => {
-      if (schedule?.id) {
-        return base44.entities.EmailSchedule.update(schedule.id, payload);
+      if (scheduleId) {
+        return base44.entities.EmailSchedule.update(scheduleId, payload);
       }
-      return base44.entities.EmailSchedule.create({ id: 'default', ...payload });
+      return base44.entities.EmailSchedule.create(payload);
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
       setScheduleMessage({ type: 'success', text: 'Monthly schedule saved.' });
+      if (saved?.id) {
+        setScheduleId(saved.id);
+      }
     },
     onError: (error) => {
       setScheduleMessage({ type: 'error', text: error?.message || 'Failed to save schedule.' });
+    },
+  });
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: async () => {
+      if (!scheduleId) return;
+      return base44.entities.EmailSchedule.delete(scheduleId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
+      setScheduleMessage({ type: 'success', text: 'Monthly schedule deleted.' });
+      resetScheduleForm();
+    },
+    onError: (error) => {
+      setScheduleMessage({ type: 'error', text: error?.message || 'Failed to delete schedule.' });
     },
   });
 
@@ -306,6 +336,7 @@ export default function EmailManagement() {
       return;
     }
     saveScheduleMutation.mutate({
+      name: scheduleName || 'Monthly Schedule',
       enabled: true,
       day_of_month: scheduleDay,
       hour,
@@ -656,6 +687,54 @@ export default function EmailManagement() {
                   <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
+                        <Label>Schedule</Label>
+                        <Select
+                          value={scheduleId || 'new'}
+                          onValueChange={(value) => {
+                            if (value === 'new') {
+                              resetScheduleForm();
+                            } else {
+                              setScheduleId(value);
+                              setScheduleMessage(null);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-10">
+                            <SelectValue placeholder="Select schedule" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="new">New schedule</SelectItem>
+                            {schedules.map((item) => (
+                              <SelectItem key={item.id} value={item.id}>
+                                {item.name || `Schedule ${item.id.slice(0, 6)}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="scheduleName">Schedule Name</Label>
+                        <Input
+                          id="scheduleName"
+                          value={scheduleName}
+                          onChange={(e) => setScheduleName(e.target.value)}
+                          placeholder="Monthly Schedule"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          onClick={resetScheduleForm}
+                        >
+                          New Schedule
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
                         <Label>Day of Month</Label>
                         <Select
                           value={String(scheduleDay)}
@@ -806,9 +885,29 @@ export default function EmailManagement() {
 
                 {sendType === 'monthly' && (
                   <>
-                    <p className="text-sm text-amber-600 text-center">
-                      Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
-                    </p>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                      {schedule ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-700">
+                              {schedule.name || 'Current schedule'}
+                            </span>
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                              Enabled
+                            </span>
+                          </div>
+                          <div>
+                            Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Recipients: {scheduleRecipientMode === 'all' ? 'All' : 'Selected'} ·
+                            Attach invoice: {attachInvoice ? 'Yes' : 'No'}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>No monthly schedule yet. Save to create one.</div>
+                      )}
+                    </div>
                     {scheduleMessage && (
                       <p
                         className={`text-sm text-center ${
@@ -817,6 +916,20 @@ export default function EmailManagement() {
                       >
                         {scheduleMessage.text}
                       </p>
+                    )}
+                    {schedule && (
+                      <Button
+                        variant="outline"
+                        className="w-full border-red-200 text-red-600 hover:bg-red-50"
+                        disabled={deleteScheduleMutation.isPending}
+                        onClick={() => {
+                          if (confirm('Delete the monthly email schedule?')) {
+                            deleteScheduleMutation.mutate();
+                          }
+                        }}
+                      >
+                        {deleteScheduleMutation.isPending ? 'Deleting...' : 'Delete Schedule'}
+                      </Button>
                     )}
                   </>
                 )}

@@ -150,35 +150,37 @@ export default function Months() {
       : monthsForYear.filter((month) => hasMonthActivity(month.value));
 
   const getMemberCharges = (memberId) => {
-    return membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
+    return membershipCharges.filter(
+      (c) =>
+        c.member_id === memberId &&
+        c.is_active &&
+        (c.charge_type === 'standard_donation' || c.charge_type === 'payoff')
+    );
   };
 
   const getMemberRecurringPayments = (memberId) => {
-    return recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
+    return recurringPayments.filter(
+      (p) =>
+        p.member_id === memberId &&
+        p.is_active &&
+        (p.payment_type === 'balance_payoff' || p.payment_type === 'additional_monthly')
+    );
   };
 
   const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
-
-    if (!member.membership_active) {
-      return standardAmount;
-    }
-
-    const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
-    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
-    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
-      return Math.max(0, standardAmount - subscriptionAmount);
-    }
-
     const memberCharges = getMemberCharges(member.id);
+    const memberRecurring = getMemberRecurringPayments(member.id);
     const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
-      return Math.max(0, standardAmount - chargesTotal);
-    }
-
-    return standardAmount;
+    const recurringTotal = memberRecurring
+      .filter((p) => p.payment_type === 'balance_payoff')
+      .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
+    return (
+      standardAmount +
+      (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
+      (Number.isFinite(recurringTotal) ? recurringTotal : 0)
+    );
   };
 
   const isMonthlyChargeDescription = (description) => {

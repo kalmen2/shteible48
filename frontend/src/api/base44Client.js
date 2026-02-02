@@ -178,6 +178,7 @@ export const base44 = {
       paymentType,
       amountPerMonth,
       payoffTotal,
+      applyMonth,
       successPath,
       cancelPath,
     }) =>
@@ -188,6 +189,7 @@ export const base44 = {
           paymentType,
           amountPerMonth,
           payoffTotal,
+          applyMonth,
           successPath,
           cancelPath,
           origin: clientOrigin,

@@ -81,6 +81,8 @@ export default function Members() {
   const [chargeType, setChargeType] = useState('standard_donation');
   // Stripe Checkout handles secure card entry.
   const [processing, setProcessing] = useState(false);
+  // New: Payment month choice for activation
+  const [paymentMonthChoice, setPaymentMonthChoice] = useState('this'); // 'this' or 'next'
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alpha'); // "alpha" or "balance"
 
@@ -235,6 +237,7 @@ export default function Members() {
     mutationFn: (chargeData) => base44.entities.MembershipCharge.create(chargeData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['membershipCharges'] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
       setChargeDialogOpen(false);
       setSelectedMember(null);
       setChargeAmount('');
@@ -246,6 +249,20 @@ export default function Members() {
     mutationFn: ({ id, data }) => base44.entities.MembershipCharge.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['membershipCharges'] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+    },
+  });
+
+  const cancelPayoffMutation = useMutation({
+    mutationFn: ({ id }) =>
+      base44.entities.RecurringPayment.update(id, {
+        is_active: false,
+        amount_per_month: 0,
+        ended_date: new Date().toISOString().split('T')[0],
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
     },
   });
 
@@ -445,10 +462,12 @@ export default function Members() {
     if (!selectedMember || !currentPlan?.standard_amount) return;
     setProcessing(true);
     try {
+      // Pass paymentMonthChoice to backend for correct logic
       const out = await base44.payments.createSubscriptionCheckout({
         memberId: selectedMember.id,
         paymentType: 'membership',
         amountPerMonth: currentPlan.standard_amount,
+        firstPaymentMonth: paymentMonthChoice, // 'this' or 'next'
         successPath: `/Members`,
         cancelPath: `/Members`,
       });
@@ -520,36 +539,39 @@ export default function Members() {
   };
 
   const getMemberCharges = (memberId) => {
-    return charges.filter((c) => c.member_id === memberId && c.is_active);
+    return charges.filter(
+      (c) =>
+        c.member_id === memberId &&
+        c.is_active &&
+        (c.charge_type === 'standard_donation' || c.charge_type === 'payoff')
+    );
   };
 
   const getMemberRecurringPayments = (memberId) => {
-    return recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
+    return recurringPayments.filter(
+      (p) =>
+        p.member_id === memberId &&
+        p.is_active &&
+        (p.payment_type === 'balance_payoff' || p.payment_type === 'additional_monthly')
+    );
   };
 
   const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
 
-    if (!member.membership_active) {
-      return standardAmount;
-    }
-
     const memberCharges = getMemberCharges(member.id);
     const memberRecurring = getMemberRecurringPayments(member.id);
-    const membershipSub = memberRecurring.find((p) => p.payment_type === 'membership');
-    const subscriptionAmount = Number(membershipSub?.amount_per_month || 0);
-
-    if (Number.isFinite(subscriptionAmount) && subscriptionAmount > 0) {
-      return Math.max(0, standardAmount - subscriptionAmount);
-    }
-
     const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-    if (Number.isFinite(chargesTotal) && chargesTotal > 0) {
-      return Math.max(0, standardAmount - chargesTotal);
-    }
+    const payoffRecurring = memberRecurring
+      .filter((p) => p.payment_type === 'balance_payoff')
+      .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
 
-    return standardAmount;
+    return (
+      standardAmount +
+      (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
+      (Number.isFinite(payoffRecurring) ? payoffRecurring : 0)
+    );
   };
 
   return (
@@ -797,7 +819,7 @@ export default function Members() {
                       const memberCharges = getMemberCharges(member.id);
                       const memberRecurring = getMemberRecurringPayments(member.id);
                       const totalMonthly = getMemberTotalMonthly(member);
-                      const displayBalance = (member.total_owed || 0) + totalMonthly;
+                      const displayBalance = member.total_owed || 0;
                       const primaryName =
                         member.english_name || member.full_name || member.hebrew_name || 'Unnamed';
                       const secondaryName =
@@ -891,18 +913,26 @@ export default function Members() {
                                     </button>
                                   </div>
                                 ))}
-                                {memberRecurring.map((payment) => (
-                                  <div key={payment.id} className="flex items-center gap-2">
-                                    <span className="text-sm px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                      {payment.payment_type === 'additional_monthly'
-                                        ? 'Donation'
-                                        : 'Payoff'}
-                                    </span>
-                                    <span className="text-sm font-medium">
-                                      ${payment.amount_per_month.toFixed(2)}
-                                    </span>
-                                  </div>
-                                ))}
+                                {memberRecurring
+                                  .filter((p) => p.payment_type === 'balance_payoff')
+                                  .map((payment) => (
+                                    <div key={payment.id} className="flex items-center gap-2">
+                                      <span className="text-sm px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                                        Payoff
+                                      </span>
+                                      <span className="text-sm font-medium">
+                                        ${payment.amount_per_month.toFixed(2)}
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          cancelPayoffMutation.mutate({ id: payment.id })
+                                        }
+                                        className="text-xs text-red-600 hover:text-red-800"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))}
                               </div>
                             ) : (
                               <span className="text-sm text-slate-400">None</span>
@@ -1017,6 +1047,36 @@ export default function Members() {
                       </span>
                     </div>
                   )}
+                </div>
+
+                {/* New: Payment month choice */}
+                <div className="space-y-2">
+                  <Label className="text-sm text-slate-700">Apply first payment to:</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="paymentMonthChoice"
+                        value="this"
+                        checked={paymentMonthChoice === 'this'}
+                        onChange={() => setPaymentMonthChoice('this')}
+                      />
+                      <span>This month</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="paymentMonthChoice"
+                        value="next"
+                        checked={paymentMonthChoice === 'next'}
+                        onChange={() => setPaymentMonthChoice('next')}
+                      />
+                      <span>Next month</span>
+                    </label>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    If you select "Next month", the first payment will apply to next month and recurring charges will start the following month.
+                  </div>
                 </div>
 
                 <div className="text-sm text-slate-600">

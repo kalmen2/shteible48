@@ -13,6 +13,12 @@ function dollarsToCents(amount) {
   return cents;
 }
 
+function centsFromNumber(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
 function safeString(v, max = 500) {
   const s = String(v ?? "").trim();
   return s.length > max ? s.slice(0, max) : s;
@@ -30,6 +36,90 @@ function isoDateFromUnixSeconds(sec) {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return new Date().toISOString().split("T")[0];
   return d.toISOString().split("T")[0];
+}
+
+function firstOfNextMonthUtc() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0));
+}
+
+function isoDateOnly(date) {
+  return date.toISOString().split("T")[0];
+}
+
+async function updateMembershipSubscriptionAmount({
+  stripe,
+  store,
+  memberId,
+  subscriptionId,
+  totalMonthlyCents,
+  standardAmountCents,
+  payoffAmountCents,
+}) {
+  if (!subscriptionId || !Number.isFinite(totalMonthlyCents) || totalMonthlyCents <= 0) return;
+
+  const sub = await stripe.subscriptions.retrieve(String(subscriptionId));
+  const item = sub?.items?.data?.[0];
+  const productId = item?.price?.product;
+  const currentCents = item?.price?.unit_amount;
+
+  if (productId && currentCents !== totalMonthlyCents) {
+    const newPrice = await stripe.prices.create({
+      unit_amount: totalMonthlyCents,
+      currency: process.env.STRIPE_CURRENCY || "usd",
+      product: productId,
+      recurring: { interval: "month" },
+    });
+    await stripe.subscriptionItems.update(item.id, {
+      price: newPrice.id,
+      proration_behavior: "none",
+    });
+  }
+
+  await stripe.subscriptions.update(String(subscriptionId), {
+    metadata: {
+      ...(sub?.metadata || {}),
+      amountCents: String(totalMonthlyCents),
+      standardAmountCents: String(standardAmountCents ?? ""),
+      payoffAmountCents: String(payoffAmountCents ?? 0),
+    },
+  });
+
+  const membershipRecs = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), payment_type: "membership", is_active: true },
+    "-created_date",
+    1
+  );
+  if (membershipRecs[0]?.id) {
+    await store.update("RecurringPayment", membershipRecs[0].id, {
+      amount_per_month: Math.round(totalMonthlyCents) / 100,
+    });
+  }
+}
+
+async function detachMemberPayoffSubscriptions({ stripe, store, memberId }) {
+  const payoffRecs = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), payment_type: "balance_payoff", is_active: true },
+    "-created_date",
+    1000
+  );
+  if (!payoffRecs.length) return;
+
+  for (const rec of payoffRecs) {
+    if (rec.stripe_subscription_id) {
+      const subId = rec.stripe_subscription_id;
+      await store.update("RecurringPayment", rec.id, {
+        stripe_subscription_id: null,
+      });
+      try {
+        await stripe.subscriptions.cancel(String(subId));
+      } catch (err) {
+        console.warn("Failed to cancel payoff subscription", subId, err?.message || err);
+      }
+    }
+  }
 }
 
 function signSaveCardToken(payload) {
@@ -348,6 +438,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const memberId = safeString(req.body?.memberId, 200);
     const paymentType = safeString(req.body?.paymentType, 60);
     let amountCents = dollarsToCents(req.body?.amountPerMonth);
+    const applyMonthRaw = safeString(req.body?.applyMonth, 20);
+    const applyMonth = applyMonthRaw === "next_month" ? "next_month" : "this_month";
 
     if (!memberId || !amountCents || !paymentType) {
       return res.status(400).json({ message: "memberId, paymentType, and valid amountPerMonth are required" });
@@ -361,11 +453,230 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         return res.status(400).json({ message: "payoff total must be greater than zero" });
       }
       amountCents = Math.min(amountCents, payoffTotalCents);
+
+      const membershipRecs = await store.filter(
+        "RecurringPayment",
+        { member_id: String(member.id), payment_type: "membership", is_active: true },
+        "-created_date",
+        1
+      );
+      const membershipSubscriptionId =
+        member.stripe_subscription_id || membershipRecs[0]?.stripe_subscription_id;
+
+      await detachMemberPayoffSubscriptions({ stripe, store, memberId: member.id });
+
+      const payoffRecs = await store.filter(
+        "RecurringPayment",
+        { member_id: String(member.id), payment_type: "balance_payoff", is_active: true },
+        "-created_date",
+        1000
+      );
+      const today = new Date().toISOString().split("T")[0];
+      const nextChargeDate = isoDateOnly(firstOfNextMonthUtc());
+      const payoffPayload = {
+        member_id: String(member.id),
+        member_name: safeString(member.full_name || "", 200),
+        payment_type: "balance_payoff",
+        amount_per_month: Math.round(amountCents) / 100,
+        is_active: true,
+        start_date: today,
+        next_charge_date: nextChargeDate,
+        stripe_customer_id: member.stripe_customer_id || undefined,
+        stripe_subscription_id: null,
+      };
+      if (payoffRecs[0]?.id) {
+        await store.update("RecurringPayment", payoffRecs[0].id, payoffPayload);
+        if (payoffRecs.length > 1) {
+          for (const extra of payoffRecs.slice(1)) {
+            await store.update("RecurringPayment", extra.id, {
+              is_active: false,
+              ended_date: today,
+              amount_per_month: 0,
+              remaining_amount: 0,
+            });
+          }
+        }
+      } else {
+        await store.create("RecurringPayment", payoffPayload);
+      }
+
+      if (membershipSubscriptionId) {
+        const plans = await store.list("MembershipPlan", "-created_date", 1);
+        const standardAmountCents = centsFromNumber(plans[0]?.standard_amount || 0);
+        const memberCharges = await store.filter(
+          "MembershipCharge",
+          { member_id: String(member.id), is_active: true },
+          "-created_date",
+          10000
+        );
+        const recurring = await store.filter(
+          "RecurringPayment",
+          { member_id: String(member.id), is_active: true },
+          "-created_date",
+          10000
+        );
+        const chargesTotalCents = memberCharges
+          .filter(
+            (c) => c.charge_type === "standard_donation" || c.charge_type === "payoff"
+          )
+          .reduce((sum, c) => sum + centsFromNumber(c.amount || 0), 0);
+        const recurringPayoffCents = recurring
+          .filter((p) => p.payment_type === "balance_payoff")
+          .reduce((sum, p) => sum + centsFromNumber(p.amount_per_month || 0), 0);
+        const totalMonthlyCents =
+          standardAmountCents + chargesTotalCents + recurringPayoffCents + amountCents;
+
+        await updateMembershipSubscriptionAmount({
+          stripe,
+          store,
+          memberId: member.id,
+          subscriptionId: membershipSubscriptionId,
+          totalMonthlyCents,
+          standardAmountCents,
+          payoffAmountCents: amountCents,
+        });
+
+        return res.json({ ok: true, combined: true, amountCents: totalMonthlyCents });
+      }
+
+      return res.json({ ok: true, combined: false, amountCents });
+    }
+
+    let standardAmountCents = amountCents;
+    let payoffAmountCents = 0;
+    let effectivePayoffCents = 0;
+    if (paymentType === "membership") {
+      const memberCharges = await store.filter(
+        "MembershipCharge",
+        { member_id: String(member.id), is_active: true },
+        "-created_date",
+        10000
+      );
+      const recurring = await store.filter(
+        "RecurringPayment",
+        { member_id: String(member.id), is_active: true },
+        "-created_date",
+        10000
+      );
+      const donationCents = memberCharges
+        .filter((c) => c.charge_type === "standard_donation")
+        .reduce((sum, c) => sum + dollarsToCents(c.amount || 0), 0);
+      const payoffChargeCents = memberCharges
+        .filter((c) => c.charge_type === "payoff")
+        .reduce((sum, c) => sum + dollarsToCents(c.amount || 0), 0);
+      const recurringPayoffCents = recurring
+        .filter((p) => p.payment_type === "balance_payoff")
+        .reduce((sum, p) => sum + dollarsToCents(p.amount_per_month || 0), 0);
+      payoffAmountCents = recurringPayoffCents || payoffChargeCents;
+
+      const balanceOwedCents = dollarsToCents(member.total_owed || 0);
+      effectivePayoffCents = payoffAmountCents;
+      let totalMonthlyCents =
+        (Number.isFinite(standardAmountCents) ? standardAmountCents : 0) +
+        (Number.isFinite(donationCents) ? donationCents : 0) +
+        (Number.isFinite(recurringPayoffCents) && recurringPayoffCents > 0
+          ? recurringPayoffCents
+          : Number.isFinite(payoffChargeCents)
+            ? payoffChargeCents
+            : 0);
+
+      if (
+        Number.isFinite(balanceOwedCents) &&
+        Number.isFinite(standardAmountCents) &&
+        standardAmountCents > 0 &&
+        standardAmountCents + payoffAmountCents > balanceOwedCents
+      ) {
+        effectivePayoffCents = 0;
+        totalMonthlyCents =
+          (Number.isFinite(donationCents) ? donationCents : 0) +
+          (Number.isFinite(balanceOwedCents) ? balanceOwedCents : 0);
+      }
+      if (Number.isFinite(totalMonthlyCents) && totalMonthlyCents > 0) {
+        amountCents = totalMonthlyCents;
+      }
     }
 
     const frontendOrigin = resolveFrontendBaseUrl(req);
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
+
+    const isMembershipThisMonth = paymentType === "membership" && applyMonth === "this_month";
+    if (isMembershipThisMonth) {
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        customer: customerId,
+        payment_intent_data: {
+          setup_future_usage: "off_session",
+        },
+        line_items: [
+          {
+            price_data: {
+              currency: process.env.STRIPE_CURRENCY || "usd",
+              product_data: {
+                name: "Monthly Membership",
+              },
+              unit_amount: amountCents,
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          kind: "membership_first_month",
+          memberId: String(member.id),
+          memberName: safeString(member.full_name || "", 200),
+          paymentType,
+          amountCents: String(amountCents),
+          applyMonth,
+          standardAmountCents: String(standardAmountCents),
+          payoffAmountCents: String(effectivePayoffCents),
+          payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
+        },
+      });
+
+      return res.json({ url: session.url });
+    }
+
+    const subscriptionData = {
+      metadata: {
+        memberId: String(member.id),
+        paymentType,
+        memberName: safeString(member.full_name || "", 200),
+        amountCents: String(amountCents),
+        standardAmountCents: String(standardAmountCents),
+        payoffAmountCents: String(effectivePayoffCents),
+        payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
+      },
+    };
+
+    let billingAnchorDate;
+    if (paymentType === "membership") {
+      subscriptionData.metadata.applyMonth = applyMonth;
+      if (applyMonth === "next_month") {
+        billingAnchorDate = firstOfNextMonthUtc();
+        const billingAnchor = Math.floor(billingAnchorDate.getTime() / 1000);
+        subscriptionData.trial_end = billingAnchor;
+        subscriptionData.metadata.billingAnchor = isoDateOnly(billingAnchorDate);
+      }
+    }
+
+    const sessionMetadata = {
+      kind: "subscription",
+      memberId: String(member.id),
+      memberName: safeString(member.full_name || "", 200),
+      paymentType,
+      amountCents: String(amountCents),
+      standardAmountCents: String(standardAmountCents),
+      payoffAmountCents: String(effectivePayoffCents),
+      payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
+    };
+    if (paymentType === "membership") {
+      sessionMetadata.applyMonth = applyMonth;
+      if (billingAnchorDate) {
+        sessionMetadata.billingAnchor = isoDateOnly(billingAnchorDate);
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -388,26 +699,10 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
           quantity: 1,
         },
       ],
-      subscription_data: {
-        metadata: {
-          memberId: String(member.id),
-          paymentType,
-          memberName: safeString(member.full_name || "", 200),
-          amountCents: String(amountCents),
-          payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
-        },
-      },
+      subscription_data: subscriptionData,
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        kind: "subscription",
-        memberId: String(member.id),
-        memberName: safeString(member.full_name || "", 200),
-        paymentType,
-        amountCents: String(amountCents),
-        // optional payoff metadata
-        payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
-      },
+      metadata: sessionMetadata,
     });
 
     return res.json({ url: session.url });
@@ -538,6 +833,67 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     const stripeSubscriptionId = recurring.stripe_subscription_id || subscriptionId;
     if (!stripeSubscriptionId) {
+      if (recurring.payment_type === "balance_payoff") {
+        const today = new Date().toISOString().split("T")[0];
+        await store.update("RecurringPayment", recurring.id, {
+          is_active: false,
+          ended_date: today,
+          amount_per_month: 0,
+          remaining_amount: 0,
+        });
+
+        if (recurring.member_id) {
+          const membershipRecs = await store.filter(
+            "RecurringPayment",
+            { member_id: String(recurring.member_id), payment_type: "membership", is_active: true },
+            "-created_date",
+            1
+          );
+          const membershipSubscriptionId =
+            membershipRecs[0]?.stripe_subscription_id ||
+            (await store.filter("Member", { id: String(recurring.member_id) }, undefined, 1))[0]
+              ?.stripe_subscription_id;
+          if (membershipSubscriptionId) {
+            const plans = await store.list("MembershipPlan", "-created_date", 1);
+            const standardAmountCents = centsFromNumber(plans[0]?.standard_amount || 0);
+            const memberCharges = await store.filter(
+              "MembershipCharge",
+              { member_id: String(recurring.member_id), is_active: true },
+              "-created_date",
+              10000
+            );
+            const allRecurring = await store.filter(
+              "RecurringPayment",
+              { member_id: String(recurring.member_id), is_active: true },
+              "-created_date",
+              10000
+            );
+            const chargesTotalCents = memberCharges.reduce(
+              (sum, c) => sum + centsFromNumber(c.amount || 0),
+              0
+            );
+            const recurringNonMembershipCents = allRecurring
+              .filter(
+                (p) => p.payment_type !== "membership" && p.payment_type !== "balance_payoff"
+              )
+              .reduce((sum, p) => sum + centsFromNumber(p.amount_per_month || 0), 0);
+            const totalMonthlyCents =
+              standardAmountCents + chargesTotalCents + recurringNonMembershipCents;
+
+            await updateMembershipSubscriptionAmount({
+              stripe: getStripe(),
+              store,
+              memberId: recurring.member_id,
+              subscriptionId: membershipSubscriptionId,
+              totalMonthlyCents,
+              standardAmountCents,
+              payoffAmountCents: 0,
+            });
+          }
+        }
+
+        return res.json({ ok: true, subscriptionId: null });
+      }
       return res.status(400).json({ message: "Missing Stripe subscription id" });
     }
 

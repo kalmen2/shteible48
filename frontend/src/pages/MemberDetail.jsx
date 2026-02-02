@@ -154,14 +154,38 @@ export default function MemberDetail() {
   });
 
   const addDonationMutation = useMutation({
-    mutationFn: async (donationData) => {
-      return await base44.entities.Transaction.create(donationData);
+    mutationFn: async ({ amount, description }) => {
+      const charge = await base44.entities.MembershipCharge.create({
+        member_id: memberId,
+        member_name: member.full_name,
+        charge_type: 'standard_donation',
+        amount,
+        is_active: true,
+      });
+      const transaction = await base44.entities.Transaction.create({
+        member_id: memberId,
+        member_name: member.full_name,
+        type: 'donation',
+        description: description || 'Donation',
+        amount,
+        date: new Date().toISOString().split('T')[0],
+      });
+      return { charge, transaction };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['membershipCharges'] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
       setDonationDialogOpen(false);
       setDonationAmount('');
       setDonationDescription('');
+    },
+    onError: (error) => {
+      toast({
+        title: 'Donation failed',
+        description: error?.message || 'Unable to record donation right now.',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -275,12 +299,8 @@ export default function MemberDetail() {
     const amount = parseFloat(donationAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
     addDonationMutation.mutate({
-      member_id: memberId,
-      member_name: member.full_name,
-      type: 'donation',
-      description: donationDescription || 'Donation',
       amount,
-      date: new Date().toISOString().split('T')[0],
+      description: donationDescription || 'Donation',
     });
   };
 
@@ -352,22 +372,48 @@ export default function MemberDetail() {
       });
   };
 
-  const handlePayoffSubmit = (e) => {
+  const handlePayoffSubmit = async (e) => {
     e.preventDefault();
     const amountPerMonth = parseFloat(payoffAmount);
     if (!Number.isFinite(amountPerMonth) || amountPerMonth <= 0) return;
-    base44.payments
-      .createSubscriptionCheckout({
+    try {
+      const out = await base44.payments.createSubscriptionCheckout({
         memberId,
         paymentType: 'balance_payoff',
         amountPerMonth,
         payoffTotal: member.total_owed || 0,
         successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
         cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-      })
-      .then((out) => {
-        if (out?.url) window.location.href = out.url;
       });
+      if (out?.ok) {
+        toast({
+          title: 'Payoff plan saved',
+          description: out?.combined
+            ? 'It will be included in the next membership charge.'
+            : 'It will appear on the member record.',
+        });
+        queryClient.invalidateQueries({ queryKey: ['recurringPayments', memberId] });
+        queryClient.invalidateQueries({ queryKey: ['members'] });
+        setPayoffDialogOpen(false);
+        setPayoffAmount('');
+        return;
+      }
+      if (out?.url) {
+        window.location.href = out.url;
+        return;
+      }
+      toast({
+        title: 'Payoff failed',
+        description: 'Unexpected response from server.',
+        variant: 'destructive',
+      });
+    } catch (err) {
+      toast({
+        title: 'Payoff failed',
+        description: err?.message || 'Unable to save payoff plan right now.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const openEditDialog = () => {
