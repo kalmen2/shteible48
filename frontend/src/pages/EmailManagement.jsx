@@ -3,7 +3,8 @@ import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/use-toast';
@@ -32,13 +33,12 @@ import { toLocalDate, toLocalMonthDate } from '@/utils/dates';
 
 export default function EmailManagement() {
   const [emailSubject, setEmailSubject] = useState('Monthly Balance Statement');
-  const [emailBody, setEmailBody] = useState(
-    `Dear {member_name},\n\nThis is a reminder that you have an outstanding balance of ${'{balance}'} as of the end of this month.\n\nPlease remit payment at your earliest convenience.\n\nThank you for your continued support.\n\nBest regards,\nSynagogue Administration`
-  );
+  const [emailBody, setEmailBody] = useState('');
   const [sendType, setSendType] = useState('now'); // "now" or "monthly"
   const [viewMode, setViewMode] = useState('send'); // "send" or "monthly"
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [attachInvoice, setAttachInvoice] = useState(true);
+  const [isBodyCentered, setIsBodyCentered] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendLog, setSendLog] = useState([]);
   const [scheduleDay, setScheduleDay] = useState(1);
@@ -49,6 +49,7 @@ export default function EmailManagement() {
   const [scheduleMessage, setScheduleMessage] = useState(null);
   const [scheduleId, setScheduleId] = useState(null);
   const [scheduleName, setScheduleName] = useState('');
+  const [isCreatingSchedule, setIsCreatingSchedule] = useState(false);
 
   // One-time send recipient selection
   const [sendRecipientMode, setSendRecipientMode] = useState('all'); // "all" or "selected"
@@ -103,10 +104,10 @@ export default function EmailManagement() {
   });
 
   useEffect(() => {
-    if (!scheduleId && schedules.length > 0) {
+    if (!scheduleId && schedules.length > 0 && !isCreatingSchedule) {
       setScheduleId(schedules[0].id);
     }
-  }, [scheduleId, schedules]);
+  }, [scheduleId, schedules, isCreatingSchedule]);
 
   const schedule = schedules.find((item) => item.id === scheduleId) || null;
   const currentPlan = plans[0];
@@ -119,9 +120,19 @@ export default function EmailManagement() {
   }, []);
 
   const getMemberCharges = (memberId) =>
-    membershipCharges.filter((c) => c.member_id === memberId && c.is_active);
+    membershipCharges.filter(
+      (c) =>
+        c.member_id === memberId &&
+        c.is_active &&
+        (c.charge_type === 'standard_donation' || c.charge_type === 'payoff')
+    );
   const getMemberRecurringPayments = (memberId) =>
-    recurringPayments.filter((p) => p.member_id === memberId && p.is_active);
+    recurringPayments.filter(
+      (p) =>
+        p.member_id === memberId &&
+        p.is_active &&
+        (p.payment_type === 'balance_payoff' || p.payment_type === 'additional_monthly')
+    );
   const getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
@@ -129,13 +140,13 @@ export default function EmailManagement() {
       (sum, c) => sum + Number(c.amount || 0),
       0
     );
-    const recurringTotal = getMemberRecurringPayments(member.id)
-      .filter((p) => p.payment_type !== 'membership')
+    const payoffRecurring = getMemberRecurringPayments(member.id)
+      .filter((p) => p.payment_type === 'balance_payoff')
       .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
     return (
       standardAmount +
       (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
-      (Number.isFinite(recurringTotal) ? recurringTotal : 0)
+      (Number.isFinite(payoffRecurring) ? payoffRecurring : 0)
     );
   };
 
@@ -160,18 +171,22 @@ export default function EmailManagement() {
       : [];
     setSelectedRecipientIds(normalizedSelected);
     if (schedule.subject) setEmailSubject(schedule.subject);
-    if (schedule.body) setEmailBody(schedule.body);
+    setEmailBody(String(schedule.body ?? ''));
     if (typeof schedule.attach_invoice === 'boolean') setAttachInvoice(schedule.attach_invoice);
+    if (typeof schedule.center_body === 'boolean') setIsBodyCentered(schedule.center_body);
   }, [schedule, members, guests]);
 
   const resetScheduleForm = () => {
     setScheduleId(null);
+    setIsCreatingSchedule(true);
     setScheduleName('');
+    setEmailBody('');
     setScheduleDay(1);
     setScheduleTime('09:00');
     setScheduleTimezone('America/New_York');
     setScheduleRecipientMode('all');
     setSelectedRecipientIds([]);
+    setIsBodyCentered(false);
     setScheduleMessage(null);
   };
 
@@ -182,7 +197,7 @@ export default function EmailManagement() {
       key: `member:${m.id}`,
       name: m.full_name || m.english_name || m.hebrew_name || 'Member',
       email: m.email,
-      balance: (m.total_owed || 0) + getMemberTotalMonthly(m),
+      balance: m.total_owed || 0,
       ref: m,
     })),
     ...guests.map((g) => ({
@@ -196,7 +211,86 @@ export default function EmailManagement() {
     })),
   ].sort((a, b) => a.name.localeCompare(b.name));
 
+  const recipientByKey = React.useMemo(() => {
+    const map = new Map();
+    for (const rec of allRecipients) {
+      map.set(rec.key, rec);
+    }
+    return map;
+  }, [allRecipients]);
+
+  const resolveRecipientKey = (rawId) => {
+    if (!rawId && rawId !== 0) return null;
+    if (typeof rawId === 'string' && rawId.includes(':')) return rawId;
+    const rawStr = String(rawId);
+    const member = members.find(
+      (m) => String(m.id) === rawStr || String(m.member_id) === rawStr
+    );
+    if (member) return `member:${member.id}`;
+    const guest = guests.find(
+      (g) => String(g.id) === rawStr || String(g.guest_id) === rawStr
+    );
+    if (guest) return `guest:${guest.id}`;
+    return null;
+  };
+
+  const scheduleRecipients = React.useMemo(() => {
+    if (!schedule || schedule.send_to !== 'selected') return [];
+    const rawIds = Array.isArray(schedule.selected_member_ids)
+      ? schedule.selected_member_ids
+      : [];
+    const uniqueKeys = new Set();
+    for (const rawId of rawIds) {
+      const key = resolveRecipientKey(rawId);
+      if (key) uniqueKeys.add(key);
+    }
+    return Array.from(uniqueKeys)
+      .map((key) => recipientByKey.get(key))
+      .filter(Boolean);
+  }, [schedule, recipientByKey, members, guests]);
+
+  const scheduleDisplay = React.useMemo(() => {
+    if (!schedule) return null;
+    const hour = Number(schedule.hour ?? 9);
+    const minute = Number(schedule.minute ?? 0);
+    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return {
+      name: schedule.name || 'Current schedule',
+      day: Number(schedule.day_of_month ?? 1),
+      time,
+      timeZone: schedule.time_zone || 'America/New_York',
+      sendTo: schedule.send_to === 'selected' ? 'selected' : 'all',
+      attachInvoice: Boolean(schedule.attach_invoice),
+      centerBody: Boolean(schedule.center_body),
+      subject: schedule.subject || emailSubject,
+    };
+  }, [schedule, emailSubject]);
+
   const recipientsWithBalance = allRecipients.filter((r) => (r.balance || 0) > 0);
+
+  const containsHtml = (value) => /<\/?[a-z][\s\S]*>/i.test(String(value || ''));
+
+  const escapeHtml = (value) =>
+    String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  const htmlFromBody = (value) => {
+    if (containsHtml(value)) return String(value || '');
+    return escapeHtml(value).replace(/\n/g, '<br/>');
+  };
+
+  const stripHtml = (value) =>
+    String(value || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim();
 
   const allStatementTransactions = React.useMemo(
     () => [...(allTransactions || []), ...(allGuestTransactions || [])],
@@ -285,8 +379,8 @@ export default function EmailManagement() {
   };
 
   const saveScheduleMutation = useMutation({
-    mutationFn: async (payload) => {
-      if (scheduleId) {
+    mutationFn: async ({ payload, forceCreate }) => {
+      if (!forceCreate && scheduleId) {
         return base44.entities.EmailSchedule.update(scheduleId, payload);
       }
       return base44.entities.EmailSchedule.create(payload);
@@ -296,6 +390,7 @@ export default function EmailManagement() {
       setScheduleMessage({ type: 'success', text: 'Monthly schedule saved.' });
       if (saved?.id) {
         setScheduleId(saved.id);
+        setIsCreatingSchedule(false);
       }
     },
     onError: (error) => {
@@ -318,7 +413,7 @@ export default function EmailManagement() {
     },
   });
 
-  const handleSaveSchedule = () => {
+  const handleSaveSchedule = (forceCreate = false) => {
     setScheduleMessage(null);
     const [hourStr, minuteStr] = String(scheduleTime || '09:00').split(':');
     const hour = Number(hourStr);
@@ -336,17 +431,21 @@ export default function EmailManagement() {
       return;
     }
     saveScheduleMutation.mutate({
-      name: scheduleName || 'Monthly Schedule',
-      enabled: true,
-      day_of_month: scheduleDay,
-      hour,
-      minute,
-      time_zone: scheduleTimezone,
-      send_to: scheduleRecipientMode,
-      selected_member_ids: scheduleRecipientMode === 'selected' ? selectedRecipientIds : [],
-      subject: emailSubject,
-      body: emailBody,
-      attach_invoice: attachInvoice,
+      forceCreate: forceCreate || isCreatingSchedule || !scheduleId,
+      payload: {
+        name: scheduleName || 'Monthly Schedule',
+        enabled: true,
+        day_of_month: scheduleDay,
+        hour,
+        minute,
+        time_zone: scheduleTimezone,
+        send_to: scheduleRecipientMode,
+        selected_member_ids: scheduleRecipientMode === 'selected' ? selectedRecipientIds : [],
+        subject: emailSubject,
+        body: emailBody,
+        attach_invoice: attachInvoice,
+        center_body: isBodyCentered,
+      },
     });
   };
 
@@ -400,6 +499,12 @@ export default function EmailManagement() {
           .replace(/{id}/g, rec.ref?.member_id || rec.ref?.guest_id || rec.id || 'N/A')
           .replace(/{save_card_url}/g, saveCardUrl);
 
+        const htmlBody = htmlFromBody(personalizedBody);
+        const centeredHtml = isBodyCentered
+          ? `<div style="text-align:center; white-space:pre-wrap;">${htmlBody}</div>`
+          : htmlBody;
+        const textBody = stripHtml(htmlBody);
+
         const pdfPayload = attachInvoice
           ? {
               memberName: rec.name,
@@ -414,7 +519,8 @@ export default function EmailManagement() {
         await base44.integrations.Core.SendEmail({
           to: rec.email,
           subject: emailSubject,
-          body: personalizedBody,
+          body: textBody || personalizedBody,
+          html: centeredHtml,
           pdf: pdfPayload,
         });
 
@@ -445,6 +551,11 @@ export default function EmailManagement() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+      <style>{`
+        .email-quill-center .ql-editor {
+          text-align: center;
+        }
+      `}</style>
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="mb-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -569,13 +680,40 @@ export default function EmailManagement() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="body">Email Body</Label>
-                  <Textarea
-                    id="body"
-                    value={emailBody}
-                    onChange={(e) => setEmailBody(e.target.value)}
-                    rows={10}
-                    className="font-mono text-sm"
-                  />
+                  <div
+                    className={`rounded-lg border border-slate-300 ${
+                      isBodyCentered ? 'email-quill-center' : ''
+                    }`}
+                  >
+                    <ReactQuill
+                      theme="snow"
+                      value={emailBody}
+                      onChange={setEmailBody}
+                      modules={{
+                        toolbar: [
+                          [{ header: [1, 2, 3, false] }],
+                          ['bold', 'italic', 'underline', 'strike'],
+                          [{ color: [] }, { background: [] }],
+                          [{ list: 'ordered' }, { list: 'bullet' }],
+                          [{ align: [] }],
+                          ['link', 'clean'],
+                        ],
+                      }}
+                      formats={[
+                        'header',
+                        'bold',
+                        'italic',
+                        'underline',
+                        'strike',
+                        'color',
+                        'background',
+                        'list',
+                        'bullet',
+                        'align',
+                        'link',
+                      ]}
+                    />
+                  </div>
                   <p className="text-xs text-slate-500">
                     Available variables: {'{member_name}'}, {'{hebrew_name}'}, {'{balance}'},{' '}
                     {'{id}'}, {'{save_card_url}'}
@@ -600,6 +738,22 @@ export default function EmailManagement() {
                         {!hasSavedTemplate && ' (save a template to enable)'}
                       </div>
                     </div>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <input
+                    type="checkbox"
+                    id="centerBody"
+                    checked={isBodyCentered}
+                    onChange={(e) => setIsBodyCentered(e.target.checked)}
+                    className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
+                  />
+                  <label htmlFor="centerBody" className="flex items-center gap-2 cursor-pointer">
+                    <span className="font-semibold text-slate-900">Center email body</span>
+                    <span className="text-sm text-slate-600">
+                      Centers the email text in the UI and the sent email.
+                    </span>
                   </label>
                 </div>
 
@@ -684,7 +838,91 @@ export default function EmailManagement() {
                 )}
 
                 {sendType === 'monthly' && (
-                  <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="space-y-4">
+                    <Card className="border-slate-200 shadow-sm">
+                      <CardHeader className="border-b border-slate-200 bg-slate-50">
+                        <CardTitle className="text-base">Saved Schedules</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4">
+                        {schedules.length === 0 ? (
+                          <div className="text-sm text-slate-500">
+                            No schedules yet. Create one below.
+                          </div>
+                        ) : (
+                          <div className="grid gap-3">
+                            {schedules.map((item) => {
+                              const isSelected = scheduleId === item.id;
+                              const recipientCount =
+                                item.send_to === 'selected'
+                                  ? Array.isArray(item.selected_member_ids)
+                                    ? item.selected_member_ids.length
+                                    : 0
+                                  : allRecipients.length;
+                              const emailCount =
+                                item.send_to === 'selected'
+                                  ? Array.isArray(item.selected_member_ids)
+                                    ? item.selected_member_ids
+                                        .map((id) => resolveRecipientKey(id))
+                                        .filter((key) => {
+                                          if (!key) return false;
+                                          const rec = recipientByKey.get(key);
+                                          return Boolean(rec?.email);
+                                        }).length
+                                    : 0
+                                  : allRecipients.filter((r) => r.email).length;
+                              const hour = Number(item.hour ?? 9);
+                              const minute = Number(item.minute ?? 0);
+                              const time = `${String(hour).padStart(2, '0')}:${String(
+                                minute
+                              ).padStart(2, '0')}`;
+
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setScheduleId(item.id);
+                                    setScheduleMessage(null);
+                                    setIsCreatingSchedule(false);
+                                  }}
+                                  className={`w-full rounded-lg border px-4 py-3 text-left transition ${
+                                    isSelected
+                                      ? 'border-blue-400 bg-blue-50'
+                                      : 'border-slate-200 bg-white hover:border-slate-300'
+                                  }`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="font-semibold text-slate-800">
+                                      {item.name || `Schedule ${item.id.slice(0, 6)}`}
+                                    </div>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                        item.enabled
+                                          ? 'bg-green-100 text-green-700'
+                                          : 'bg-slate-100 text-slate-500'
+                                      }`}
+                                    >
+                                      {item.enabled ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-slate-500 mt-1">
+                                    Day {item.day_of_month ?? 1} at {time} (
+                                    {item.time_zone || 'America/New_York'})
+                                  </div>
+                                  <div className="text-xs text-slate-500 mt-1">
+                                    Recipients:{' '}
+                                    {item.send_to === 'selected' ? 'Selected' : 'All'} · {recipientCount}{' '}
+                                    total · {emailCount} with email
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
                         <Label>Schedule</Label>
@@ -696,6 +934,7 @@ export default function EmailManagement() {
                             } else {
                               setScheduleId(value);
                               setScheduleMessage(null);
+                              setIsCreatingSchedule(false);
                             }
                           }}
                         >
@@ -856,53 +1095,105 @@ export default function EmailManagement() {
                       )}
                     </div>
                   </div>
+                  </div>
                 )}
 
-                <Button
-                  onClick={sendType === 'monthly' ? handleSaveSchedule : handleSendNow}
-                  disabled={
-                    sendType === 'monthly'
+                <div className="flex flex-col gap-3">
+                  <Button
+                    onClick={sendType === 'monthly' ? () => handleSaveSchedule(false) : handleSendNow}
+                    disabled={
+                      sendType === 'monthly'
+                        ? savingSchedule
+                        : sending || recipientsWithBalance.length === 0
+                    }
+                    className="w-full h-12 bg-blue-900 hover:bg-blue-800"
+                  >
+                    <Send className="w-5 h-5 mr-2" />
+                    {sendType === 'monthly'
                       ? savingSchedule
-                      : sending || recipientsWithBalance.length === 0
-                  }
-                  className="w-full h-12 bg-blue-900 hover:bg-blue-800"
-                >
-                  <Send className="w-5 h-5 mr-2" />
-                  {sendType === 'monthly'
-                    ? savingSchedule
-                      ? 'Saving...'
-                      : 'Save Monthly Schedule'
-                    : (() => {
-                        if (sending) return 'Sending...';
-                        const baseList =
-                          sendRecipientMode === 'selected'
-                            ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
-                            : allRecipients;
-                        const count = baseList.filter((r) => r.email).length;
-                        return `Send to ${count} Recipients`;
-                      })()}
-                </Button>
+                        ? 'Saving...'
+                        : isCreatingSchedule || !scheduleId
+                          ? 'Create Monthly Schedule'
+                          : 'Update Monthly Schedule'
+                      : (() => {
+                          if (sending) return 'Sending...';
+                          const baseList =
+                            sendRecipientMode === 'selected'
+                              ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+                              : allRecipients;
+                          const count = baseList.filter((r) => r.email).length;
+                          return `Send to ${count} Recipients`;
+                        })()}
+                  </Button>
+                  {sendType === 'monthly' && scheduleId && !isCreatingSchedule && (
+                    <Button
+                      variant="outline"
+                      className="w-full border-blue-200 text-blue-700 hover:bg-blue-50"
+                      onClick={() => handleSaveSchedule(true)}
+                      disabled={savingSchedule}
+                    >
+                      Save as New Schedule
+                    </Button>
+                  )}
+                </div>
 
                 {sendType === 'monthly' && (
                   <>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      {schedule ? (
+                      {schedule && scheduleDisplay ? (
                         <div className="flex flex-col gap-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="font-semibold text-slate-700">
-                              {schedule.name || 'Current schedule'}
+                              {scheduleDisplay.name}
                             </span>
                             <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                               Enabled
                             </span>
                           </div>
                           <div>
-                            Emails send on day {scheduleDay} at {scheduleTime} ({scheduleTimezone})
+                            Emails send on day {scheduleDisplay.day} at {scheduleDisplay.time} (
+                            {scheduleDisplay.timeZone})
                           </div>
                           <div className="text-xs text-slate-500">
-                            Recipients: {scheduleRecipientMode === 'all' ? 'All' : 'Selected'} ·
-                            Attach invoice: {attachInvoice ? 'Yes' : 'No'}
+                            Recipients: {scheduleDisplay.sendTo === 'all' ? 'All' : 'Selected'} ·
+                            Attach invoice: {scheduleDisplay.attachInvoice ? 'Yes' : 'No'}
                           </div>
+                          <div className="text-xs text-slate-500">
+                            Subject: {scheduleDisplay.subject || 'Monthly Statement'}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Body alignment: {scheduleDisplay.centerBody ? 'Centered' : 'Left'}
+                          </div>
+                          {scheduleDisplay.sendTo === 'all' && (
+                            <div className="text-xs text-slate-500">
+                              All recipients: {allRecipients.length} · With email:{' '}
+                              {allRecipients.filter((r) => r.email).length}
+                            </div>
+                          )}
+                          {scheduleDisplay.sendTo === 'selected' && (
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                              <div className="mb-2 font-semibold text-slate-700">
+                                Assigned recipients ({scheduleRecipients.length})
+                              </div>
+                              {scheduleRecipients.length === 0 ? (
+                                <div className="text-slate-500">No recipients saved.</div>
+                              ) : (
+                                <div className="max-h-32 space-y-1 overflow-y-auto">
+                                  {scheduleRecipients.map((rec) => (
+                                    <div
+                                      key={rec.key}
+                                      className="flex items-center justify-between gap-2"
+                                    >
+                                      <span className="truncate font-medium">{rec.name}</span>
+                                      <span className="truncate text-slate-500">
+                                        {rec.email || 'No email'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div>No monthly schedule yet. Save to create one.</div>

@@ -6,6 +6,7 @@ const { sendEmail, createBalancePdf } = require("./emailService");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
+const SAVE_CARD_TOKEN_EXPIRES_IN = process.env.SAVE_CARD_TOKEN_EXPIRES_IN || "7d";
 
 function getZonedParts(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
@@ -48,26 +49,47 @@ function normalizeSchedule(schedule) {
     send_to: schedule.send_to === "selected" ? "selected" : "all",
     selected_member_ids: Array.isArray(schedule.selected_member_ids) ? schedule.selected_member_ids : [],
     subject: String(schedule.subject || "Monthly Statement"),
-    body: String(schedule.body || "Dear {member_name},\n\nYour balance is {balance}.\n\nThank you."),
+    body: String(schedule.body ?? ""),
     attach_invoice: Boolean(schedule.attach_invoice),
+    center_body: Boolean(schedule.center_body),
     last_sent_month: schedule.last_sent_month ? String(schedule.last_sent_month) : null,
   };
 }
 
-function computeMemberBalance(member, plan, charges, recurringPayments) {
-  const standardAmount = Number(plan?.standard_amount || 0);
-  const totalOwed = Number(member.total_owed || 0);
+function containsHtml(value) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
 
-  const memberCharges = (charges || []).filter((c) => c.member_id === member.id && c.is_active);
-  const chargesTotal = memberCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-  const recurringTotal = (recurringPayments || [])
-    .filter((p) => p.member_id === member.id && p.is_active && p.payment_type !== "membership")
-    .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
-  const monthlyDue =
-    standardAmount +
-    (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
-    (Number.isFinite(recurringTotal) ? recurringTotal : 0);
-  return totalOwed + monthlyDue;
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function htmlFromBody(value) {
+  if (containsHtml(value)) return String(value || "");
+  return escapeHtml(value).replace(/\n/g, "<br/>");
+}
+
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
+function wrapCentered(html) {
+  return `<div style="text-align:center; white-space:pre-wrap;">${html}</div>`;
+}
+
+function computeMemberBalance(member) {
+  return Number(member.total_owed || 0);
 }
 
 function computeGuestBalance(guest) {
@@ -96,7 +118,11 @@ function buildSaveCardUrlForRecord(record) {
     const payload = isGuest
       ? { kind: "guest", id: String(record.id) }
       : { kind: "member", id: String(record.id), member_id: record.member_id };
-    const token = jwt.sign({ ...payload, jti: randomUUID() }, JWT_SECRET, { expiresIn: "24h" });
+    const token = jwt.sign(
+      { ...payload, jti: randomUUID() },
+      JWT_SECRET,
+      { expiresIn: SAVE_CARD_TOKEN_EXPIRES_IN }
+    );
     return `${FRONTEND_BASE_URL}/save-card?token=${encodeURIComponent(token)}`;
   } catch (err) {
     console.error("Failed to build save card url", err?.message || err);
@@ -146,8 +172,6 @@ async function runMonthlyEmailScheduler() {
   const members = await store.list("Member", "-created_date", 10000);
   const guests = await store.list("Guest", "-created_date", 10000);
   const plans = await store.list("MembershipPlan", "-created_date", 1);
-  const membershipCharges = await store.filter("MembershipCharge", { is_active: true }, "-created_date", 10000);
-  const recurringPayments = await store.filter("RecurringPayment", { is_active: true }, "-created_date", 10000);
   const templates = await store.list("StatementTemplate", "-created_date", 1);
   const currentPlan = plans[0];
   const activeTemplate = templates[0];
@@ -173,10 +197,11 @@ async function runMonthlyEmailScheduler() {
         continue;
       }
       const isGuest = Boolean(record.guest_id || (!record.member_id && record.membership_active === undefined));
-      const balanceValue = isGuest
-        ? computeGuestBalance(record)
-        : computeMemberBalance(record, currentPlan, membershipCharges, recurringPayments);
+      const balanceValue = isGuest ? computeGuestBalance(record) : computeMemberBalance(record);
       const body = applyTemplate(schedule.body, record, balanceValue);
+      const htmlBody = htmlFromBody(body);
+      const centeredHtml = schedule.center_body ? wrapCentered(htmlBody) : htmlBody;
+      const textBody = stripHtml(htmlBody) || body;
       let attachments;
 
       if (schedule.attach_invoice) {
@@ -188,13 +213,35 @@ async function runMonthlyEmailScheduler() {
           });
           continue;
         }
+        const transactions = isGuest
+          ? await store.filter(
+              "GuestTransaction",
+              { guest_id: String(record.id) },
+              "-date",
+              2000
+            )
+          : await store.filter(
+              "Transaction",
+              { member_id: String(record.id) },
+              "-date",
+              2000
+            );
+        const charges = transactions.filter((t) => t.type === "charge");
+        const payments = transactions.filter((t) => t.type === "payment");
+        const totalCharges = charges.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+        const totalPayments = payments.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
         const pdfBuffer = await createBalancePdf({
           memberName: record.full_name || record.english_name || record.hebrew_name || "Member",
           memberId: record.member_id || record.id,
           balance: balanceValue,
           statementDate: currentMonth,
-          note: "This statement reflects your current balance.",
+          note: "This statement reflects your current balance and transaction history.",
           template: activeTemplate,
+          charges,
+          payments,
+          totalCharges,
+          totalPayments,
         });
         attachments = [
           {
@@ -208,7 +255,8 @@ async function runMonthlyEmailScheduler() {
         await sendEmail({
           to: record.email,
           subject: schedule.subject,
-          text: body,
+          text: textBody,
+          html: centeredHtml,
           attachments,
         });
         sent += 1;

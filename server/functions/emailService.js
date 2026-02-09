@@ -50,7 +50,18 @@ function getTransporter() {
   return cachedTransporter;
 }
 
-function createBalancePdf({ memberName, balance, statementDate, note, memberId, template }) {
+function createBalancePdf({
+  memberName,
+  balance,
+  statementDate,
+  note,
+  memberId,
+  template,
+  charges = [],
+  payments = [],
+  totalCharges = 0,
+  totalPayments = 0,
+}) {
   const resolvedTemplate = { ...defaultStatementTemplate, ...(template || {}) };
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 50 });
@@ -101,6 +112,52 @@ function createBalancePdf({ memberName, balance, statementDate, note, memberId, 
       .text(note || "Please remit payment at your earliest convenience.", {
         align: "left",
       });
+
+    const showCharges = resolvedTemplate.show_charges_section !== false;
+    const showPayments = resolvedTemplate.show_payments_section !== false;
+    if (showCharges || showPayments) {
+      doc.moveDown();
+      doc
+        .fontSize(Math.round(bodySize * 1.2))
+        .fillColor(resolvedTemplate.header_color)
+        .text("Transaction Summary", { underline: true });
+      doc.moveDown(0.5);
+
+      if (showCharges) {
+        doc
+          .fontSize(bodySize)
+          .fillColor(resolvedTemplate.charges_color || "#d97706")
+          .text(`Charges (${charges.length}): $${Number(totalCharges || 0).toFixed(2)}`);
+        charges.slice(0, 20).forEach((charge) => {
+          doc
+            .fontSize(Math.round(bodySize * 0.9))
+            .fillColor("#111827")
+            .text(
+              `- ${charge.description || "Charge"} (${charge.date || ""}): $${Number(
+                charge.amount || 0
+              ).toFixed(2)}`
+            );
+        });
+      }
+
+      if (showPayments) {
+        doc.moveDown(0.5);
+        doc
+          .fontSize(bodySize)
+          .fillColor(resolvedTemplate.payments_color || "#16a34a")
+          .text(`Payments (${payments.length}): $${Number(totalPayments || 0).toFixed(2)}`);
+        payments.slice(0, 20).forEach((payment) => {
+          doc
+            .fontSize(Math.round(bodySize * 0.9))
+            .fillColor("#111827")
+            .text(
+              `- ${payment.description || "Payment"} (${payment.date || ""}): $${Number(
+                payment.amount || 0
+              ).toFixed(2)}`
+            );
+        });
+      }
+    }
 
     if (resolvedTemplate.show_footer && resolvedTemplate.footer_text) {
       doc.moveDown();

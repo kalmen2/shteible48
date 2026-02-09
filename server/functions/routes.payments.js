@@ -4,6 +4,7 @@ const { randomUUID } = require("crypto");
 const { getStripe } = require("./stripeClient.js");
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_DEV_SECRET || "dev-secret";
+const SAVE_CARD_TOKEN_EXPIRES_IN = process.env.SAVE_CARD_TOKEN_EXPIRES_IN || "7d";
 
 function dollarsToCents(amount) {
   const n = Number(amount);
@@ -124,7 +125,7 @@ async function detachMemberPayoffSubscriptions({ stripe, store, memberId }) {
 
 function signSaveCardToken(payload) {
   const jti = randomUUID();
-  return jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: SAVE_CARD_TOKEN_EXPIRES_IN });
 }
 
 function verifySaveCardToken(token) {

@@ -214,10 +214,6 @@ export default function Months() {
       .filter((t) => t.type === 'payment')
       .reduce((sum, t) => sum + (t.amount || 0), 0);
     const totalMonthly = getMemberTotalMonthly(member);
-    const monthlyChargesThisMonth = transactions
-      .filter((t) => t.type === 'charge' && isMonthlyChargeDescription(t.description))
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-
     // Calculate balance as of end of month
     const allTransactionsUpToMonth = memberTransactions.filter((t) => {
       if (t.member_id !== member.id) return false;
@@ -233,8 +229,7 @@ export default function Months() {
     const totalPayments = allTransactionsUpToMonth
       .filter((t) => t.type === 'payment')
       .reduce((sum, t) => sum + (t.amount || 0), 0);
-    const missingMonthly = Math.max(0, totalMonthly - monthlyChargesThisMonth);
-    const balanceAsOfEndOfMonth = totalCharges - totalPayments + missingMonthly;
+    const balanceAsOfEndOfMonth = totalCharges - totalPayments;
 
     return { transactions, charges, payments, balanceAsOfEndOfMonth };
   };
