@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { base44 } from '@/api/base44Client';
 import {
   Users,
   Receipt,
@@ -9,6 +10,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from 'lucide-react';
 
 const createPageUrl = (page) => {
@@ -18,6 +20,7 @@ const createPageUrl = (page) => {
 
 export default function Layout({ children, currentPageName }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     try {
@@ -46,6 +49,11 @@ export default function Layout({ children, currentPageName }) {
   ];
 
   const sidebarWidth = isCollapsed ? 80 : 256;
+
+  const handleLogout = async () => {
+    await base44.auth.logout();
+    navigate('/', { replace: true });
+  };
 
   return (
     <div className="app-shell flex h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
@@ -116,6 +124,26 @@ export default function Layout({ children, currentPageName }) {
             })}
           </div>
         </nav>
+
+        <div className="p-4 border-t border-blue-800">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className={`group w-full flex items-center rounded-lg transition-all duration-200 text-blue-100 hover:bg-blue-800/50 ${
+              isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3'
+            }`}
+            title={isCollapsed ? 'Logout' : undefined}
+          >
+            <LogOut className="w-5 h-5 transition-transform duration-300 group-hover:scale-105" />
+            <span
+              className={`font-medium transition-all duration-300 ${
+                isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
+              }`}
+            >
+              Logout
+            </span>
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}

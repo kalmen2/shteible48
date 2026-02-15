@@ -1005,7 +1005,9 @@ function createStripeWebhookHandler({ store }) {
         if (session.mode === "setup") {
           const md = session.metadata || {};
           const memberId = md.memberId;
-          if (memberId && session.setup_intent) {
+          const guestId = md.guestId;
+          const saveCardTokenJti = md.saveCardTokenJti ? String(md.saveCardTokenJti) : null;
+          if (session.setup_intent) {
             const setupIntent = await stripe.setupIntents.retrieve(String(session.setup_intent));
             const paymentMethodId = setupIntent?.payment_method;
             if (paymentMethodId) {
@@ -1014,9 +1016,34 @@ function createStripeWebhookHandler({ store }) {
                   invoice_settings: { default_payment_method: paymentMethodId },
                 });
               }
-              await store.update("Member", String(memberId), {
-                stripe_customer_id: session.customer || undefined,
-                stripe_default_payment_method_id: paymentMethodId,
+              if (memberId) {
+                await store.update("Member", String(memberId), {
+                  stripe_customer_id: session.customer || undefined,
+                  stripe_default_payment_method_id: paymentMethodId,
+                });
+              } else if (guestId) {
+                await store.update("Guest", String(guestId), {
+                  stripe_customer_id: session.customer || undefined,
+                  stripe_default_payment_method_id: paymentMethodId,
+                });
+              }
+            }
+          }
+
+          if (saveCardTokenJti) {
+            const existingToken = await store.filter(
+              "WebhookEvent",
+              { id: String(saveCardTokenJti) },
+              undefined,
+              1
+            );
+            if (!existingToken[0]) {
+              await store.create("WebhookEvent", {
+                id: String(saveCardTokenJti),
+                event_type: "save_card_token_used",
+                stripe_created: Math.floor(Date.now() / 1000),
+                stripe_livemode: Boolean(event.livemode),
+                stripe_request_id: event.request?.id || undefined,
               });
             }
           }

@@ -163,7 +163,13 @@ export const base44 = {
       return out;
     },
     logout: async () => {
-      clearToken();
+      try {
+        await requestJson(`/auth/logout`, { method: 'POST' });
+      } catch {
+        // Ignore logout API errors and always clear local token.
+      } finally {
+        clearToken();
+      }
     },
     getUser: async () => requestJson(`/auth/me`),
   },

@@ -15,7 +15,7 @@ export default function SaveCardError() {
   const description = isCancelled
     ? 'You exited the Stripe checkout before finishing. To keep your card on file, please reopen the link or request a fresh one.'
     : isInvalid
-      ? 'This save-card link is invalid or has expired. For security, links expire after one use or 24 hours. Please request a new link and try again.'
+      ? 'This save-card link is invalid or expired. Please request a new link and try again.'
       : 'Something went wrong starting the secure card setup. Please try again or request a new link.';
 
   const mailtoHref = `mailto:?subject=${encodeURIComponent('Save-card link request')}&body=${encodeURIComponent('Hi, can you send me a new save-card link? Thank you.')}`;

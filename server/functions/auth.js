@@ -12,6 +12,14 @@ if (!JWT_SECRET) {
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 const loginAttempts = new Map();
+const GOOGLE_ADMIN_EMAILS = (
+  process.env.GOOGLE_ADMIN_EMAILS ||
+  process.env.ADMIN_EMAILS ||
+  "shtiebel48@gmail.com"
+)
+  .split(",")
+  .map((email) => normalizeEmail(email))
+  .filter(Boolean);
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -160,6 +168,11 @@ function createAuthRouter({ db }) {
 
       const email = normalizeEmail(decoded?.email);
       if (!email) return res.status(400).json({ message: "Google account email is required" });
+      if (!GOOGLE_ADMIN_EMAILS.includes(email)) {
+        return res.status(403).json({
+          message: "Google sign-in is restricted to the admin account.",
+        });
+      }
 
       const providerUser = {
         email,
@@ -214,6 +227,11 @@ function createAuthRouter({ db }) {
       const user = await users.findOne({ id: String(userId) });
       if (!user) return res.status(401).json({ message: "Unauthorized" });
       return res.json({ id: user.id, email: user.email, name: user.name, picture: user.picture });
+    },
+
+    async logout(_req, res) {
+      // JWT is stateless; client-side token removal performs logout.
+      return res.status(204).send();
     },
   };
 }

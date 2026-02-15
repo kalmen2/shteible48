@@ -55,6 +55,22 @@ export default function EmailManagement() {
   const [sendRecipientMode, setSendRecipientMode] = useState('all'); // "all" or "selected"
   const [sendSelectedRecipientIds, setSendSelectedRecipientIds] = useState([]);
   const [printFilter, setPrintFilter] = useState('all');
+  const LEGACY_DEFAULT_EMAIL_BODY_VARIANTS = React.useMemo(
+    () => [
+      `Dear {member_name},
+
+This is a reminder that you have an outstanding balance of {balance} as of the end of this month.
+
+Please remit payment at your earliest convenience.
+
+Thank you for your continued support.
+
+Best regards,
+Synagogue Administration`,
+      'Dear {member_name}, This is a reminder that you have an outstanding balance of {balance} as of the end of this month. Please remit payment at your earliest convenience. Thank you for your continued support. Best regards, Synagogue Administration',
+    ],
+    []
+  );
 
   const queryClient = useQueryClient();
 
@@ -111,6 +127,21 @@ export default function EmailManagement() {
 
   const schedule = schedules.find((item) => item.id === scheduleId) || null;
   const currentPlan = plans[0];
+
+
+  const normalizeLegacyBodyForCompare = (value) =>
+    String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  const isLegacyDefaultBody = (value) => {
+    const normalized = normalizeLegacyBodyForCompare(value);
+    if (!normalized) return false;
+    return LEGACY_DEFAULT_EMAIL_BODY_VARIANTS.some(
+      (candidate) => normalizeLegacyBodyForCompare(candidate) === normalized
+    );
+  };
 
 
   useEffect(() => {
@@ -171,10 +202,11 @@ export default function EmailManagement() {
       : [];
     setSelectedRecipientIds(normalizedSelected);
     if (schedule.subject) setEmailSubject(schedule.subject);
-    setEmailBody(String(schedule.body ?? ''));
+    const loadedBody = String(schedule.body ?? '');
+    setEmailBody(isLegacyDefaultBody(loadedBody) ? '' : loadedBody);
     if (typeof schedule.attach_invoice === 'boolean') setAttachInvoice(schedule.attach_invoice);
     if (typeof schedule.center_body === 'boolean') setIsBodyCentered(schedule.center_body);
-  }, [schedule, members, guests]);
+  }, [schedule, members, guests, LEGACY_DEFAULT_EMAIL_BODY_VARIANTS]);
 
   const resetScheduleForm = () => {
     setScheduleId(null);
@@ -279,6 +311,68 @@ export default function EmailManagement() {
   const htmlFromBody = (value) => {
     if (containsHtml(value)) return String(value || '');
     return escapeHtml(value).replace(/\n/g, '<br/>');
+  };
+
+  const normalizeQuillHtmlForEmail = (value) => {
+    const html = String(value || '');
+    if (!html) return '';
+    if (!containsHtml(html)) return html;
+    if (typeof DOMParser === 'undefined') return html;
+
+    const classStyleMap = {
+      'ql-align-center': 'text-align:center;',
+      'ql-align-right': 'text-align:right;',
+      'ql-align-justify': 'text-align:justify;',
+      'ql-direction-rtl': 'direction:rtl;text-align:right;',
+      'ql-size-small': 'font-size:0.75em;',
+      'ql-size-large': 'font-size:1.5em;',
+      'ql-size-huge': 'font-size:2.5em;',
+      'ql-font-serif': 'font-family:Georgia, Times New Roman, serif;',
+      'ql-font-monospace': 'font-family:Monaco, Menlo, Consolas, monospace;',
+      'ql-indent-1': 'padding-left:3em;',
+      'ql-indent-2': 'padding-left:6em;',
+      'ql-indent-3': 'padding-left:9em;',
+      'ql-indent-4': 'padding-left:12em;',
+      'ql-indent-5': 'padding-left:15em;',
+      'ql-indent-6': 'padding-left:18em;',
+      'ql-indent-7': 'padding-left:21em;',
+      'ql-indent-8': 'padding-left:24em;',
+    };
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const root = doc.body.firstElementChild;
+    if (!root) return html;
+
+    root.querySelectorAll('span.ql-ui').forEach((node) => node.remove());
+
+    root.querySelectorAll('[class]').forEach((element) => {
+      const classes = Array.from(element.classList);
+      const styles = [];
+      const keep = [];
+
+      for (const cls of classes) {
+        const mapped = classStyleMap[cls];
+        if (mapped) {
+          styles.push(mapped);
+        } else if (!cls.startsWith('ql-')) {
+          keep.push(cls);
+        }
+      }
+
+      if (styles.length > 0) {
+        const existing = String(element.getAttribute('style') || '').trim();
+        element.setAttribute('style', `${existing} ${styles.join(' ')}`.trim());
+      }
+
+      if (keep.length > 0) {
+        element.setAttribute('class', keep.join(' '));
+      } else {
+        element.removeAttribute('class');
+      }
+    });
+
+    return root.innerHTML;
   };
 
   const stripHtml = (value) =>
@@ -499,7 +593,7 @@ export default function EmailManagement() {
           .replace(/{id}/g, rec.ref?.member_id || rec.ref?.guest_id || rec.id || 'N/A')
           .replace(/{save_card_url}/g, saveCardUrl);
 
-        const htmlBody = htmlFromBody(personalizedBody);
+        const htmlBody = normalizeQuillHtmlForEmail(htmlFromBody(personalizedBody));
         const centeredHtml = isBodyCentered
           ? `<div style="text-align:center; white-space:pre-wrap;">${htmlBody}</div>`
           : htmlBody;

@@ -60,6 +60,7 @@ const ENTITY_FIELD_ALLOWLIST = {
     "subject",
     "body",
     "attach_invoice",
+    "center_body",
   ],
 };
 

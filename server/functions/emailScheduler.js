@@ -72,6 +72,68 @@ function htmlFromBody(value) {
   return escapeHtml(value).replace(/\n/g, "<br/>");
 }
 
+function normalizeQuillHtmlForEmail(value) {
+  let html = String(value || "");
+  if (!html || !containsHtml(html)) return html;
+
+  const classStyleMap = {
+    "ql-align-center": "text-align:center;",
+    "ql-align-right": "text-align:right;",
+    "ql-align-justify": "text-align:justify;",
+    "ql-direction-rtl": "direction:rtl;text-align:right;",
+    "ql-size-small": "font-size:0.75em;",
+    "ql-size-large": "font-size:1.5em;",
+    "ql-size-huge": "font-size:2.5em;",
+    "ql-font-serif": "font-family:Georgia, Times New Roman, serif;",
+    "ql-font-monospace": "font-family:Monaco, Menlo, Consolas, monospace;",
+    "ql-indent-1": "padding-left:3em;",
+    "ql-indent-2": "padding-left:6em;",
+    "ql-indent-3": "padding-left:9em;",
+    "ql-indent-4": "padding-left:12em;",
+    "ql-indent-5": "padding-left:15em;",
+    "ql-indent-6": "padding-left:18em;",
+    "ql-indent-7": "padding-left:21em;",
+    "ql-indent-8": "padding-left:24em;",
+  };
+
+  html = html.replace(/<span[^>]*class=(["'])[^"']*ql-ui[^"']*\1[^>]*>[\s\S]*?<\/span>/gi, "");
+
+  html = html.replace(
+    /<([a-z0-9]+)([^>]*?)\sclass=(["'])([^"']*)\3([^>]*)>/gi,
+    (full, tag, before, quote, classAttr, after) => {
+      const classes = String(classAttr)
+        .split(/\s+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+      const styles = [];
+      const keepClasses = [];
+
+      for (const cls of classes) {
+        const mapped = classStyleMap[cls];
+        if (mapped) {
+          styles.push(mapped);
+        } else if (!cls.startsWith("ql-")) {
+          keepClasses.push(cls);
+        }
+      }
+
+      const attrsRaw = `${before}${after}`;
+      const styleMatch = attrsRaw.match(/\sstyle=(["'])(.*?)\1/i);
+      const existingStyle = styleMatch ? String(styleMatch[2] || "").trim() : "";
+      const attrsWithoutStyle = attrsRaw.replace(/\sstyle=(["']).*?\1/i, "");
+
+      const mergedStyle = [existingStyle, ...styles].filter(Boolean).join(" ").trim();
+      const classPart = keepClasses.length ? ` class="${keepClasses.join(" ")}"` : "";
+      const stylePart = mergedStyle ? ` style="${mergedStyle}"` : "";
+
+      return `<${tag}${attrsWithoutStyle}${classPart}${stylePart}>`;
+    }
+  );
+
+  return html;
+}
+
 function stripHtml(value) {
   return String(value || "")
     .replace(/<br\s*\/?>/gi, "\n")
@@ -199,7 +261,7 @@ async function runMonthlyEmailScheduler() {
       const isGuest = Boolean(record.guest_id || (!record.member_id && record.membership_active === undefined));
       const balanceValue = isGuest ? computeGuestBalance(record) : computeMemberBalance(record);
       const body = applyTemplate(schedule.body, record, balanceValue);
-      const htmlBody = htmlFromBody(body);
+      const htmlBody = normalizeQuillHtmlForEmail(htmlFromBody(body));
       const centeredHtml = schedule.center_body ? wrapCentered(htmlBody) : htmlBody;
       const textBody = stripHtml(htmlBody) || body;
       let attachments;
