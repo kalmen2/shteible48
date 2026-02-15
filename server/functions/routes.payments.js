@@ -137,6 +137,16 @@ function buildSaveCardUrl({ token, frontendBaseUrl }) {
   return `${base}/save-card?token=${encodeURIComponent(token)}`;
 }
 
+function isStripeMissingCustomerError(err) {
+  const code = String(err?.code || "");
+  const message = String(err?.message || "");
+  const param = String(err?.param || "");
+  return (
+    code === "resource_missing" &&
+    (param === "customer" || /No such customer/i.test(message))
+  );
+}
+
 // Resolve a member using several identifiers to tolerate stale or alternate ids.
 async function findMemberByAnyId(store, { memberId, stripeCustomerId, subscriptionId }) {
   const lookups = [];
@@ -238,10 +248,32 @@ async function ensureCustomer({ stripe, store, memberId }) {
           memberId: String(member.id || member.member_id),
         },
       });
+      return { member, customerId: member.stripe_customer_id };
     } catch (err) {
       console.error("[ensureCustomer] Failed to update Stripe customer:", err?.message || err);
+      if (!isStripeMissingCustomerError(err)) {
+        return { member, customerId: member.stripe_customer_id };
+      }
+      // stale customer id: create a new customer and persist it
+      try {
+        const replacement = await stripe.customers.create({
+          name: member.full_name || undefined,
+          email: member.email || undefined,
+          metadata: {
+            memberId: String(member.id || member.member_id),
+          },
+        });
+        await store.update("Member", String(updateKey), { stripe_customer_id: replacement.id });
+        const [updated] = await store.filter("Member", { id: String(member.id || updateKey) }, undefined, 1);
+        return { member: updated ?? member, customerId: replacement.id };
+      } catch (createErr) {
+        console.error(
+          "[ensureCustomer] Failed to replace missing Stripe customer:",
+          createErr?.message || createErr
+        );
+        throw createErr;
+      }
     }
-    return { member, customerId: member.stripe_customer_id };
   }
 
   const customer = await stripe.customers.create({
@@ -276,10 +308,32 @@ async function ensureGuestCustomer({ stripe, store, guestId }) {
           guestId: String(guest.id),
         },
       });
+      return { guest, customerId: guest.stripe_customer_id };
     } catch (err) {
       console.error("[ensureGuestCustomer] Failed to update Stripe customer:", err?.message || err);
+      if (!isStripeMissingCustomerError(err)) {
+        return { guest, customerId: guest.stripe_customer_id };
+      }
+      // stale customer id: create a new customer and persist it
+      try {
+        const replacement = await stripe.customers.create({
+          name: guest.full_name || undefined,
+          email: guest.email || undefined,
+          metadata: {
+            guestId: String(guest.id),
+          },
+        });
+        await store.update("Guest", guest.id, { stripe_customer_id: replacement.id });
+        const [updated] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
+        return { guest: updated ?? guest, customerId: replacement.id };
+      } catch (createErr) {
+        console.error(
+          "[ensureGuestCustomer] Failed to replace missing Stripe customer:",
+          createErr?.message || createErr
+        );
+        throw createErr;
+      }
     }
-    return { guest, customerId: guest.stripe_customer_id };
   }
 
   const customer = await stripe.customers.create({
@@ -1196,21 +1250,9 @@ function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
       return res.status(400).json({ message: "Invalid token payload" });
     }
 
-    // Single-use enforcement: reject if jti already used; otherwise mark used
-    if (!payload?.jti) {
-      return res.status(400).json({ message: "Invalid token payload" });
-    }
-    const existingToken = await store.filter("WebhookEvent", { id: String(payload.jti) }, undefined, 1);
-    if (existingToken[0]) {
-      return res.status(409).json({ message: "This link has already been used" });
-    }
-    await store.create("WebhookEvent", {
-      id: String(payload.jti),
-      event_type: "save_card_token_used",
-      stripe_created: Math.floor(Date.now() / 1000),
-      stripe_livemode: false,
-      stripe_request_id: undefined,
-    });
+    // Reusable by design: token validity is controlled by JWT expiry.
+    // We only keep jti for audit logging when present.
+    const tokenJti = payload?.jti ? String(payload.jti) : null;
 
     let customerId;
     let member;
@@ -1232,8 +1274,8 @@ function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
     }
 
     const frontendOrigin = normalizeOrigin(req.body?.origin) || frontendBaseUrl;
-    const successPath = safeString(req.body?.successPath) || (isMember ? `/MemberDetail?id=${encodeURIComponent(member.id)}` : `/GuestDetail?id=${encodeURIComponent(guest.id)}`);
-    const cancelPath = safeString(req.body?.cancelPath) || successPath;
+    const successPath = "/save-card/success";
+    const cancelPath = `/save-card?token=${encodeURIComponent(token)}&retry=1`;
     const successUrl = `${frontendOrigin}${successPath}${successPath.includes('?') ? '&' : '?'}stripe=card_saved`;
     const cancelUrl = `${frontendOrigin}${cancelPath}${cancelPath.includes('?') ? '&' : '?'}stripe=cancel`;
 
@@ -1248,6 +1290,7 @@ function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
           kind: "save_card",
           memberId: isMember ? String(member.id) : "",
           guestId: isGuest ? String(guest.id) : "",
+          saveCardTokenJti: tokenJti || "",
           name: isMember
             ? safeString(member.full_name || member.english_name || member.hebrew_name || "")
             : safeString(guest.full_name || guest.english_name || guest.hebrew_name || ""),
