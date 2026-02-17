@@ -76,6 +76,60 @@ function sanitizeEntityData(entity, data) {
   return out;
 }
 
+function getUserRole(req) {
+  return String(req?.user?.role || "").toLowerCase();
+}
+
+function isMemberUser(req) {
+  return getUserRole(req) === "member";
+}
+
+function isGuestUser(req) {
+  return getUserRole(req) === "guest";
+}
+
+function isScopedUser(req) {
+  return isMemberUser(req) || isGuestUser(req);
+}
+
+function getMemberUserId(req) {
+  return req?.user?.member_id ? String(req.user.member_id) : null;
+}
+
+function getGuestUserId(req) {
+  return req?.user?.guest_id ? String(req.user.guest_id) : null;
+}
+
+function enforceUserReadScope(req, entity, where = {}) {
+  if (!isScopedUser(req)) return { ok: true, where };
+
+  if (isMemberUser(req)) {
+    const memberId = getMemberUserId(req);
+    if (!memberId) return { ok: false, status: 403, message: "Member account is not linked." };
+
+    if (entity === "Member") {
+      return { ok: true, where: { ...(where || {}), id: memberId } };
+    }
+    if (entity === "Transaction" || entity === "RecurringPayment" || entity === "MembershipCharge") {
+      return { ok: true, where: { ...(where || {}), member_id: memberId } };
+    }
+    if (entity === "StatementTemplate") {
+      return { ok: true, where: where || {} };
+    }
+    return { ok: false, status: 403, message: "Forbidden for member account." };
+  }
+
+  const guestId = getGuestUserId(req);
+  if (!guestId) return { ok: false, status: 403, message: "Guest account is not linked." };
+  if (entity === "Guest") {
+    return { ok: true, where: { ...(where || {}), id: guestId } };
+  }
+  if (entity === "GuestTransaction" || entity === "RecurringPayment") {
+    return { ok: true, where: { ...(where || {}), guest_id: guestId } };
+  }
+  return { ok: false, status: 403, message: "Forbidden for guest account." };
+}
+
 function getBalanceDeltaFromTransaction(transaction, direction) {
   const amount = Number(transaction?.amount);
   if (!Number.isFinite(amount) || amount <= 0) return 0;
@@ -215,6 +269,15 @@ function createEntitiesRouter({ store }) {
       const entity = req.params.entity;
       assertEntityName(entity);
 
+      if (isScopedUser(req)) {
+        const scoped = enforceUserReadScope(req, entity, {});
+        if (!scoped.ok) {
+          return res.status(scoped.status).json({ message: scoped.message });
+        }
+        const out = await store.filter(entity, scoped.where, req.query.sort ? String(req.query.sort) : undefined, req.query.limit ? Math.min(Number(req.query.limit), 1000) : undefined);
+        return res.json(out);
+      }
+
       const sort = req.query.sort ? String(req.query.sort) : undefined;
       const rawLimit = req.query.limit ? Number(req.query.limit) : undefined;
       const limit = Number.isFinite(rawLimit) ? Math.min(rawLimit, 1000) : undefined;
@@ -250,7 +313,12 @@ function createEntitiesRouter({ store }) {
       const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : undefined;
       const skip = page && limit ? (page - 1) * limit : undefined;
 
-      const out = await store.filter(entity, where, sort, limit, skip);
+      const scoped = enforceUserReadScope(req, entity, where);
+      if (!scoped.ok) {
+        return res.status(scoped.status).json({ message: scoped.message });
+      }
+
+      const out = await store.filter(entity, scoped.where, sort, limit, skip);
       res.json(out);
     } catch (err) {
       next(err);
@@ -260,6 +328,9 @@ function createEntitiesRouter({ store }) {
   // Create: POST /api/entities/:entity
   router.post("/:entity", async (req, res, next) => {
     try {
+      if (isScopedUser(req)) {
+        return res.status(403).json({ message: "Member/Guest accounts cannot create records." });
+      }
       const entity = req.params.entity;
       assertEntityName(entity);
 
@@ -292,6 +363,9 @@ function createEntitiesRouter({ store }) {
   // Bulk create: POST /api/entities/:entity/bulk
   router.post("/:entity/bulk", async (req, res, next) => {
     try {
+      if (isScopedUser(req)) {
+        return res.status(403).json({ message: "Member/Guest accounts cannot create records." });
+      }
       const entity = req.params.entity;
       assertEntityName(entity);
 
@@ -365,6 +439,22 @@ function createEntitiesRouter({ store }) {
       assertEntityName(entity);
 
       const patch = sanitizeEntityData(entity, req.body ?? {});
+      const role = getUserRole(req);
+
+      // Scoped users may update only their own profile details (never email).
+      if (role === "member") {
+        const ownId = getMemberUserId(req);
+        if (entity !== "Member" || !ownId || id !== ownId) {
+          return res.status(403).json({ message: "Members can only update their own details." });
+        }
+        delete patch.email;
+      } else if (role === "guest") {
+        const ownId = getGuestUserId(req);
+        if (entity !== "Guest" || !ownId || id !== ownId) {
+          return res.status(403).json({ message: "Guests can only update their own details." });
+        }
+        delete patch.email;
+      }
 
       if (entity === "Member") {
         const resolved = await resolveMemberIdForUpdate(store, id);
@@ -385,6 +475,9 @@ function createEntitiesRouter({ store }) {
   // Delete: DELETE /api/entities/:entity/:id
   router.delete("/:entity/:id", async (req, res, next) => {
     try {
+      if (isScopedUser(req)) {
+        return res.status(403).json({ message: "Member/Guest accounts cannot delete records." });
+      }
       const entity = req.params.entity;
       const id = String(req.params.id);
       assertEntityName(entity);

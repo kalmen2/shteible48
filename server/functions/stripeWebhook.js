@@ -99,24 +99,48 @@ async function markEventProcessed({ store, event }) {
   return created;
 }
 
-async function recordOneTimePayment({ store, memberId, memberName, amountCents, description, stripePaymentIntentId }) {
+async function recordOneTimePayment({
+  store,
+  memberId,
+  memberName,
+  amountCents,
+  description,
+  stripePaymentIntentId,
+  paymentType,
+}) {
   const amount = centsToDollars(amountCents);
+  const kind = String(paymentType || "payment");
+  const txType = kind === "donation" ? "donation" : "payment";
+  const desc =
+    description ||
+    (kind === "donation"
+      ? "Donation (Stripe)"
+      : kind === "balance_payoff"
+        ? "Balance Payoff (Stripe)"
+        : "Stripe payment");
 
-  const created = await createRecordOnce(store, "Transaction", {
+  const created = await createPaymentIntentTransactionIfMissing(
+    store,
+    "Transaction",
+    stripePaymentIntentId,
+    txType,
+    {
     member_id: String(memberId),
     member_name: memberName || undefined,
-    type: "payment",
-    description: description || "Stripe payment",
+    type: txType,
+    description: desc,
     amount,
     date: new Date().toISOString().split("T")[0],
     provider: "stripe",
     stripe_payment_intent_id: stripePaymentIntentId || undefined,
-  });
+    }
+  );
   if (!created) return;
 
   const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
-  if (member) {
-    const newBalance = (member.total_owed || 0) - amount;
+  if (member && kind !== "donation") {
+    const current = Number(member.total_owed || 0);
+    const newBalance = Math.max(0, current - amount);
     await store.update("Member", member.id, { total_owed: newBalance });
   }
 }
@@ -213,24 +237,48 @@ async function recordMembershipFirstMonthPayment({
   return balanceResult;
 }
 
-async function recordGuestOneTimePayment({ store, guestId, guestName, amountCents, description, stripePaymentIntentId }) {
+async function recordGuestOneTimePayment({
+  store,
+  guestId,
+  guestName,
+  amountCents,
+  description,
+  stripePaymentIntentId,
+  paymentType,
+}) {
   const amount = centsToDollars(amountCents);
+  const kind = String(paymentType || "payment");
+  const txType = kind === "donation" ? "donation" : "payment";
+  const desc =
+    description ||
+    (kind === "donation"
+      ? "Donation (Stripe)"
+      : kind === "balance_payoff"
+        ? "Balance Payoff (Stripe)"
+        : "Stripe payment");
 
-  const created = await createRecordOnce(store, "GuestTransaction", {
+  const created = await createPaymentIntentTransactionIfMissing(
+    store,
+    "GuestTransaction",
+    stripePaymentIntentId,
+    txType,
+    {
     guest_id: String(guestId),
     guest_name: guestName || undefined,
-    type: "payment",
-    description: description || "Stripe payment",
+    type: txType,
+    description: desc,
     amount,
     date: new Date().toISOString().split("T")[0],
     provider: "stripe",
     stripe_payment_intent_id: stripePaymentIntentId || undefined,
-  });
+    }
+  );
   if (!created) return;
 
   const [guest] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
-  if (guest) {
-    const newBalance = (guest.total_owed || 0) - amount;
+  if (guest && kind !== "donation") {
+    const current = Number(guest.total_owed || 0);
+    const newBalance = Math.max(0, current - amount);
     await store.update("Guest", guest.id, { total_owed: newBalance });
   }
 }
@@ -461,7 +509,34 @@ async function recordSubscriptionInvoicePayment({
       ? `Monthly Membership - ${monthLabel}`
       : paymentType === "balance_payoff"
         ? "Balance Payoff Plan"
+        : paymentType === "monthly_donation"
+          ? `Monthly Donation - ${monthLabel}`
         : "Additional Monthly Payment";
+
+  if (paymentType === "monthly_donation") {
+    const donationPayload = {
+      member_id: String(memberId),
+      type: "donation",
+      description: `${descBase} (Stripe)`,
+      amount,
+      date,
+      provider: "stripe",
+      stripe_subscription_id: subscriptionId,
+      stripe_customer_id: customerId,
+      stripe_invoice_id: invoiceId || undefined,
+    };
+    const created = invoiceId
+      ? await createInvoiceTransactionIfMissing(
+          store,
+          "Transaction",
+          invoiceId,
+          "donation",
+          donationPayload
+        )
+      : await createRecordOnce(store, "Transaction", donationPayload);
+    if (!created) return null;
+    return null;
+  }
 
   const chargePayload = {
     member_id: String(memberId),
@@ -918,6 +993,7 @@ function createStripeWebhookHandler({ store }) {
               memberId,
               memberName: md.memberName,
               amountCents: Number(md.amountCents || 0),
+              paymentType: md.paymentType,
               description: md.description,
               stripePaymentIntentId: session.payment_intent,
             });
@@ -927,6 +1003,7 @@ function createStripeWebhookHandler({ store }) {
               guestId,
               guestName: md.guestName,
               amountCents: Number(md.amountCents || 0),
+              paymentType: md.paymentType,
               description: md.description,
               stripePaymentIntentId: session.payment_intent,
             });

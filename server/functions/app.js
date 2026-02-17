@@ -97,6 +97,7 @@ app.use(async (req, res, next) => {
     //app.post('/api/auth/signup', (req, res, next) => auth.signup(req, res).catch(next));
     app.post('/api/auth/login', (req, res, next) => auth.login(req, res).catch(next));
     app.post('/api/auth/google', (req, res, next) => auth.google(req, res).catch(next));
+    app.post('/api/auth/set-password', authMiddleware, (req, res, next) => auth.setPassword(req, res).catch(next));
     app.post('/api/auth/logout', authMiddleware, (req, res, next) => auth.logout(req, res).catch(next));
     app.get('/api/auth/me', authMiddleware, (req, res, next) => auth.me(req, res).catch(next));
 

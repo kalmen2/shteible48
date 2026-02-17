@@ -9,6 +9,13 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 if (!JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
 }
+const ADMIN_EMAILS = (
+  process.env.ADMIN_EMAILS ||
+  "shtiebel48@gmail.com"
+)
+  .split(",")
+  .map((email) => normalizeEmail(email))
+  .filter(Boolean);
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 10;
 const loginAttempts = new Map();
@@ -33,6 +40,16 @@ function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
+function resolveRoleFromUser(user) {
+  const email = normalizeEmail(user?.email);
+  if (ADMIN_EMAILS.includes(email)) return "admin";
+  if (user?.role === "guest") return "guest";
+  if (user?.role === "member") return "member";
+  if (user?.guest_id) return "guest";
+  if (user?.member_id) return "member";
+  return "admin";
+}
+
 async function authMiddleware(req, res, next) {
   const header = req.headers.authorization || "";
   const [type, token] = header.split(" ");
@@ -43,6 +60,13 @@ async function authMiddleware(req, res, next) {
     if (typeof req.getUserById === "function") {
       const user = await req.getUserById(req.user.id);
       if (!user) return res.status(401).json({ message: "Unauthorized" });
+      req.user = {
+        id: user.id,
+        email: normalizeEmail(user.email),
+        role: resolveRoleFromUser(user),
+        member_id: user.member_id ? String(user.member_id) : undefined,
+        guest_id: user.guest_id ? String(user.guest_id) : undefined,
+      };
     }
     next();
   } catch {
@@ -82,9 +106,15 @@ function clearLoginAttempts(key) {
   loginAttempts.delete(key);
 }
 
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** @param {{ db: import('mongodb').Db }} deps */
 function createAuthRouter({ db }) {
   const users = db.collection("User");
+  const members = db.collection("Member");
+  const guests = db.collection("Guest");
   // best-effort unique index
   users.createIndex({ email: 1 }, { unique: true }).catch(() => {});
 
@@ -141,6 +171,22 @@ function createAuthRouter({ db }) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
+      const role = resolveRoleFromUser(user);
+      const memberId = user?.member_id ? String(user.member_id) : undefined;
+      const guestId = user?.guest_id ? String(user.guest_id) : undefined;
+      if (role === "member" && !memberId) {
+        return res.status(403).json({ message: "Member account is not linked. Sign in with Google first." });
+      }
+      if (role === "guest" && !guestId) {
+        return res.status(403).json({ message: "Guest account is not linked. Sign in with Google first." });
+      }
+      if (!user.passwordHash) {
+        return res.status(403).json({
+          message: "Password not set. Sign in with Google first to set your password.",
+          requiresPasswordSetup: true,
+        });
+      }
+
       const ok = await bcrypt.compare(password, user.passwordHash || "");
       if (!ok) {
         const record = recordFailedLogin(attemptKey);
@@ -152,7 +198,18 @@ function createAuthRouter({ db }) {
 
       clearLoginAttempts(attemptKey);
       const token = signToken(user);
-      return res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+      return res.json({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+          role,
+          member_id: memberId,
+          guest_id: guestId,
+        },
+      });
     },
 
     async google(req, res) {
@@ -168,17 +225,50 @@ function createAuthRouter({ db }) {
 
       const email = normalizeEmail(decoded?.email);
       if (!email) return res.status(400).json({ message: "Google account email is required" });
-      if (!GOOGLE_ADMIN_EMAILS.includes(email)) {
-        return res.status(403).json({
-          message: "Google sign-in is restricted to the admin account.",
+      const isAdmin = GOOGLE_ADMIN_EMAILS.includes(email);
+      let matchedMember = null;
+      let matchedGuest = null;
+      if (!isAdmin) {
+        matchedMember = await members.findOne({
+          email: { $regex: `^${escapeRegex(email)}$`, $options: "i" },
+        });
+        if (!matchedMember) {
+          matchedGuest = await guests.findOne({
+            email: { $regex: `^${escapeRegex(email)}$`, $options: "i" },
+          });
+        }
+        if (!matchedMember && !matchedGuest) {
+          return res.status(403).json({
+            message: "Google sign-in is not allowed for this email.",
+          });
+        }
+      }
+      const linkedMemberId = isAdmin || !matchedMember
+        ? undefined
+        : String(matchedMember?.id || matchedMember?.member_id || "").trim();
+      const linkedGuestId = isAdmin || !matchedGuest
+        ? undefined
+        : String(matchedGuest?.id || "").trim();
+      if (!isAdmin && matchedMember && !linkedMemberId) {
+        return res.status(500).json({
+          message: "Member record is missing an id. Contact support.",
         });
       }
+      if (!isAdmin && matchedGuest && !linkedGuestId) {
+        return res.status(500).json({
+          message: "Guest record is missing an id. Contact support.",
+        });
+      }
+      const linkedRole = isAdmin ? "admin" : (linkedMemberId ? "member" : "guest");
 
       const providerUser = {
         email,
         name: String(decoded?.name || "").trim() || undefined,
         picture: String(decoded?.picture || "").trim() || undefined,
         firebaseUid: String(decoded?.uid || "").trim() || undefined,
+        role: linkedRole,
+        member_id: linkedMemberId,
+        guest_id: linkedGuestId,
         updated_date: new Date().toISOString(),
       };
 
@@ -203,21 +293,46 @@ function createAuthRouter({ db }) {
           }
         }
       } else {
-        const set = {
-          ...providerUser,
-        };
+        const set = { ...providerUser };
+        const unset = {};
         if (!set.name) delete set.name;
         if (!set.picture) delete set.picture;
         if (!set.firebaseUid) delete set.firebaseUid;
+        if (!linkedMemberId) {
+          delete set.member_id;
+          unset.member_id = "";
+        }
+        if (!linkedGuestId) {
+          delete set.guest_id;
+          unset.guest_id = "";
+        }
 
-        await users.updateOne({ id: user.id }, { $set: set });
+        const updateDoc = { $set: set };
+        if (Object.keys(unset).length > 0) {
+          updateDoc.$unset = unset;
+        }
+        await users.updateOne({ id: user.id }, updateDoc);
         user = { ...user, ...set };
+        if (!linkedMemberId) delete user.member_id;
+        if (!linkedGuestId) delete user.guest_id;
       }
 
+      const role = resolveRoleFromUser(user);
+      const memberId = user?.member_id ? String(user.member_id) : undefined;
+      const guestId = user?.guest_id ? String(user.guest_id) : undefined;
       const token = signToken(user);
       return res.json({
         token,
-        user: { id: user.id, email: user.email, name: user.name, picture: user.picture },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          picture: user.picture,
+          role,
+          member_id: memberId,
+          guest_id: guestId,
+        },
+        requiresPasswordSetup: (role === "member" || role === "guest") && !user.passwordHash,
       });
     },
 
@@ -226,7 +341,62 @@ function createAuthRouter({ db }) {
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const user = await users.findOne({ id: String(userId) });
       if (!user) return res.status(401).json({ message: "Unauthorized" });
-      return res.json({ id: user.id, email: user.email, name: user.name, picture: user.picture });
+      const role = resolveRoleFromUser(user);
+      const memberId = user?.member_id ? String(user.member_id) : undefined;
+      const guestId = user?.guest_id ? String(user.guest_id) : undefined;
+      return res.json({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        picture: user.picture,
+        role,
+        member_id: memberId,
+        guest_id: guestId,
+      });
+    },
+
+    async setPassword(req, res) {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const password = String(req.body?.password || "");
+      if (password.length < 6) {
+        return res.status(400).json({ message: "password must be at least 6 characters" });
+      }
+
+      const user = await users.findOne({ id: String(userId) });
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const role = resolveRoleFromUser(user);
+      if (role === "member" && !user.member_id) {
+        return res.status(403).json({ message: "Member account is not linked." });
+      }
+      if (role === "guest" && !user.guest_id) {
+        return res.status(403).json({ message: "Guest account is not linked." });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      await users.updateOne(
+        { id: String(userId) },
+        {
+          $set: {
+            passwordHash,
+            updated_date: new Date().toISOString(),
+          },
+        }
+      );
+
+      const refreshed = await users.findOne({ id: String(userId) });
+      return res.json({
+        ok: true,
+        user: {
+          id: refreshed.id,
+          email: refreshed.email,
+          name: refreshed.name,
+          picture: refreshed.picture,
+          role: resolveRoleFromUser(refreshed),
+          member_id: refreshed.member_id ? String(refreshed.member_id) : undefined,
+          guest_id: refreshed.guest_id ? String(refreshed.guest_id) : undefined,
+        },
+      });
     },
 
     async logout(_req, res) {

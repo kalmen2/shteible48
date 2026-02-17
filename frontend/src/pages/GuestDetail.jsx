@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -29,10 +28,12 @@ import {
   CreditCard,
   Repeat,
   ChevronDown,
+  Pencil,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { toLocalDate, todayISO } from '@/utils/dates';
+import { getUser } from '@/lib/auth';
 import GuestInvoiceTemplate from '../components/guests/GuestInvoiceTemplate';
 import MiniCalendarPopup from '../components/guests/MiniCalendarPopup';
 
@@ -44,7 +45,10 @@ const createPageUrl = (page) => {
 export default function GuestDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const guestId = urlParams.get('id');
+  const role = String(getUser()?.role || '').toLowerCase();
+  const isScopedUser = role === 'member' || role === 'guest';
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentMode, setPaymentMode] = useState('payment');
   const [chargeDialogOpen, setChargeDialogOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [donationDialogOpen, setDonationDialogOpen] = useState(false);
@@ -56,6 +60,13 @@ export default function GuestDetail() {
   const [chargeDate, setChargeDate] = useState(todayISO());
   const [donationAmount, setDonationAmount] = useState('');
   const [payoffAmount, setPayoffAmount] = useState('');
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editGuest, setEditGuest] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    address: '',
+  });
   const invoiceRef = useRef();
 
   const queryClient = useQueryClient();
@@ -124,8 +135,18 @@ export default function GuestDetail() {
     },
   });
 
+  const updateGuestMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Guest.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['guest', guestId] });
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
+      setEditDialogOpen(false);
+    },
+  });
+
   const handlePaymentSubmit = (e) => {
     e.preventDefault();
+    if (isScopedUser) return;
     addPaymentMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
@@ -140,14 +161,32 @@ export default function GuestDetail() {
     e.preventDefault();
     const amount = parseFloat(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    const paymentType =
+      paymentMode === 'donation'
+        ? 'donation'
+        : paymentMode === 'payoff'
+          ? 'balance_payoff'
+          : 'payment';
+    const defaultDesc =
+      paymentMode === 'donation'
+        ? `Donation - ${guest.full_name}`
+        : paymentMode === 'payoff'
+          ? `Balance Payoff - ${guest.full_name}`
+          : `Payment - ${guest.full_name}`;
     const out = await base44.payments.createGuestCheckout({
       guestId,
       amount,
-      description: paymentDescription || `Payment - ${guest.full_name}`,
+      paymentType,
+      description: paymentDescription || defaultDesc,
       successPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
       cancelPath: `/GuestDetail?id=${encodeURIComponent(guestId)}`,
     });
     if (out?.url) window.location.href = out.url;
+  };
+
+  const openPaymentDialog = (mode) => {
+    setPaymentMode(mode);
+    setPaymentDialogOpen(true);
   };
 
   const handleMonthlyDonationSubmit = (e) => {
@@ -187,6 +226,7 @@ export default function GuestDetail() {
 
   const handleChargeSubmit = (e) => {
     e.preventDefault();
+    if (isScopedUser) return;
     addChargeMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
@@ -198,6 +238,7 @@ export default function GuestDetail() {
   };
 
   const handleEventSelected = (eventData) => {
+    if (isScopedUser) return;
     addChargeMutation.mutate({
       guest_id: guestId,
       guest_name: guest.full_name,
@@ -220,6 +261,56 @@ export default function GuestDetail() {
     printWindow.document.close();
     printWindow.print();
   };
+
+  const openEditDialog = () => {
+    setEditGuest({
+      full_name: String(guest?.full_name || ''),
+      email: String(guest?.email || ''),
+      phone: String(guest?.phone || ''),
+      address: String(guest?.address || ''),
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = (e) => {
+    e.preventDefault();
+    const full_name = String(editGuest.full_name || '').trim();
+    const email = String(editGuest.email || '').trim();
+    const phone = String(editGuest.phone || '').trim();
+    const address = String(editGuest.address || '').trim();
+    updateGuestMutation.mutate({
+      id: guestId,
+      data: {
+        full_name: full_name || undefined,
+        phone: phone || undefined,
+        address: address || undefined,
+        ...(!isScopedUser ? { email: email || undefined } : {}),
+      },
+    });
+  };
+
+  const paymentDialogTitle =
+    paymentMode === 'donation'
+      ? 'Donation'
+      : paymentMode === 'payoff'
+        ? 'Payoff Balance'
+        : isScopedUser
+          ? 'Payment'
+          : 'Record Payment';
+
+  const paymentDescriptionPlaceholder =
+    paymentMode === 'donation'
+      ? 'Donation note (optional)'
+      : paymentMode === 'payoff'
+        ? 'Balance payoff'
+        : 'Check #123, Cash, etc.';
+
+  const stripeButtonLabel =
+    paymentMode === 'donation'
+      ? 'Donate with Card'
+      : paymentMode === 'payoff'
+        ? 'Payoff with Card'
+        : 'Pay with Card';
 
   if (guestLoading || !guest) {
     return (
@@ -282,25 +373,27 @@ export default function GuestDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button className="bg-amber-600 hover:bg-amber-700">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Charges
-                        <ChevronDown className="w-4 h-4 ml-2" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Charge
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
-                        <Calendar className="w-4 h-4 mr-2" />
-                        Add from Event
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {!isScopedUser && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button className="bg-amber-600 hover:bg-amber-700">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Charges
+                          <ChevronDown className="w-4 h-4 ml-2" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Charge
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Add from Event
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
 
                   <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
                     <DialogContent>
@@ -357,18 +450,55 @@ export default function GuestDetail() {
                     </DialogContent>
                   </Dialog>
 
-                  <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-                    <DialogTrigger asChild>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button className="bg-green-600 hover:bg-green-700">
                         <Plus className="w-4 h-4 mr-2" />
                         Payment
+                        <ChevronDown className="w-4 h-4 ml-2" />
                       </Button>
-                    </DialogTrigger>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {!isScopedUser && (
+                        <DropdownMenuItem onSelect={() => openPaymentDialog('payment')}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Record Payment
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onSelect={() => openPaymentDialog('donation')}>
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Donation
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openPaymentDialog('payoff')}>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Payoff Balance
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog
+                    open={paymentDialogOpen}
+                    onOpenChange={(open) => {
+                      setPaymentDialogOpen(open);
+                      if (!open) {
+                        setPaymentMode('payment');
+                        setPaymentAmount('');
+                        setPaymentDescription('');
+                      }
+                    }}
+                  >
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Record Payment</DialogTitle>
+                        <DialogTitle>{paymentDialogTitle}</DialogTitle>
                       </DialogHeader>
-                      <form onSubmit={handlePaymentSubmit} className="space-y-4 mt-4">
+                      <form
+                        onSubmit={
+                          !isScopedUser && paymentMode === 'payment'
+                            ? handlePaymentSubmit
+                            : handleStripePayment
+                        }
+                        className="space-y-4 mt-4"
+                      >
                         <div className="space-y-2">
                           <Label htmlFor="amount">Amount *</Label>
                           <Input
@@ -388,7 +518,7 @@ export default function GuestDetail() {
                             id="description"
                             value={paymentDescription}
                             onChange={(e) => setPaymentDescription(e.target.value)}
-                            placeholder="Check #123, Cash, etc."
+                            placeholder={paymentDescriptionPlaceholder}
                             className="h-11"
                           />
                         </div>
@@ -400,15 +530,17 @@ export default function GuestDetail() {
                           >
                             Cancel
                           </Button>
-                          <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                            Record Payment
-                          </Button>
+                          {!isScopedUser && paymentMode === 'payment' && (
+                            <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                              Record Payment
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             className="bg-blue-900 hover:bg-blue-800"
                             onClick={handleStripePayment}
                           >
-                            Pay with Card (Stripe)
+                            {stripeButtonLabel}
                           </Button>
                         </div>
                       </form>
@@ -523,6 +655,86 @@ export default function GuestDetail() {
                     <Printer className="w-4 h-4 mr-2" />
                     Print Invoice
                   </Button>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="border-slate-300 text-slate-700 hover:bg-slate-50"
+                      >
+                        Actions
+                        <ChevronDown className="w-4 h-4 ml-2" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={openEditDialog}>
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit Details
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Edit Guest Details</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit_full_name">Full Name *</Label>
+                          <Input
+                            id="edit_full_name"
+                            value={editGuest.full_name}
+                            onChange={(e) => setEditGuest({ ...editGuest, full_name: e.target.value })}
+                            placeholder="Full name"
+                            required
+                          />
+                        </div>
+                        {!isScopedUser && (
+                          <div className="space-y-2">
+                            <Label htmlFor="edit_email">Email</Label>
+                            <Input
+                              id="edit_email"
+                              type="email"
+                              value={editGuest.email}
+                              onChange={(e) => setEditGuest({ ...editGuest, email: e.target.value })}
+                              placeholder="email@example.com"
+                            />
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <Label htmlFor="edit_phone">Phone</Label>
+                          <Input
+                            id="edit_phone"
+                            value={editGuest.phone}
+                            onChange={(e) => setEditGuest({ ...editGuest, phone: e.target.value })}
+                            placeholder="Phone number"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="edit_address">Address</Label>
+                          <Input
+                            id="edit_address"
+                            value={editGuest.address}
+                            onChange={(e) => setEditGuest({ ...editGuest, address: e.target.value })}
+                            placeholder="Address"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setEditDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                            Save Changes
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
             </div>

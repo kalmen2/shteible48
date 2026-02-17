@@ -1,5 +1,5 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
-import { getToken, setToken, clearToken } from '@/lib/auth';
+import { getToken, setToken, clearToken, setUser, clearUser } from '@/lib/auth';
 
 const clientOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
 async function requestJson(path, { method = 'GET', body, headers, rawBody } = {}) {
@@ -32,6 +32,7 @@ async function requestJson(path, { method = 'GET', body, headers, rawBody } = {}
   if (!res.ok) {
     if (res.status === 401) {
       clearToken();
+      clearUser();
     }
     const message = payload?.message || `Request failed: ${res.status}`;
     throw new Error(message);
@@ -147,11 +148,13 @@ export const base44 = {
     login: async ({ email, password }) => {
       const out = await requestJson(`/auth/login`, { method: 'POST', body: { email, password } });
       if (out?.token) setToken(out.token);
+      if (out?.user) setUser(out.user);
       return out;
     },
     loginWithGoogle: async ({ idToken }) => {
       const out = await requestJson(`/auth/google`, { method: 'POST', body: { idToken } });
       if (out?.token) setToken(out.token);
+      if (out?.user) setUser(out.user);
       return out;
     },
     signup: async ({ name, email, password }) => {
@@ -160,6 +163,15 @@ export const base44 = {
         body: { name, email, password },
       });
       if (out?.token) setToken(out.token);
+      if (out?.user) setUser(out.user);
+      return out;
+    },
+    setPassword: async ({ password }) => {
+      const out = await requestJson(`/auth/set-password`, {
+        method: 'POST',
+        body: { password },
+      });
+      if (out?.user) setUser(out.user);
       return out;
     },
     logout: async () => {
@@ -169,15 +181,28 @@ export const base44 = {
         // Ignore logout API errors and always clear local token.
       } finally {
         clearToken();
+        clearUser();
       }
     },
-    getUser: async () => requestJson(`/auth/me`),
+    getUser: async () => {
+      const out = await requestJson(`/auth/me`);
+      if (out) setUser(out);
+      return out;
+    },
   },
   payments: {
-    createCheckout: async ({ memberId, amount, description, successPath, cancelPath }) =>
+    createCheckout: async ({ memberId, amount, description, paymentType, successPath, cancelPath }) =>
       requestJson(`/payments/checkout`, {
         method: 'POST',
-        body: { memberId, amount, description, successPath, cancelPath, origin: clientOrigin },
+        body: {
+          memberId,
+          amount,
+          description,
+          paymentType,
+          successPath,
+          cancelPath,
+          origin: clientOrigin,
+        },
       }),
     createSubscriptionCheckout: async ({
       memberId,
@@ -201,10 +226,18 @@ export const base44 = {
           origin: clientOrigin,
         },
       }),
-    createGuestCheckout: async ({ guestId, amount, description, successPath, cancelPath }) =>
+    createGuestCheckout: async ({ guestId, amount, description, paymentType, successPath, cancelPath }) =>
       requestJson(`/payments/guest/checkout`, {
         method: 'POST',
-        body: { guestId, amount, description, successPath, cancelPath, origin: clientOrigin },
+        body: {
+          guestId,
+          amount,
+          description,
+          paymentType,
+          successPath,
+          cancelPath,
+          origin: clientOrigin,
+        },
       }),
     createGuestSubscriptionCheckout: async ({
       guestId,

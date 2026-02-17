@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { getUser } from '@/lib/auth';
 import {
   Users,
   Receipt,
@@ -20,6 +21,7 @@ const createPageUrl = (page) => {
 
 export default function Layout({ children, currentPageName }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [authUser, setAuthUser] = useState(getUser());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -38,6 +40,10 @@ export default function Layout({ children, currentPageName }) {
     }
   }, [isCollapsed]);
 
+  useEffect(() => {
+    setAuthUser(getUser());
+  }, [currentPageName]);
+
   const navItems = [
     { name: 'Dashboard', icon: DollarSign, page: 'Dashboard' },
     { name: 'Members', icon: Users, page: 'Members' },
@@ -49,6 +55,20 @@ export default function Layout({ children, currentPageName }) {
   ];
 
   const sidebarWidth = isCollapsed ? 80 : 256;
+  const role = String(authUser?.role || '').toLowerCase();
+  const isScopedUser = role === 'member' || role === 'guest';
+  const scopedNavItems = isScopedUser
+    ? [
+        {
+          name: 'My Details',
+          icon: Users,
+          page:
+            role === 'guest'
+              ? `GuestDetail?id=${encodeURIComponent(String(authUser?.guest_id || ''))}`
+              : `MemberDetail?id=${encodeURIComponent(String(authUser?.member_id || ''))}`,
+        },
+      ]
+    : navItems;
 
   const handleLogout = async () => {
     await base44.auth.logout();
@@ -93,9 +113,13 @@ export default function Layout({ children, currentPageName }) {
         {/* Navigation */}
         <nav className="flex-1 p-4">
           <div className="space-y-2">
-            {navItems.map((item) => {
+            {scopedNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = currentPageName === item.page;
+              const isActive =
+                currentPageName === item.page ||
+                (isScopedUser &&
+                  ((item.page.startsWith('MemberDetail') && currentPageName === 'MemberDetail') ||
+                    (item.page.startsWith('GuestDetail') && currentPageName === 'GuestDetail')));
               return (
                 <Link
                   key={item.page}

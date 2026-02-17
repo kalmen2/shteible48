@@ -31,6 +31,7 @@ import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { toLocalDate, todayISO } from '@/utils/dates';
 import { toast } from '@/components/ui/use-toast';
+import { getUser } from '@/lib/auth';
 import InvoiceTemplate from '../components/member/InvoiceTemplate';
 import {
   getParsha,
@@ -48,6 +49,8 @@ const createPageUrl = (page) => {
 export default function MemberDetail() {
   const urlParams = new URLSearchParams(window.location.search);
   const memberId = urlParams.get('id');
+  const role = String(getUser()?.role || '').toLowerCase();
+  const isScopedUser = role === 'member' || role === 'guest';
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [recurringDialogOpen, setRecurringDialogOpen] = useState(false);
   const [payoffDialogOpen, setPayoffDialogOpen] = useState(false);
@@ -57,10 +60,15 @@ export default function MemberDetail() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDescription, setPaymentDescription] = useState('');
   const [monthlyAmount, setMonthlyAmount] = useState('');
+  const [monthlyDonationDialogOpen, setMonthlyDonationDialogOpen] = useState(false);
+  const [monthlyDonationAmount, setMonthlyDonationAmount] = useState('');
   const [payoffAmount, setPayoffAmount] = useState('');
   const [donationDialogOpen, setDonationDialogOpen] = useState(false);
   const [donationAmount, setDonationAmount] = useState('');
   const [donationDescription, setDonationDescription] = useState('');
+  const [payoffPaymentDialogOpen, setPayoffPaymentDialogOpen] = useState(false);
+  const [payoffPaymentAmount, setPayoffPaymentAmount] = useState('');
+  const [payoffPaymentDescription, setPayoffPaymentDescription] = useState('');
   const [chargeAmount, setChargeAmount] = useState('');
   const [chargeDescription, setChargeDescription] = useState('');
   const [chargeDate, setChargeDate] = useState(todayISO());
@@ -150,42 +158,6 @@ export default function MemberDetail() {
       setChargeAmount('');
       setChargeDescription('');
       setChargeDate(todayISO());
-    },
-  });
-
-  const addDonationMutation = useMutation({
-    mutationFn: async ({ amount, description }) => {
-      const charge = await base44.entities.MembershipCharge.create({
-        member_id: memberId,
-        member_name: member.full_name,
-        charge_type: 'standard_donation',
-        amount,
-        is_active: true,
-      });
-      const transaction = await base44.entities.Transaction.create({
-        member_id: memberId,
-        member_name: member.full_name,
-        type: 'donation',
-        description: description || 'Donation',
-        amount,
-        date: new Date().toISOString().split('T')[0],
-      });
-      return { charge, transaction };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions', memberId] });
-      queryClient.invalidateQueries({ queryKey: ['membershipCharges'] });
-      queryClient.invalidateQueries({ queryKey: ['members'] });
-      setDonationDialogOpen(false);
-      setDonationAmount('');
-      setDonationDescription('');
-    },
-    onError: (error) => {
-      toast({
-        title: 'Donation failed',
-        description: error?.message || 'Unable to record donation right now.',
-        variant: 'destructive',
-      });
     },
   });
 
@@ -284,6 +256,7 @@ export default function MemberDetail() {
 
   const handlePaymentSubmit = (e) => {
     e.preventDefault();
+    if (isScopedUser) return;
     addPaymentMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
@@ -294,18 +267,24 @@ export default function MemberDetail() {
     });
   };
 
-  const handleDonationSubmit = (e) => {
+  const handleDonationSubmit = async (e) => {
     e.preventDefault();
     const amount = parseFloat(donationAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    addDonationMutation.mutate({
+    const out = await base44.payments.createCheckout({
+      memberId,
       amount,
-      description: donationDescription || 'Donation',
+      paymentType: 'donation',
+      description: donationDescription || `Donation - ${member.full_name}`,
+      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
     });
+    if (out?.url) window.location.href = out.url;
   };
 
   const handleChargeSubmit = (e) => {
     e.preventDefault();
+    if (isScopedUser) return;
     const amount = parseFloat(chargeAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
     addChargeMutation.mutate({
@@ -319,6 +298,7 @@ export default function MemberDetail() {
   };
 
   const handleEventSelected = (eventData) => {
+    if (isScopedUser) return;
     addChargeMutation.mutate({
       member_id: memberId,
       member_name: member.full_name,
@@ -338,7 +318,23 @@ export default function MemberDetail() {
     const out = await base44.payments.createCheckout({
       memberId,
       amount,
+      paymentType: 'payment',
       description: paymentDescription || `Payment - ${member.full_name}`,
+      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+    });
+    if (out?.url) window.location.href = out.url;
+  };
+
+  const handlePayoffPaymentSubmit = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(payoffPaymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    const out = await base44.payments.createCheckout({
+      memberId,
+      amount,
+      paymentType: 'balance_payoff',
+      description: payoffPaymentDescription || `Balance Payoff - ${member.full_name}`,
       successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
       cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
     });
@@ -363,6 +359,23 @@ export default function MemberDetail() {
       .createSubscriptionCheckout({
         memberId,
         paymentType: 'additional_monthly',
+        amountPerMonth,
+        successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+        cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      })
+      .then((out) => {
+        if (out?.url) window.location.href = out.url;
+      });
+  };
+
+  const handleMonthlyDonationSubmit = (e) => {
+    e.preventDefault();
+    const amountPerMonth = parseFloat(monthlyDonationAmount);
+    if (!Number.isFinite(amountPerMonth) || amountPerMonth <= 0) return;
+    base44.payments
+      .createSubscriptionCheckout({
+        memberId,
+        paymentType: 'monthly_donation',
         amountPerMonth,
         successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
         cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
@@ -442,9 +455,9 @@ export default function MemberDetail() {
         full_name,
         english_name: englishName || undefined,
         hebrew_name: hebrewName || undefined,
-        email: email || undefined,
         phone: phone || undefined,
         address: address || undefined,
+        ...(!isScopedUser ? { email: email || undefined } : {}),
       },
     });
   };
@@ -568,25 +581,27 @@ export default function MemberDetail() {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button className="bg-amber-600 hover:bg-amber-700">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Charges
-                        <ChevronDown className="w-4 h-4 ml-2" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Add Charge
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
-                        <Calendar className="w-4 h-4 mr-2" />
-                        Add from Event
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {!isScopedUser && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button className="bg-amber-600 hover:bg-amber-700">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Charges
+                          <ChevronDown className="w-4 h-4 ml-2" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onSelect={() => setChargeDialogOpen(true)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Charge
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => setCalendarOpen(true)}>
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Add from Event
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
 
                   <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
                     <DialogContent>
@@ -656,22 +671,31 @@ export default function MemberDetail() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onSelect={() => setPaymentDialogOpen(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Record Payment
-                      </DropdownMenuItem>
+                      {!isScopedUser && (
+                        <DropdownMenuItem onSelect={() => setPaymentDialogOpen(true)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Record Payment
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onSelect={() => setDonationDialogOpen(true)}>
                         <DollarSign className="w-4 h-4 mr-2" />
                         Donation
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setPayoffPaymentDialogOpen(true)}>
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Payoff Balance
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Record Payment</DialogTitle>
+                        <DialogTitle>{isScopedUser ? 'Payment' : 'Record Payment'}</DialogTitle>
                       </DialogHeader>
-                      <form onSubmit={handlePaymentSubmit} className="space-y-4 mt-4">
+                      <form
+                        onSubmit={isScopedUser ? handleStripePayment : handlePaymentSubmit}
+                        className="space-y-4 mt-4"
+                      >
                         <div className="space-y-2">
                           <Label htmlFor="amount">Amount *</Label>
                           <Input
@@ -701,15 +725,17 @@ export default function MemberDetail() {
                           >
                             Cancel
                           </Button>
-                          <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                            Record Payment
-                          </Button>
+                          {!isScopedUser && (
+                            <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                              Record Payment
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             className="bg-blue-900 hover:bg-blue-800"
                             onClick={handleStripePayment}
                           >
-                            Pay with Card (Stripe)
+                            Pay with Card
                           </Button>
                         </div>
                       </form>
@@ -718,7 +744,7 @@ export default function MemberDetail() {
                   <Dialog open={donationDialogOpen} onOpenChange={setDonationDialogOpen}>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Record Donation</DialogTitle>
+                        <DialogTitle>Donation</DialogTitle>
                       </DialogHeader>
                       <form onSubmit={handleDonationSubmit} className="space-y-4 mt-4">
                         <div className="space-y-2">
@@ -750,12 +776,53 @@ export default function MemberDetail() {
                           >
                             Cancel
                           </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                            Pay with Card
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog
+                    open={payoffPaymentDialogOpen}
+                    onOpenChange={setPayoffPaymentDialogOpen}
+                  >
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Payoff Balance</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handlePayoffPaymentSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="payoffPaymentAmount">Amount *</Label>
+                          <Input
+                            id="payoffPaymentAmount"
+                            type="number"
+                            step="0.01"
+                            value={payoffPaymentAmount}
+                            onChange={(e) => setPayoffPaymentAmount(e.target.value)}
+                            required
+                            placeholder={(member.total_owed || 0).toFixed(2)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="payoffPaymentDescription">Description</Label>
+                          <Input
+                            id="payoffPaymentDescription"
+                            value={payoffPaymentDescription}
+                            onChange={(e) => setPayoffPaymentDescription(e.target.value)}
+                            placeholder="Balance payoff"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
                           <Button
-                            type="submit"
-                            className="bg-green-600 hover:bg-green-700"
-                            disabled={addDonationMutation.isPending}
+                            type="button"
+                            variant="outline"
+                            onClick={() => setPayoffPaymentDialogOpen(false)}
                           >
-                            {addDonationMutation.isPending ? 'Saving...' : 'Record Donation'}
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                            Pay with Card
                           </Button>
                         </div>
                       </form>
@@ -777,6 +844,10 @@ export default function MemberDetail() {
                       <DropdownMenuItem onSelect={() => setRecurringDialogOpen(true)}>
                         <Repeat className="w-4 h-4 mr-2" />
                         Add Monthly Payment
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setMonthlyDonationDialogOpen(true)}>
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Monthly Donation
                       </DropdownMenuItem>
                       {(member.total_owed || 0) > 0 && (
                         <DropdownMenuItem onSelect={() => setPayoffDialogOpen(true)}>
@@ -843,7 +914,7 @@ export default function MemberDetail() {
                         </div>
 
                         <div className="text-sm text-slate-600">
-                          You’ll enter card details securely in Stripe Checkout.
+                          You’ll enter card details securely in checkout.
                         </div>
 
                         <div className="flex justify-end gap-3 pt-4">
@@ -856,6 +927,49 @@ export default function MemberDetail() {
                           </Button>
                           <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
                             Set Up Payment
+                          </Button>
+                        </div>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog
+                    open={monthlyDonationDialogOpen}
+                    onOpenChange={setMonthlyDonationDialogOpen}
+                  >
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <DollarSign className="w-5 h-5" />
+                          Add Monthly Donation
+                        </DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleMonthlyDonationSubmit} className="space-y-4 mt-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="monthlyDonationAmount">Monthly Amount *</Label>
+                          <Input
+                            id="monthlyDonationAmount"
+                            type="number"
+                            step="0.01"
+                            value={monthlyDonationAmount}
+                            onChange={(e) => setMonthlyDonationAmount(e.target.value)}
+                            placeholder="0.00"
+                            required
+                            className="h-11"
+                          />
+                        </div>
+                        <div className="text-sm text-slate-600">
+                          You’ll enter card details securely in checkout.
+                        </div>
+                        <div className="flex justify-end gap-3 pt-4">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setMonthlyDonationDialogOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
+                            Set Up Monthly Donation
                           </Button>
                         </div>
                       </form>
@@ -904,7 +1018,7 @@ export default function MemberDetail() {
                         </div>
 
                         <div className="text-sm text-slate-600">
-                          You’ll enter card details securely in Stripe Checkout.
+                          You’ll enter card details securely in checkout.
                         </div>
 
                         <div className="flex justify-end gap-3 pt-4">
@@ -951,18 +1065,20 @@ export default function MemberDetail() {
                             placeholder="Hebrew name"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="editEmail">Email</Label>
-                          <Input
-                            id="editEmail"
-                            type="email"
-                            value={editMember.email}
-                            onChange={(e) =>
-                              setEditMember({ ...editMember, email: e.target.value })
-                            }
-                            placeholder="email@example.com"
-                          />
-                        </div>
+                        {!isScopedUser && (
+                          <div className="space-y-2">
+                            <Label htmlFor="editEmail">Email</Label>
+                            <Input
+                              id="editEmail"
+                              type="email"
+                              value={editMember.email}
+                              onChange={(e) =>
+                                setEditMember({ ...editMember, email: e.target.value })
+                              }
+                              placeholder="email@example.com"
+                            />
+                          </div>
+                        )}
                         <div className="space-y-2">
                           <Label htmlFor="editPhone">Phone</Label>
                           <Input
@@ -1035,7 +1151,7 @@ export default function MemberDetail() {
                             : 'Balance Payoff Plan'}
                       </div>
                       <div className="text-sm text-slate-600">
-                        ${payment.amount_per_month.toFixed(2)}/month • Stripe
+                        ${payment.amount_per_month.toFixed(2)}/month
                       </div>
                       {payment.payment_type === 'balance_payoff' && payment.remaining_amount && (
                         <div className="text-xs text-amber-600 mt-1">
