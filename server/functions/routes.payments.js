@@ -365,6 +365,22 @@ function normalizeOrigin(origin) {
  */
 function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFrontendOrigins = [] }) {
   const router = express.Router();
+  router.use((req, res, next) => {
+    const role = String(req?.user?.role || "").toLowerCase();
+    if (role === "member" || role === "guest") {
+      const allowedScopedPaths = new Set([
+        "/checkout",
+        "/guest/checkout",
+        "/subscription-checkout",
+        "/guest/subscription-checkout",
+        "/save-card-checkout",
+      ]);
+      if (!allowedScopedPaths.has(req.path)) {
+        return res.status(403).json({ message: "Member/Guest accounts cannot access this endpoint." });
+      }
+    }
+    return next();
+  });
   const normalizedAllowlist = allowedFrontendOrigins
     .map((origin) => normalizeOrigin(origin))
     .filter(Boolean);
@@ -376,6 +392,23 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       return origin;
     }
     return fallbackOrigin;
+  };
+
+  const enforceScopedActor = ({ req, memberId, guestId }) => {
+    const role = String(req?.user?.role || "").toLowerCase();
+    if (role === "member") {
+      const ownMemberId = String(req?.user?.member_id || "");
+      if (!ownMemberId || !memberId || String(memberId) !== ownMemberId || guestId) {
+        return { ok: false, status: 403, message: "Member can only act on their own profile." };
+      }
+    }
+    if (role === "guest") {
+      const ownGuestId = String(req?.user?.guest_id || "");
+      if (!ownGuestId || !guestId || String(guestId) !== ownGuestId || memberId) {
+        return { ok: false, status: 403, message: "Guest can only act on their own profile." };
+      }
+    }
+    return { ok: true };
   };
 
   // Generate a public save-card link for a member or guest (auth required to generate)
@@ -403,12 +436,34 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const stripe = getStripe();
 
     const memberId = safeString(req.body?.memberId, 200);
+    const scoped = enforceScopedActor({ req, memberId });
+    if (!scoped.ok) return res.status(scoped.status).json({ message: scoped.message });
+    const paymentType = safeString(req.body?.paymentType || "payment", 60);
     const amountCents = dollarsToCents(req.body?.amount);
-    const description = safeString(req.body?.description || "Payment", 500);
+    const description = safeString(
+      req.body?.description ||
+        (paymentType === "donation"
+          ? "Donation"
+          : paymentType === "balance_payoff"
+            ? "Balance Payoff"
+            : "Payment"),
+      500
+    );
 
     if (!memberId || !amountCents) return res.status(400).json({ message: "memberId and valid amount are required" });
+    if (!["payment", "donation", "balance_payoff"].includes(paymentType)) {
+      return res.status(400).json({ message: "Invalid paymentType" });
+    }
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
+    let effectiveAmountCents = amountCents;
+    if (paymentType === "balance_payoff") {
+      const balanceOwedCents = centsFromNumber(member.total_owed || 0);
+      if (!Number.isFinite(balanceOwedCents) || balanceOwedCents <= 0) {
+        return res.status(400).json({ message: "No outstanding balance to pay off." });
+      }
+      effectiveAmountCents = Math.min(effectiveAmountCents, balanceOwedCents);
+    }
 
     const frontendOrigin = resolveFrontendBaseUrl(req);
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
@@ -424,7 +479,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
             product_data: {
               name: description,
             },
-            unit_amount: amountCents,
+            unit_amount: effectiveAmountCents,
           },
           quantity: 1,
         },
@@ -435,7 +490,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         kind: "one_time_payment",
         memberId: String(member.id),
         memberName: safeString(member.full_name || "", 200),
-        amountCents: String(amountCents),
+        amountCents: String(effectiveAmountCents),
+        paymentType,
         description,
       },
     });
@@ -447,12 +503,34 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const stripe = getStripe();
 
     const guestId = safeString(req.body?.guestId, 200);
+    const scoped = enforceScopedActor({ req, guestId });
+    if (!scoped.ok) return res.status(scoped.status).json({ message: scoped.message });
+    const paymentType = safeString(req.body?.paymentType || "payment", 60);
     const amountCents = dollarsToCents(req.body?.amount);
-    const description = safeString(req.body?.description || "Donation", 500);
+    const description = safeString(
+      req.body?.description ||
+        (paymentType === "donation"
+          ? "Donation"
+          : paymentType === "balance_payoff"
+            ? "Balance Payoff"
+            : "Payment"),
+      500
+    );
 
     if (!guestId || !amountCents) return res.status(400).json({ message: "guestId and valid amount are required" });
+    if (!["payment", "donation", "balance_payoff"].includes(paymentType)) {
+      return res.status(400).json({ message: "Invalid paymentType" });
+    }
 
     const { guest, customerId } = await ensureGuestCustomer({ stripe, store, guestId });
+    let effectiveAmountCents = amountCents;
+    if (paymentType === "balance_payoff") {
+      const balanceOwedCents = centsFromNumber(guest.total_owed || 0);
+      if (!Number.isFinite(balanceOwedCents) || balanceOwedCents <= 0) {
+        return res.status(400).json({ message: "No outstanding balance to pay off." });
+      }
+      effectiveAmountCents = Math.min(effectiveAmountCents, balanceOwedCents);
+    }
 
     const frontendOrigin = resolveFrontendBaseUrl(req);
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
@@ -468,7 +546,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
             product_data: {
               name: description,
             },
-            unit_amount: amountCents,
+            unit_amount: effectiveAmountCents,
           },
           quantity: 1,
         },
@@ -479,7 +557,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         kind: "guest_one_time_payment",
         guestId: String(guestId),
         guestName: safeString(guest.full_name || "", 200),
-        amountCents: String(amountCents),
+        amountCents: String(effectiveAmountCents),
+        paymentType,
         description,
       },
     });
@@ -491,6 +570,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const stripe = getStripe();
 
     const memberId = safeString(req.body?.memberId, 200);
+    const scoped = enforceScopedActor({ req, memberId });
+    if (!scoped.ok) return res.status(scoped.status).json({ message: scoped.message });
     const paymentType = safeString(req.body?.paymentType, 60);
     let amountCents = dollarsToCents(req.body?.amountPerMonth);
     const applyMonthRaw = safeString(req.body?.applyMonth, 20);
@@ -498,6 +579,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     if (!memberId || !amountCents || !paymentType) {
       return res.status(400).json({ message: "memberId, paymentType, and valid amountPerMonth are required" });
+    }
+    if (!["membership", "balance_payoff", "additional_monthly", "monthly_donation"].includes(paymentType)) {
+      return res.status(400).json({ message: "Invalid paymentType" });
     }
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
@@ -746,7 +830,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
                   ? "Monthly Membership"
                   : paymentType === "balance_payoff"
                     ? "Balance Payoff Plan"
-                    : "Additional Monthly Payment",
+                    : paymentType === "monthly_donation"
+                      ? "Monthly Donation"
+                      : "Additional Monthly Payment",
             },
             recurring: { interval: "month" },
             unit_amount: amountCents,
@@ -767,6 +853,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const stripe = getStripe();
 
     const guestId = safeString(req.body?.guestId, 200);
+    const scoped = enforceScopedActor({ req, guestId });
+    if (!scoped.ok) return res.status(scoped.status).json({ message: scoped.message });
     const paymentType = safeString(req.body?.paymentType, 60);
     let amountCents = dollarsToCents(req.body?.amountPerMonth);
 
@@ -839,6 +927,8 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const stripe = getStripe();
 
     const memberId = safeString(req.body?.memberId, 200);
+    const scoped = enforceScopedActor({ req, memberId });
+    if (!scoped.ok) return res.status(scoped.status).json({ message: scoped.message });
 
     if (!memberId) {
       return res.status(400).json({ message: "memberId is required" });
