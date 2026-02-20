@@ -76,7 +76,6 @@ export default function Members() {
   const [uploadFile, setUploadFile] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
-  const [bulkActivating, setBulkActivating] = useState(false);
   const [chargeAmount, setChargeAmount] = useState('');
   const [chargeType, setChargeType] = useState('standard_donation');
   // Stripe Checkout handles secure card entry.
@@ -304,38 +303,18 @@ export default function Members() {
       alert('No inactive members selected.');
       return;
     }
-
-    const missingCards = inactiveMembers.filter((m) => !m.stripe_default_payment_method_id);
-    if (missingCards.length > 0) {
-      const lines = missingCards.map((m) => {
-        const name = m.english_name || m.full_name || m.hebrew_name || 'Member';
-        const id = m.member_id || m.id;
-        return `${name} (ID: ${id})`;
-      });
-      alert(`Missing saved card on file for:\n${lines.join('\n')}`);
+    if (inactiveMembers.length > 1) {
+      alert('Bulk direct activation was removed. Please activate members one at a time.');
       return;
     }
 
-    const ok = window.confirm(`Activate membership for ${inactiveMembers.length} member(s)?`);
+    const target = inactiveMembers[0];
+    const targetName = target.english_name || target.full_name || target.hebrew_name || 'Member';
+    const ok = window.confirm(`Open Stripe Checkout to activate membership for ${targetName}?`);
     if (!ok) return;
-    setBulkActivating(true);
-    try {
-      const out = await base44.payments.activateMembershipBulk({
-        memberIds: inactiveMembers.map((m) => m.id),
-        amountPerMonth: currentPlan.standard_amount,
-      });
-      if (out?.errors?.length) {
-        const lines = out.errors.map((e) => `${e.name || e.id}: ${e.message}`).join('\n');
-        alert(`Some activations failed:\n${lines}`);
-      }
-      queryClient.invalidateQueries({ queryKey: ['members'] });
-      queryClient.invalidateQueries({ queryKey: ['recurringPayments'] });
-      setSelectedMemberIds([]);
-    } catch (err) {
-      alert(err?.message || 'Failed to activate memberships.');
-    } finally {
-      setBulkActivating(false);
-    }
+
+    setSelectedMember(target);
+    setPaymentDialogOpen(true);
   };
 
   const toggleMemberSelection = (id) => {
@@ -462,12 +441,12 @@ export default function Members() {
     if (!selectedMember || !currentPlan?.standard_amount) return;
     setProcessing(true);
     try {
-      // Pass paymentMonthChoice to backend for correct logic
+      const applyMonth = paymentMonthChoice === 'next' ? 'next_month' : 'this_month';
       const out = await base44.payments.createSubscriptionCheckout({
         memberId: selectedMember.id,
         paymentType: 'membership',
         amountPerMonth: currentPlan.standard_amount,
-        firstPaymentMonth: paymentMonthChoice, // 'this' or 'next'
+        applyMonth,
         successPath: `/Members`,
         cancelPath: `/Members`,
       });
@@ -632,8 +611,8 @@ export default function Members() {
                   >
                     {deleteMembersMutation.isPending ? 'Deleting...' : 'Delete Selected'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled={bulkActivating} onClick={handleActivateSelected}>
-                    {bulkActivating ? 'Activating...' : 'Activate Selected'}
+                  <DropdownMenuItem onClick={handleActivateSelected}>
+                    Activate Selected
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

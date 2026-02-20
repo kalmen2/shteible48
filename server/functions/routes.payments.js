@@ -25,6 +25,15 @@ function safeString(v, max = 500) {
   return s.length > max ? s.slice(0, max) : s;
 }
 
+function applyCheckoutCardOnlyConfig(params) {
+  const out = { ...(params || {}), payment_method_types: ["card"] };
+  const configId = safeString(process.env.STRIPE_PAYMENT_METHOD_CONFIGURATION_ID || "", 200);
+  if (configId) {
+    out.payment_method_configuration = configId;
+  }
+  return out;
+}
+
 function monthLabelFromUnixSeconds(sec) {
   const ms = Number(sec) * 1000;
   const d = new Date(ms);
@@ -469,7 +478,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
       mode: "payment",
       customer: customerId,
       line_items: [
@@ -494,7 +503,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         paymentType,
         description,
       },
-    });
+    }));
 
     return res.json({ url: session.url });
   });
@@ -536,7 +545,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
       mode: "payment",
       customer: customerId,
       line_items: [
@@ -561,7 +570,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         paymentType,
         description,
       },
-    });
+    }));
 
     return res.json({ url: session.url });
   });
@@ -741,7 +750,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     const isMembershipThisMonth = paymentType === "membership" && applyMonth === "this_month";
     if (isMembershipThisMonth) {
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
         mode: "payment",
         customer: customerId,
         payment_intent_data: {
@@ -772,7 +781,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
           payoffAmountCents: String(effectivePayoffCents),
           payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
         },
-      });
+      }));
 
       return res.json({ url: session.url });
     }
@@ -817,7 +826,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       }
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
       mode: "subscription",
       customer: customerId,
       line_items: [
@@ -844,7 +853,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: sessionMetadata,
-    });
+    }));
 
     return res.json({ url: session.url });
   });
@@ -876,7 +885,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
       mode: "subscription",
       customer: customerId,
       line_items: [
@@ -918,7 +927,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         amountCents: String(amountCents),
         payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
       },
-    });
+    }));
 
     return res.json({ url: session.url });
   });
@@ -940,10 +949,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=card_saved`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(memberId)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
       mode: "setup",
       customer: customerId,
-      payment_method_types: ["card"],
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: {
@@ -951,7 +959,7 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         memberId: String(member.id),
         memberName: safeString(member.full_name || "", 200),
       },
-    });
+    }));
 
     return res.json({ url: session.url });
   });
@@ -1063,180 +1071,11 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     return res.json({ ok: true, subscriptionId: stripeSubscriptionId });
   });
 
-  router.post("/activate-memberships-bulk", async (req, res) => {
-    const stripe = getStripe();
-    const memberIds = Array.isArray(req.body?.memberIds)
-      ? req.body.memberIds.map((id) => String(id)).filter(Boolean)
-      : [];
-    if (memberIds.length === 0) {
-      return res.status(400).json({ message: "memberIds are required" });
-    }
-
-    let amountCents = dollarsToCents(req.body?.amountPerMonth);
-    if (!amountCents) {
-      const plans = await store.list("MembershipPlan", "-created_date", 1);
-      const plan = plans[0];
-      amountCents = dollarsToCents(plan?.standard_amount);
-    }
-    if (!amountCents) {
-      return res.status(400).json({ message: "Valid amountPerMonth is required" });
-    }
-
-    const missing = [];
-    const alreadyActive = [];
-    const toActivate = [];
-
-    for (const memberId of memberIds) {
-      const [member] = await store.filter("Member", { id: String(memberId) }, undefined, 1);
-      if (!member) {
-        missing.push({ id: memberId, name: "Unknown", reason: "Member not found" });
-        continue;
-      }
-      if (member.membership_active) {
-        alreadyActive.push({ id: member.id, name: member.full_name || member.english_name || member.hebrew_name });
-        continue;
-      }
-      if (!member.stripe_customer_id || !member.stripe_default_payment_method_id) {
-        missing.push({
-          id: member.id,
-          name: member.full_name || member.english_name || member.hebrew_name || "Member",
-          reason: "Missing saved card",
-        });
-        continue;
-      }
-      toActivate.push(member);
-    }
-
-    if (missing.length > 0) {
-      return res.status(400).json({ message: "Some members are missing saved cards", missing });
-    }
-
-    const activated = [];
-    const errors = [];
-
-    for (const member of toActivate) {
-      try {
-        const subscription = await stripe.subscriptions.create({
-          customer: member.stripe_customer_id,
-          default_payment_method: member.stripe_default_payment_method_id,
-          items: [
-            {
-              price_data: {
-                currency: process.env.STRIPE_CURRENCY || "usd",
-                product_data: { name: "Monthly Membership" },
-                recurring: { interval: "month" },
-                unit_amount: amountCents,
-              },
-              quantity: 1,
-            },
-          ],
-          metadata: {
-            kind: "membership",
-            memberId: String(member.id),
-            memberName: safeString(member.full_name || member.english_name || "", 200),
-            paymentType: "membership",
-            amountCents: String(amountCents),
-          },
-          expand: ["latest_invoice.payment_intent"],
-        });
-
-        const today = new Date();
-        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-        const recs = await store.filter(
-          "RecurringPayment",
-          { stripe_subscription_id: String(subscription.id) },
-          undefined,
-          1
-        );
-        const recPayload = {
-          member_id: String(member.id),
-          member_name: safeString(member.full_name || member.english_name || "", 200),
-          payment_type: "membership",
-          amount_per_month: Math.round(amountCents) / 100,
-          is_active: true,
-          start_date: today.toISOString().split("T")[0],
-          next_charge_date: nextMonth.toISOString().split("T")[0],
-          stripe_customer_id: member.stripe_customer_id,
-          stripe_subscription_id: subscription.id,
-        };
-        if (recs[0]?.id) {
-          await store.update("RecurringPayment", recs[0].id, recPayload);
-        } else {
-          await store.create("RecurringPayment", recPayload);
-        }
-
-        await store.update("Member", member.id, {
-          membership_active: true,
-          stripe_subscription_id: subscription.id,
-          stripe_customer_id: member.stripe_customer_id,
-        });
-
-        const latestInvoice = subscription?.latest_invoice;
-        if (latestInvoice && typeof latestInvoice === "object" && latestInvoice.id) {
-          const paid =
-            latestInvoice.status === "paid" ||
-            latestInvoice.payment_intent?.status === "succeeded";
-          if (paid) {
-            const amountPaidCents =
-              Number(latestInvoice.amount_paid ?? latestInvoice.total ?? amountCents);
-            const periodStart =
-              latestInvoice.lines?.data?.[0]?.period?.start || latestInvoice.created;
-            const amount = Math.round(amountPaidCents) / 100;
-            const date = isoDateFromUnixSeconds(periodStart);
-            const monthLabel = monthLabelFromUnixSeconds(periodStart);
-            const descBase = `Monthly Membership - ${monthLabel}`;
-            const basePayload = {
-              member_id: String(member.id),
-              member_name: safeString(member.full_name || member.english_name || "", 200),
-              amount,
-              date,
-              provider: "stripe",
-              stripe_invoice_id: latestInvoice.id,
-              stripe_subscription_id: subscription.id,
-              stripe_customer_id: member.stripe_customer_id,
-            };
-
-            const chargeCreated = await createInvoiceTransactionIfMissing(
-              store,
-              "Transaction",
-              latestInvoice.id,
-              "charge",
-              {
-                ...basePayload,
-                type: "charge",
-                description: descBase,
-              }
-            );
-            await createInvoiceTransactionIfMissing(
-              store,
-              "Transaction",
-              latestInvoice.id,
-              "payment",
-              {
-                ...basePayload,
-                type: "payment",
-                description: `${descBase} (Stripe)`,
-              }
-            );
-
-            if (chargeCreated) {
-              const currentBalance = Number(member.total_owed || 0);
-              const newBalance = Math.max(0, currentBalance - amount);
-              await store.update("Member", member.id, { total_owed: newBalance });
-            }
-          }
-        }
-        activated.push({ id: member.id, name: member.full_name || member.english_name || member.hebrew_name });
-      } catch (err) {
-        errors.push({
-          id: member.id,
-          name: member.full_name || member.english_name || member.hebrew_name,
-          message: err?.message || "Failed to activate membership",
-        });
-      }
-    }
-
-    return res.json({ ok: true, activated, alreadyActive, errors });
+  router.post("/activate-memberships-bulk", async (_req, res) => {
+    return res.status(410).json({
+      message:
+        "Bulk direct activation has been removed. Use Stripe Checkout per member.",
+    });
   });
 
     // Admin endpoint to update a member's monthly bill (e.g., add donation or payment plan)
@@ -1322,46 +1161,94 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
   const router = express.Router();
 
-  router.post("/save-card-session", async (req, res) => {
-    const stripe = getStripe();
-    const token = safeString(req.body?.token, 2000);
-    if (!token) return res.status(400).json({ message: "token is required" });
+  async function resolveSaveCardTarget({ stripe, token }) {
+    const parsed = safeString(token, 2000);
+    if (!parsed) {
+      const err = new Error("token is required");
+      // @ts-ignore
+      err.status = 400;
+      throw err;
+    }
 
     let payload;
     try {
-      payload = verifySaveCardToken(token);
-    } catch (err) {
-      return res.status(401).json({ message: "Invalid or expired token" });
+      payload = verifySaveCardToken(parsed);
+    } catch (_err) {
+      const err = new Error("Invalid or expired token");
+      // @ts-ignore
+      err.status = 401;
+      throw err;
     }
 
     const isMember = payload?.kind === "member";
     const isGuest = payload?.kind === "guest";
     if (!isMember && !isGuest) {
-      return res.status(400).json({ message: "Invalid token payload" });
+      const err = new Error("Invalid token payload");
+      // @ts-ignore
+      err.status = 400;
+      throw err;
     }
 
-    // Reusable by design: token validity is controlled by JWT expiry.
-    // We only keep jti for audit logging when present.
     const tokenJti = payload?.jti ? String(payload.jti) : null;
 
-    let customerId;
-    let member;
-    let guest;
-
     if (isMember) {
-      member = await resolveMemberFromInput(store, payload.id || payload.member_id);
-      if (!member) return res.status(404).json({ message: "Member not found" });
-      const result = await ensureCustomer({ stripe, store, memberId: member.id || member.member_id || payload.id });
+      let member = await resolveMemberFromInput(store, payload.id || payload.member_id);
+      if (!member) {
+        const err = new Error("Member not found");
+        // @ts-ignore
+        err.status = 404;
+        throw err;
+      }
+      const result = await ensureCustomer({
+        stripe,
+        store,
+        memberId: member.id || member.member_id || payload.id,
+      });
       member = result.member;
-      customerId = result.customerId;
-    } else {
-      const [g] = await store.filter("Guest", { id: String(payload.id) }, undefined, 1);
-      if (!g) return res.status(404).json({ message: "Guest not found" });
-      guest = g;
-      const result = await ensureGuestCustomer({ stripe, store, guestId: guest.id });
-      guest = result.guest;
-      customerId = result.customerId;
+      return {
+        token: parsed,
+        tokenJti,
+        kind: "member",
+        member,
+        customerId: result.customerId,
+      };
     }
+
+    let guest;
+    const [g] = await store.filter("Guest", { id: String(payload.id) }, undefined, 1);
+    if (!g) {
+      const err = new Error("Guest not found");
+      // @ts-ignore
+      err.status = 404;
+      throw err;
+    }
+    guest = g;
+    const result = await ensureGuestCustomer({ stripe, store, guestId: guest.id });
+    guest = result.guest;
+    return {
+      token: parsed,
+      tokenJti,
+      kind: "guest",
+      guest,
+      customerId: result.customerId,
+    };
+  }
+
+  router.post("/save-card-session", async (req, res) => {
+    const stripe = getStripe();
+    let target;
+    try {
+      target = await resolveSaveCardTarget({ stripe, token: req.body?.token });
+    } catch (err) {
+      return res.status(err?.status || 500).json({ message: err?.message || "Unable to verify token" });
+    }
+    const isMember = target.kind === "member";
+    const isGuest = target.kind === "guest";
+    const member = target.member;
+    const guest = target.guest;
+    const customerId = target.customerId;
+    const tokenJti = target.tokenJti;
+    const token = target.token;
 
     const frontendOrigin = normalizeOrigin(req.body?.origin) || frontendBaseUrl;
     const successPath = "/save-card/success";
@@ -1370,10 +1257,9 @@ function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
     const cancelUrl = `${frontendOrigin}${cancelPath}${cancelPath.includes('?') ? '&' : '?'}stripe=cancel`;
 
     try {
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
         mode: "setup",
         customer: customerId,
-        payment_method_types: ["card"],
         success_url: successUrl,
         cancel_url: cancelUrl,
         metadata: {
@@ -1385,10 +1271,58 @@ function createPublicPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl }) {
             ? safeString(member.full_name || member.english_name || member.hebrew_name || "")
             : safeString(guest.full_name || guest.english_name || guest.hebrew_name || ""),
         },
-      });
+      }));
       return res.json({ url: session.url });
     } catch (err) {
       return res.status(500).json({ message: err?.message || "Failed to create save-card session" });
+    }
+  });
+
+  router.post("/save-card-status", async (req, res) => {
+    const stripe = getStripe();
+    let target;
+    try {
+      target = await resolveSaveCardTarget({ stripe, token: req.body?.token });
+    } catch (err) {
+      return res.status(err?.status || 500).json({ message: err?.message || "Unable to verify token" });
+    }
+
+    const isMember = target.kind === "member";
+    const record = isMember ? target.member : target.guest;
+    const defaultPaymentMethodId = record?.stripe_default_payment_method_id
+      ? String(record.stripe_default_payment_method_id)
+      : "";
+
+    const out = {
+      ok: true,
+      kind: target.kind,
+      name: safeString(
+        record?.full_name || record?.english_name || record?.hebrew_name || "",
+        200
+      ),
+      hasCard: false,
+      card: null,
+    };
+
+    if (!defaultPaymentMethodId) {
+      return res.json(out);
+    }
+
+    try {
+      const pm = await stripe.paymentMethods.retrieve(defaultPaymentMethodId);
+      if (pm?.card) {
+        out.hasCard = true;
+        out.card = {
+          brand: String(pm.card.brand || "").toUpperCase(),
+          last4: String(pm.card.last4 || ""),
+          expMonth: Number(pm.card.exp_month || 0),
+          expYear: Number(pm.card.exp_year || 0),
+        };
+      }
+      return res.json(out);
+    } catch (err) {
+      // Stale/default payment method id should not block checkout retry.
+      return res.json(out);
     }
   });
 

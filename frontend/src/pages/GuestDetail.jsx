@@ -809,9 +809,11 @@ export default function GuestDetail() {
                       <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
                         Amount
                       </th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
-                        Actions
-                      </th>
+                      {!isScopedUser && (
+                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                          Actions
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -854,24 +856,26 @@ export default function GuestDetail() {
                             {transaction.amount?.toFixed(2)}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-center">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  'Delete this transaction? This will adjust the guest balance.'
-                                )
-                              ) {
-                                deleteTransactionMutation.mutate(transaction);
-                              }
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </td>
+                        {!isScopedUser && (
+                          <td className="py-4 px-6 text-center">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    'Delete this transaction? This will adjust the guest balance.'
+                                  )
+                                ) {
+                                  deleteTransactionMutation.mutate(transaction);
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

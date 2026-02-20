@@ -269,11 +269,6 @@ export const base44 = {
         method: 'POST',
         body: { memberId, guestId, origin: clientOrigin },
       }),
-    activateMembershipBulk: async ({ memberIds, amountPerMonth }) =>
-      requestJson(`/payments/activate-memberships-bulk`, {
-        method: 'POST',
-        body: { memberIds, amountPerMonth },
-      }),
     cancelSubscription: async ({ recurringPaymentId, subscriptionId }) =>
       requestJson(`/payments/cancel-subscription`, {
         method: 'POST',

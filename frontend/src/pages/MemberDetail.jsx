@@ -119,6 +119,34 @@ export default function MemberDetail() {
     return [...transactions].sort((a, b) => dateValue(b) - dateValue(a));
   }, [transactions]);
 
+  const displayTransactions = React.useMemo(() => {
+    // Hide Stripe membership charge rows when they have a matching Stripe payment row.
+    // This avoids showing what looks like a duplicate "Monthly Membership" entry in history.
+    const paidMembershipKeys = new Set();
+    for (const tx of sortedTransactions) {
+      if (tx?.type !== 'payment' || tx?.provider !== 'stripe') continue;
+      const description = String(tx?.description || '');
+      if (!description.startsWith('Monthly Membership - ')) continue;
+      const baseDescription = description.replace(/\s*\(Stripe\)\s*$/i, '');
+      const amountKey = Number(tx?.amount || 0).toFixed(2);
+      if (tx?.stripe_invoice_id) {
+        paidMembershipKeys.add(`invoice:${tx.stripe_invoice_id}`);
+      }
+      paidMembershipKeys.add(`fallback:${tx?.date || ''}|${amountKey}|${baseDescription}`);
+    }
+
+    return sortedTransactions.filter((tx) => {
+      if (tx?.type !== 'charge' || tx?.provider !== 'stripe') return true;
+      const description = String(tx?.description || '');
+      if (!description.startsWith('Monthly Membership - ')) return true;
+      const amountKey = Number(tx?.amount || 0).toFixed(2);
+      if (tx?.stripe_invoice_id && paidMembershipKeys.has(`invoice:${tx.stripe_invoice_id}`)) {
+        return false;
+      }
+      return !paidMembershipKeys.has(`fallback:${tx?.date || ''}|${amountKey}|${description}`);
+    });
+  }, [sortedTransactions]);
+
   const { data: recurringPayments = [] } = useQuery({
     queryKey: ['recurringPayments', memberId],
     queryFn: () =>
@@ -1207,7 +1235,7 @@ export default function MemberDetail() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-slate-600 mb-1">Transactions</div>
-                  <div className="text-2xl font-bold text-slate-900">{transactions.length}</div>
+                  <div className="text-2xl font-bold text-slate-900">{displayTransactions.length}</div>
                 </div>
                 <Calendar className="w-8 h-8 text-blue-900" />
               </div>
@@ -1223,7 +1251,7 @@ export default function MemberDetail() {
           <CardContent className="p-0">
             {transactionsLoading ? (
               <div className="p-12 text-center text-slate-500">Loading transactions...</div>
-            ) : transactions.length === 0 ? (
+            ) : displayTransactions.length === 0 ? (
               <div className="p-12 text-center text-slate-500">No transactions yet</div>
             ) : (
               <div className="overflow-x-auto">
@@ -1242,13 +1270,15 @@ export default function MemberDetail() {
                       <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
                         Amount
                       </th>
-                      <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
-                        Actions
-                      </th>
+                      {!isScopedUser && (
+                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
+                          Actions
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {sortedTransactions.map((transaction) => (
+                    {displayTransactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-blue-50/50 transition-colors">
                         <td className="py-4 px-6 text-slate-600">
                           {(() => {
@@ -1312,25 +1342,27 @@ export default function MemberDetail() {
                             ${transaction.amount.toFixed(2)}
                           </span>
                         </td>
-                        <td className="py-4 px-6 text-center">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => {
-                              const needsBalanceChange =
-                                transaction.type === 'charge' || transaction.type === 'payment';
-                              const message = needsBalanceChange
-                                ? 'Delete this transaction? This will adjust the member balance.'
-                                : 'Delete this donation?';
-                              if (confirm(message)) {
-                                deleteTransactionMutation.mutate(transaction);
-                              }
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </td>
+                        {!isScopedUser && (
+                          <td className="py-4 px-6 text-center">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                const needsBalanceChange =
+                                  transaction.type === 'charge' || transaction.type === 'payment';
+                                const message = needsBalanceChange
+                                  ? 'Delete this transaction? This will adjust the member balance.'
+                                  : 'Delete this donation?';
+                                if (confirm(message)) {
+                                  deleteTransactionMutation.mutate(transaction);
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
