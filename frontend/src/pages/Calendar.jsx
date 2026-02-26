@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from 'lucide-react';
-import { DayPicker } from 'react-day-picker';
-import 'react-day-picker/dist/style.css';
 import {
   format,
   startOfMonth,
@@ -16,11 +14,13 @@ import {
   startOfWeek,
   endOfWeek,
 } from 'date-fns';
+import { toLocalDate } from '@/utils/dates';
 import {
   getHebrewDate,
   isShabbat,
   isErevShabbat,
   getParsha,
+  getParshaMapByDate,
   hebrewDateToGregorian,
   getHebrewMonthsList,
   getHolidaysByDate,
@@ -92,6 +92,16 @@ export default function Calendar() {
     'November',
     'December',
   ];
+  const englishWeekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+  const hebrewWeekdays = ['יום ראשון', 'יום שני', 'יום שלישי', 'יום רביעי', 'יום חמישי', 'יום שישי', 'שבת'];
 
   // Hebrew calendar navigation
   const currentHebrewDate = getHebrewDate(currentMonth);
@@ -106,12 +116,20 @@ export default function Calendar() {
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const [holidayMap, setHolidayMap] = useState({});
+  const [parshaMap, setParshaMap] = useState({});
 
   useEffect(() => {
-    const start = startOfMonth(currentMonth);
-    const end = endOfMonth(currentMonth);
+    const start = startOfWeek(startOfMonth(currentMonth));
+    const end = endOfWeek(endOfMonth(currentMonth));
     const map = getHolidaysByDate(start, end);
     setHolidayMap(map);
+  }, [currentMonth]);
+
+  useEffect(() => {
+    const start = startOfWeek(startOfMonth(currentMonth));
+    const end = endOfWeek(endOfMonth(currentMonth));
+    const map = getParshaMapByDate(start, end, { locale: 'he-x-NoNikud' });
+    setParshaMap(map);
   }, [currentMonth]);
 
   const handleDateClick = (date) => {
@@ -233,56 +251,12 @@ export default function Calendar() {
   });
 
   const getWeekParsha = (date) => {
-    // Find the Shabbat of this week
-    const dayOfWeek = date.getDay();
-    const daysUntilShabbat = (6 - dayOfWeek + 7) % 7;
-    const shabbat = new Date(date);
-    shabbat.setDate(date.getDate() + daysUntilShabbat);
-    return getParsha(shabbat);
+    return getParsha(date);
   };
 
-  const DayCell = ({ date, activeModifiers }) => {
-    const isOutside = activeModifiers?.outside;
-    const isSaturday = isShabbat(date);
-    const isFriday = isErevShabbat(date);
-    const hebrewDay = getHebrewDate(date);
-    const parsha = isSaturday ? getParsha(date) : null;
-    const holidayNames = holidayMap[format(date, 'yyyy-MM-dd')];
-
-    return (
-      <div className="flex flex-col h-full justify-between">
-        <div className="flex flex-col items-start w-full">
-          <span
-            className={`text-lg font-bold ${
-              isOutside
-                ? 'text-slate-400'
-                : isSaturday
-                  ? 'text-blue-900'
-                  : 'text-slate-900'
-            }`}
-          >
-            {format(date, 'd')}
-          </span>
-          <span className="text-xs text-slate-500 mt-1">
-            {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
-          </span>
-        </div>
-        {isSaturday && parsha && !isOutside ? (
-          <div className="flex flex-col items-start">
-            <span className="text-xs font-semibold text-blue-700">{parsha}</span>
-          </div>
-        ) : null}
-        {!isOutside && holidayNames?.length ? (
-          <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
-            {holidayNames.join(', ')}
-          </div>
-        ) : null}
-        {isFriday && !isOutside ? (
-          <div className="text-[10px] text-blue-700">Erev Shabbat</div>
-        ) : null}
-      </div>
-    );
-  };
+  const selectedDateObj = toLocalDate(selectedDate);
+  const selectedWeekParsha = selectedDateObj ? getWeekParsha(selectedDateObj) : null;
+  const weekdayLabels = calendarMode === 'hebrew' ? hebrewWeekdays : englishWeekdays;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
@@ -415,158 +389,90 @@ export default function Calendar() {
             </div>
           </CardHeader>
           <CardContent className="p-6">
-            {calendarMode === 'english' ? (
-              <DayPicker
-                mode="single"
-                month={currentMonth}
-                onMonthChange={setCurrentMonth}
-                selected={selectedDate ? new Date(selectedDate) : undefined}
-                onDayClick={(day, modifiers) => {
-                  if (modifiers?.outside) return;
-                  handleDateClick(day);
-                }}
-                weekStartsOn={0}
-                showOutsideDays
-                fixedWeeks
-                disableNavigation
-                modifiers={{
-                  shabbat: (day) => isShabbat(day),
-                  erev: (day) => isErevShabbat(day),
-                  holiday: (day) => Boolean(holidayMap[format(day, 'yyyy-MM-dd')]),
-                  today: (day) => isSameDay(day, new Date()),
-                }}
-                modifiersClassNames={{
-                  today: 'border-amber-500 bg-amber-50 ring-2 ring-amber-500',
-                  shabbat: 'bg-blue-50 border-blue-300',
-                  erev: 'bg-blue-50/50',
-                  holiday: 'border-amber-500/70',
-                  outside: 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed hover:border-slate-100 hover:shadow-none',
-                }}
-                classNames={{
-                  root: 'rdp w-full flex justify-center',
-                  months: 'w-full',
-                  month: 'w-full',
-                  caption: 'hidden',
-                  table: 'w-full border-collapse',
-                  head_row: 'grid grid-cols-7 gap-2 mb-3',
-                  head_cell: 'text-center text-slate-700 font-semibold text-sm',
-                  row: 'grid grid-cols-7 gap-2 mb-2',
-                  cell: 'p-0',
-                  day: 'w-full h-28 p-3 rounded-lg border-2 bg-white text-left align-top transition-all hover:border-blue-500 hover:shadow-sm focus:outline-none',
-                  day_selected: 'border-blue-600 bg-blue-50',
-                }}
-                components={{ DayContent: DayCell }}
-              />
-            ) : (
-              <>
-                {/* Day Headers */}
-                <div className="grid grid-cols-7 gap-2 mb-4">
-                  {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Shabbat'].map(
-                    (day, i) => (
-                      <div
-                        key={i}
-                        className={`text-center font-semibold py-3 ${
-                          i === 6 ? 'text-blue-900' : 'text-slate-700'
-                        }`}
-                      >
-                        {day}
-                      </div>
-                    )
-                  )}
-                </div>
-
-                {/* Calendar Grid */}
-                <div className="grid grid-cols-7 gap-2">
-                  {days.map((day, i) => {
-                    const isCurrentMonth = isSameMonth(day, currentMonth);
-                    const isToday = isSameDay(day, new Date());
-                    const isSaturday = isShabbat(day);
-                    const isFriday = isErevShabbat(day);
-                    const hebrewDay = getHebrewDate(day);
-                    const parsha = isSaturday ? getParsha(day) : null;
-                    const holidayNames = holidayMap[format(day, 'yyyy-MM-dd')];
-
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => handleDateClick(day)}
-                        disabled={!isCurrentMonth}
-                        className={`
-                          min-h-[100px] p-3 rounded-lg border-2 transition-all
-                          flex flex-col items-start justify-between
-                          ${!isCurrentMonth ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed' : 'bg-white border-slate-200'}
-                          ${isCurrentMonth ? 'hover:border-blue-500 hover:shadow-md cursor-pointer' : ''}
-                          ${isToday ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : ''}
-                          ${isSaturday && isCurrentMonth ? 'bg-blue-50 border-blue-300' : ''}
-                          ${isFriday && isCurrentMonth ? 'bg-blue-50/50' : ''}
-                        `}
-                      >
-                        <div className="flex flex-col items-start w-full">
-                          <span
-                            className={`text-lg font-bold ${
-                              isToday
-                                ? 'text-amber-700'
-                                : isSaturday
-                                  ? 'text-blue-900'
-                                  : 'text-slate-900'
-                            }`}
-                          >
-                            {format(day, 'd')}
-                          </span>
-                          <span className="text-xs text-slate-500 mt-1">
-                            {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
-                          </span>
-                        </div>
-                        {isSaturday && isCurrentMonth && parsha && (
-                          <div className="flex flex-col items-start">
-                            <span className="text-xs font-semibold text-blue-700">{parsha}</span>
-                          </div>
-                        )}
-                        {isCurrentMonth && holidayNames?.length ? (
-                          <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
-                            {holidayNames.join(', ')}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {/* Legend */}
-            <div className="mt-6 pt-6 border-t border-slate-200">
-              <div className="flex flex-wrap gap-6 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded border-2 border-amber-500 bg-amber-50"></div>
-                  <span className="text-slate-700">Today</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded border-2 border-blue-300 bg-blue-50"></div>
-                  <span className="text-slate-700">Shabbat</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-6 w-6 rounded border-2 border-blue-300 bg-blue-50/50"></div>
-                  <span className="text-slate-700">Erev Shabbat (Friday)</span>
-                </div>
+            <>
+              <div className="grid grid-cols-7 gap-2 mb-4">
+                {weekdayLabels.map((day, i) => (
+                  <div
+                    key={i}
+                    className={`text-center font-semibold py-3 ${i === 6 ? 'text-blue-900' : 'text-slate-700'}`}
+                  >
+                    {day}
+                  </div>
+                ))}
               </div>
-            </div>
+
+              <div className="grid grid-cols-7 gap-2">
+                {days.map((day, i) => {
+                  const isCurrentMonth = isSameMonth(day, currentMonth);
+                  const isToday = isSameDay(day, new Date());
+                  const isSaturday = isShabbat(day);
+                  const isFriday = isErevShabbat(day);
+                  const isSelected = selectedDateObj ? isSameDay(day, selectedDateObj) : false;
+                  const hebrewDay = getHebrewDate(day);
+                  const dateKey = format(day, 'yyyy-MM-dd');
+                  const parsha = isSaturday ? parshaMap[dateKey] : null;
+                  const holidayNames = holidayMap[dateKey];
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => handleDateClick(day)}
+                      disabled={!isCurrentMonth}
+                      className={`
+                        min-h-[120px] p-3 rounded-lg border-2 transition-all
+                        flex flex-col items-start justify-between
+                        ${!isCurrentMonth ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed' : 'bg-white border-slate-200'}
+                        ${isCurrentMonth ? 'hover:border-blue-500 hover:shadow-md cursor-pointer' : ''}
+                        ${isSelected ? 'border-blue-600 bg-blue-50' : ''}
+                        ${isToday && !isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : ''}
+                        ${isSaturday && isCurrentMonth ? 'bg-blue-50 border-blue-300' : ''}
+                        ${isFriday && isCurrentMonth ? 'bg-blue-50/50' : ''}
+                      `}
+                    >
+                      <div className="flex flex-col items-start w-full">
+                        <span
+                          className={`text-lg font-bold ${
+                            isToday
+                              ? 'text-amber-700'
+                              : isSaturday
+                                ? 'text-blue-900'
+                                : 'text-slate-900'
+                          }`}
+                        >
+                          {format(day, 'd')}
+                        </span>
+                        <span className="text-xs text-slate-500 mt-1">
+                          {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
+                        </span>
+                      </div>
+                      {isSaturday && isCurrentMonth && parsha && (
+                        <div className="flex flex-col items-start">
+                          <span className="text-xs font-semibold text-blue-700">{parsha}</span>
+                        </div>
+                      )}
+                      {isCurrentMonth && holidayNames?.length ? (
+                        <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
+                          {holidayNames.join(', ')}
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           </CardContent>
         </Card>
 
-        <div className="mt-6 text-center text-sm text-slate-500">
-          Click any date to add transactions for that day
-        </div>
 
         {/* Transaction Dialog */}
         <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Add Transactions</DialogTitle>
-              {selectedDate && (
+              <DialogTitle>הוספת עסקאות</DialogTitle>
+              {selectedDateObj && (
                 <DialogDescription>
-                  {format(new Date(selectedDate), 'MMMM d, yyyy')} •{' '}
-                  {format(new Date(selectedDate), 'EEEE')} - {getWeekParsha(new Date(selectedDate))}
+                  {format(selectedDateObj, 'MMMM d, yyyy')} • {format(selectedDateObj, 'EEEE')}
+                  {selectedWeekParsha ? ` - ${selectedWeekParsha}` : ''}
                 </DialogDescription>
               )}
             </DialogHeader>
@@ -578,14 +484,14 @@ export default function Calendar() {
               {/* Event Selection */}
               <div className="mb-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label className="text-lg font-semibold">Select Event</Label>
+                  <Label className="text-lg font-semibold">בחירת אירוע</Label>
                   <div className="flex items-center gap-2">
                     {selectedEventData && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          const ok = window.confirm(`Delete "${selectedEventData.name}" event?`);
+                          const ok = window.confirm(`למחוק את האירוע "${selectedEventData.name}"?`);
                           if (!ok) return;
                           deleteEventMutation.mutate(selectedEventData.id);
                         }}
@@ -593,7 +499,7 @@ export default function Calendar() {
                         disabled={deleteEventMutation.isPending}
                       >
                         <Trash2 className="w-4 h-4 mr-2" />
-                        {deleteEventMutation.isPending ? 'Deleting...' : 'Delete Event'}
+                        {deleteEventMutation.isPending ? 'מוחק...' : 'מחיקת אירוע'}
                       </Button>
                     )}
                     <Dialog open={newEventDialogOpen} onOpenChange={setNewEventDialogOpen}>
@@ -603,29 +509,30 @@ export default function Calendar() {
                         size="sm"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add New Event
+                        הוספת סוג אירוע
                       </Button>
                       <DialogContent className="max-w-2xl">
+                        <div style={{maxHeight: '70vh', overflowY: 'auto'}}>
                         <DialogHeader>
-                          <DialogTitle>Create New Event</DialogTitle>
+                          <DialogTitle>יצירת סוג אירוע חדש</DialogTitle>
                           <DialogDescription>
-                            Set an event name and its honors/roles.
+                            הגדירו שם אירוע ואת הכיבודים/תפקידים שלו.
                           </DialogDescription>
                         </DialogHeader>
                         <form onSubmit={handleCreateEvent} className="space-y-6">
                           <div className="space-y-2">
-                            <Label htmlFor="eventName">Event Name *</Label>
+                            <Label htmlFor="eventName">שם האירוע *</Label>
                             <Input
                               id="eventName"
                               value={newEventName}
                               onChange={(e) => setNewEventName(e.target.value)}
-                              placeholder="e.g., Chanukah, Bar Mitzvah, etc."
+                              placeholder="לדוגמה: חנוכה, בר מצווה וכו׳"
                               required
                               className="h-11"
                             />
                           </div>
                           <div className="space-y-3">
-                            <Label>Honors & Roles *</Label>
+                            <Label>כיבודים ותפקידים *</Label>
                             {newEventHonors.map((honor, honorIndex) => (
                               <div
                                 key={honorIndex}
@@ -639,7 +546,7 @@ export default function Calendar() {
                                       updated[honorIndex].name = e.target.value;
                                       setNewEventHonors(updated);
                                     }}
-                                    placeholder={`Honor Name ${honorIndex + 1}`}
+                                    placeholder={`שם כיבוד ${honorIndex + 1}`}
                                     className="h-11 flex-1"
                                   />
                                   {newEventHonors.length > 1 && (
@@ -660,7 +567,7 @@ export default function Calendar() {
                                 </div>
 
                                 <div className="space-y-2 pl-4 border-l-2 border-blue-200">
-                                  <Label className="text-sm text-slate-600">Roles</Label>
+                                  <Label className="text-sm text-slate-600">תפקידים</Label>
                                   {honor.roles.map((role, roleIndex) => (
                                     <div key={roleIndex} className="flex gap-2 items-end">
                                       <div className="flex-1">
@@ -672,7 +579,7 @@ export default function Calendar() {
                                               e.target.value;
                                             setNewEventHonors(updated);
                                           }}
-                                          placeholder="Role (e.g., Buyer, Recipient)"
+                                          placeholder="תפקיד (למשל: קונה, מקבל)"
                                           className="h-10"
                                         />
                                       </div>
@@ -688,8 +595,8 @@ export default function Calendar() {
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                          <SelectItem value="flexible">Flexible</SelectItem>
-                                          <SelectItem value="fixed">Fixed</SelectItem>
+                                          <SelectItem value="flexible">גמיש</SelectItem>
+                                          <SelectItem value="fixed">קבוע</SelectItem>
                                         </SelectContent>
                                       </Select>
                                       {role.payment_type === 'fixed' && (
@@ -703,7 +610,7 @@ export default function Calendar() {
                                               parseFloat(e.target.value) || 0;
                                             setNewEventHonors(updated);
                                           }}
-                                          placeholder="Amount"
+                                          placeholder="סכום"
                                           className="h-10 w-24"
                                         />
                                       )}
@@ -742,7 +649,7 @@ export default function Calendar() {
                                     className="w-full border-dashed"
                                   >
                                     <Plus className="w-3 h-3 mr-2" />
-                                    Add Role
+                                    הוספת תפקיד
                                   </Button>
                                 </div>
                               </div>
@@ -764,7 +671,7 @@ export default function Calendar() {
                               className="w-full border-dashed"
                             >
                               <Plus className="w-4 h-4 mr-2" />
-                              Add Another Honor
+                              הוספת כיבוד נוסף
                             </Button>
                           </div>
                           <div className="flex justify-end gap-3">
@@ -773,13 +680,14 @@ export default function Calendar() {
                               variant="outline"
                               onClick={() => setNewEventDialogOpen(false)}
                             >
-                              Cancel
+                              ביטול
                             </Button>
                             <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                              Create Event
+                              יצירת אירוע
                             </Button>
                           </div>
                         </form>
+                        </div>
                       </DialogContent>
                     </Dialog>
                   </div>
@@ -793,12 +701,12 @@ export default function Calendar() {
                   }}
                 >
                   <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Choose an event..." />
+                    <SelectValue placeholder="בחרו אירוע..." />
                   </SelectTrigger>
                   <SelectContent>
                     {customEvents.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-slate-500">
-                        No events yet. Create your first event to get started.
+                        עדיין אין אירועים. צרו אירוע ראשון כדי להתחיל.
                       </div>
                     ) : (
                       customEvents.map((event) => (
@@ -815,23 +723,23 @@ export default function Calendar() {
               {selectedEvent && currentHonors.length > 0 && (
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
-                    <h3 className="font-semibold text-slate-900">{selectedEvent} - Honors</h3>
+                    <h3 className="font-semibold text-slate-900">{selectedEvent} - כיבודים</h3>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-slate-50 border-b border-slate-200">
                         <tr>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            Honor
+                            כיבוד
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            Role
+                            תפקיד
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            Member
+                            חבר
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            Amount
+                            סכום
                           </th>
                         </tr>
                       </thead>
@@ -852,7 +760,7 @@ export default function Calendar() {
                                   <span>{role.role_name}</span>
                                   {role.payment_type === 'fixed' && (
                                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                                      Fixed: ${role.fixed_amount}
+                                      קבוע: ${role.fixed_amount}
                                     </span>
                                   )}
                                 </div>
@@ -865,7 +773,7 @@ export default function Calendar() {
                                   }
                                 >
                                   <SelectTrigger className="h-10">
-                                    <SelectValue placeholder="Select member..." />
+                                    <SelectValue placeholder="בחרו חבר..." />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {members.map((member) => (
@@ -916,7 +824,7 @@ export default function Calendar() {
                       className="w-full h-11 bg-blue-900 hover:bg-blue-800"
                     >
                       <Check className="w-5 h-5 mr-2" />
-                      {saveTransactionsMutation.isPending ? 'Saving...' : 'Save All Transactions'}
+                      {saveTransactionsMutation.isPending ? 'שומר...' : 'שמירת כל העסקאות'}
                     </Button>
                   </div>
                 </div>
@@ -926,11 +834,11 @@ export default function Calendar() {
               {selectedDate && (
                 <div className="mt-6 pt-6 border-t border-slate-200">
                   <h3 className="text-lg font-semibold text-slate-900 mb-3">
-                    Transactions on this date
+                    עסקאות בתאריך זה
                   </h3>
                   {allTransactions.filter((t) => t.date === selectedDate).length === 0 ? (
                     <div className="p-4 bg-slate-50 rounded-lg text-slate-500 text-center">
-                      No transactions recorded for this date yet
+                      עדיין לא נרשמו עסקאות בתאריך זה
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -938,13 +846,13 @@ export default function Calendar() {
                         <thead className="bg-slate-50 border-b border-slate-200">
                           <tr>
                             <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                              Event/Honor
+                              אירוע/כיבוד
                             </th>
                             <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                              Member
+                              חבר
                             </th>
                             <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">
-                              Amount
+                              סכום
                             </th>
                           </tr>
                         </thead>
@@ -984,7 +892,7 @@ export default function Calendar() {
 
               {!selectedEvent && (
                 <div className="py-8 text-center text-slate-500 border-t border-slate-200 mt-4">
-                  <p>Select an event above to add new transactions</p>
+                  <p>בחרו אירוע למעלה כדי להוסיף עסקאות חדשות</p>
                 </div>
               )}
             </div>
