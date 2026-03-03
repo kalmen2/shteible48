@@ -68,6 +68,12 @@ async function createInvoiceTransactionIfMissing(store, entity, invoiceId, type,
   return true;
 }
 
+function isStripeMissingResourceError(err) {
+  const code = String(err?.code || "");
+  const message = String(err?.message || "");
+  return code === "resource_missing" || /No such/i.test(message);
+}
+
 async function hasPaymentIntentTransaction(store, entity, paymentIntentId, type) {
   if (!paymentIntentId) return false;
   const [existing] = await store.filter(
@@ -287,7 +293,7 @@ function firstOfNextMonthUtcFrom(baseDate) {
   const base = baseDate instanceof Date ? baseDate : new Date();
   const year = base.getUTCFullYear();
   const month = base.getUTCMonth();
-  return new Date(Date.UTC(year, month + 1, 1, 0, 0, 0));
+  return new Date(Date.UTC(year, month + 1, 1, 14, 0, 0));
 }
 
 async function upsertRecurringFromCheckout({
@@ -409,6 +415,44 @@ async function detachMemberPayoffSubscriptions({ store, stripe, memberId }) {
       } catch (err) {
         console.warn("Failed to cancel payoff subscription", subId, err?.message || err);
       }
+    }
+  }
+}
+
+async function cancelExtraMemberMembershipSubscriptions({
+  store,
+  stripe,
+  memberId,
+  keepSubscriptionId,
+}) {
+  if (!memberId || !keepSubscriptionId) return;
+  const keepId = String(keepSubscriptionId);
+  const recs = await store.filter(
+    "RecurringPayment",
+    { member_id: String(memberId), payment_type: "membership", is_active: true },
+    "-created_date",
+    1000
+  );
+  if (!recs.length) return;
+
+  const today = new Date().toISOString().split("T")[0];
+  for (const rec of recs) {
+    const subId = rec?.stripe_subscription_id ? String(rec.stripe_subscription_id) : "";
+    if (!subId || subId === keepId) continue;
+    try {
+      await stripe.subscriptions.cancel(subId);
+    } catch (err) {
+      if (!isStripeMissingResourceError(err)) {
+        console.warn("Failed to cancel duplicate membership subscription", subId, err?.message || err);
+      }
+    }
+    try {
+      await store.update("RecurringPayment", rec.id, {
+        is_active: false,
+        ended_date: today,
+      });
+    } catch (err) {
+      console.warn("Failed to deactivate duplicate membership record", rec.id, err?.message || err);
     }
   }
 }
@@ -933,6 +977,13 @@ function createStripeWebhookHandler({ store }) {
               billingAnchorDate: anchorDate.toISOString().split("T")[0],
             });
 
+            await cancelExtraMemberMembershipSubscriptions({
+              store,
+              stripe,
+              memberId: resolvedMemberId,
+              keepSubscriptionId: subscription.id,
+            });
+
             await detachMemberPayoffSubscriptions({
               store,
               stripe,
@@ -1035,6 +1086,15 @@ function createStripeWebhookHandler({ store }) {
               subscriptionId: session.subscription,
               billingAnchorDate,
             });
+
+            if (paymentType === "membership") {
+              await cancelExtraMemberMembershipSubscriptions({
+                store,
+                stripe,
+                memberId: resolvedMemberId,
+                keepSubscriptionId: session.subscription,
+              });
+            }
 
             if (member && paymentType === "membership") {
               await detachMemberPayoffSubscriptions({

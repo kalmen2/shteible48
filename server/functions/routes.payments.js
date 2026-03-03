@@ -53,6 +53,11 @@ function firstOfNextMonthUtc() {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0));
 }
 
+function firstOfFollowingMonthAt14Utc(baseDate = new Date()) {
+  const base = baseDate instanceof Date ? baseDate : new Date();
+  return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 1, 14, 0, 0));
+}
+
 function isoDateOnly(date) {
   return date.toISOString().split("T")[0];
 }
@@ -272,7 +277,10 @@ async function ensureCustomer({ stripe, store, memberId }) {
             memberId: String(member.id || member.member_id),
           },
         });
-        await store.update("Member", String(updateKey), { stripe_customer_id: replacement.id });
+        await store.update("Member", String(updateKey), {
+          stripe_customer_id: replacement.id,
+          stripe_default_payment_method_id: null,
+        });
         const [updated] = await store.filter("Member", { id: String(member.id || updateKey) }, undefined, 1);
         return { member: updated ?? member, customerId: replacement.id };
       } catch (createErr) {
@@ -293,7 +301,10 @@ async function ensureCustomer({ stripe, store, memberId }) {
     },
   });
 
-  await store.update("Member", String(updateKey), { stripe_customer_id: customer.id });
+  await store.update("Member", String(updateKey), {
+    stripe_customer_id: customer.id,
+    stripe_default_payment_method_id: null,
+  });
   const [updated] = await store.filter("Member", { id: String(member.id || updateKey) }, undefined, 1);
   return { member: updated ?? member, customerId: customer.id };
 }
@@ -332,7 +343,10 @@ async function ensureGuestCustomer({ stripe, store, guestId }) {
             guestId: String(guest.id),
           },
         });
-        await store.update("Guest", guest.id, { stripe_customer_id: replacement.id });
+        await store.update("Guest", guest.id, {
+          stripe_customer_id: replacement.id,
+          stripe_default_payment_method_id: null,
+        });
         const [updated] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
         return { guest: updated ?? guest, customerId: replacement.id };
       } catch (createErr) {
@@ -353,9 +367,272 @@ async function ensureGuestCustomer({ stripe, store, guestId }) {
     },
   });
 
-  await store.update("Guest", guest.id, { stripe_customer_id: customer.id });
+  await store.update("Guest", guest.id, {
+    stripe_customer_id: customer.id,
+    stripe_default_payment_method_id: null,
+  });
   const [updated] = await store.filter("Guest", { id: String(guestId) }, undefined, 1);
   return { guest: updated ?? guest, customerId: customer.id };
+}
+
+async function ensureMemberCheckoutCardState({ stripe, store, member, customerId }) {
+  const memberKey = String(member?.id || member?.member_id || "");
+  if (!memberKey || !customerId) return null;
+  const customerIdStr = String(customerId);
+
+  let paymentMethodId = member?.stripe_default_payment_method_id
+    ? String(member.stripe_default_payment_method_id)
+    : "";
+
+  try {
+    const customer = await stripe.customers.retrieve(customerIdStr, {
+      expand: ["invoice_settings.default_payment_method"],
+    });
+    const customerDefault = customer?.invoice_settings?.default_payment_method;
+    const customerDefaultId =
+      typeof customerDefault === "string" ? customerDefault : customerDefault?.id || "";
+
+    if (!paymentMethodId && customerDefaultId) {
+      paymentMethodId = String(customerDefaultId);
+      await store.update("Member", memberKey, {
+        stripe_default_payment_method_id: paymentMethodId,
+      });
+      console.log("[subscription-checkout] recovered default payment method from customer", {
+        memberId: memberKey,
+        customerId: customerIdStr,
+        paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      "[subscription-checkout] Failed to read Stripe customer default payment method:",
+      err?.message || err
+    );
+  }
+
+  if (!paymentMethodId) {
+    try {
+      const methods = await stripe.paymentMethods.list({
+        customer: customerIdStr,
+        type: "card",
+        limit: 1,
+      });
+      const firstCardId = methods?.data?.[0]?.id ? String(methods.data[0].id) : "";
+      if (firstCardId) {
+        paymentMethodId = firstCardId;
+        await stripe.customers.update(customerIdStr, {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        });
+        await store.update("Member", memberKey, {
+          stripe_default_payment_method_id: paymentMethodId,
+        });
+        console.log("[subscription-checkout] inferred default payment method from customer cards", {
+          memberId: memberKey,
+          customerId: customerIdStr,
+          paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        "[subscription-checkout] Failed to infer Stripe card from customer:",
+        err?.message || err
+      );
+    }
+  }
+
+  if (!paymentMethodId) {
+    console.log("[subscription-checkout] no saved default card found", {
+      memberId: memberKey,
+      customerId: customerIdStr,
+    });
+    return null;
+  }
+
+  try {
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const attachedCustomer = pm?.customer ? String(pm.customer) : "";
+    if (attachedCustomer && attachedCustomer !== customerIdStr) {
+      console.warn("[subscription-checkout] stale payment method belongs to another customer", {
+        memberId: memberKey,
+        customerId: customerIdStr,
+        paymentMethodId,
+        attachedCustomer,
+      });
+      await store.update("Member", memberKey, {
+        stripe_default_payment_method_id: null,
+      });
+      return null;
+    }
+
+    if (!attachedCustomer) {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerIdStr });
+    }
+
+    await stripe.customers.update(customerIdStr, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    if (String(member?.stripe_default_payment_method_id || "") !== paymentMethodId) {
+      await store.update("Member", memberKey, {
+        stripe_default_payment_method_id: paymentMethodId,
+      });
+    }
+
+    console.log("[subscription-checkout] validated saved payment method", {
+      memberId: memberKey,
+      customerId: customerIdStr,
+      paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+      attachedCustomer: attachedCustomer || customerIdStr,
+      card: pm?.card
+        ? {
+            brand: String(pm.card.brand || ""),
+            last4: String(pm.card.last4 || ""),
+            expMonth: Number(pm.card.exp_month || 0),
+            expYear: Number(pm.card.exp_year || 0),
+          }
+        : null,
+    });
+
+    return paymentMethodId;
+  } catch (err) {
+    console.warn("[subscription-checkout] failed to validate default payment method", {
+      memberId: memberKey,
+      customerId: customerIdStr,
+      paymentMethodId,
+      error: err?.message || err,
+    });
+    return null;
+  }
+}
+
+async function ensureGuestCheckoutCardState({ stripe, store, guest, customerId }) {
+  const guestKey = String(guest?.id || "");
+  if (!guestKey || !customerId) return null;
+  const customerIdStr = String(customerId);
+
+  let paymentMethodId = guest?.stripe_default_payment_method_id
+    ? String(guest.stripe_default_payment_method_id)
+    : "";
+
+  try {
+    const customer = await stripe.customers.retrieve(customerIdStr, {
+      expand: ["invoice_settings.default_payment_method"],
+    });
+    const customerDefault = customer?.invoice_settings?.default_payment_method;
+    const customerDefaultId =
+      typeof customerDefault === "string" ? customerDefault : customerDefault?.id || "";
+
+    if (!paymentMethodId && customerDefaultId) {
+      paymentMethodId = String(customerDefaultId);
+      await store.update("Guest", guestKey, {
+        stripe_default_payment_method_id: paymentMethodId,
+      });
+      console.log("[guest-checkout] recovered default payment method from customer", {
+        guestId: guestKey,
+        customerId: customerIdStr,
+        paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      "[guest-checkout] Failed to read Stripe customer default payment method:",
+      err?.message || err
+    );
+  }
+
+  if (!paymentMethodId) {
+    try {
+      const methods = await stripe.paymentMethods.list({
+        customer: customerIdStr,
+        type: "card",
+        limit: 1,
+      });
+      const firstCardId = methods?.data?.[0]?.id ? String(methods.data[0].id) : "";
+      if (firstCardId) {
+        paymentMethodId = firstCardId;
+        await stripe.customers.update(customerIdStr, {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        });
+        await store.update("Guest", guestKey, {
+          stripe_default_payment_method_id: paymentMethodId,
+        });
+        console.log("[guest-checkout] inferred default payment method from customer cards", {
+          guestId: guestKey,
+          customerId: customerIdStr,
+          paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        "[guest-checkout] Failed to infer Stripe card from customer:",
+        err?.message || err
+      );
+    }
+  }
+
+  if (!paymentMethodId) {
+    console.log("[guest-checkout] no saved default card found", {
+      guestId: guestKey,
+      customerId: customerIdStr,
+    });
+    return null;
+  }
+
+  try {
+    const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const attachedCustomer = pm?.customer ? String(pm.customer) : "";
+    if (attachedCustomer && attachedCustomer !== customerIdStr) {
+      console.warn("[guest-checkout] stale payment method belongs to another customer", {
+        guestId: guestKey,
+        customerId: customerIdStr,
+        paymentMethodId,
+        attachedCustomer,
+      });
+      await store.update("Guest", guestKey, {
+        stripe_default_payment_method_id: null,
+      });
+      return null;
+    }
+
+    if (!attachedCustomer) {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerIdStr });
+    }
+
+    await stripe.customers.update(customerIdStr, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    if (String(guest?.stripe_default_payment_method_id || "") !== paymentMethodId) {
+      await store.update("Guest", guestKey, {
+        stripe_default_payment_method_id: paymentMethodId,
+      });
+    }
+
+    console.log("[guest-checkout] validated saved payment method", {
+      guestId: guestKey,
+      customerId: customerIdStr,
+      paymentMethodId: `${paymentMethodId.slice(0, 8)}...`,
+      attachedCustomer: attachedCustomer || customerIdStr,
+      card: pm?.card
+        ? {
+            brand: String(pm.card.brand || ""),
+            last4: String(pm.card.last4 || ""),
+            expMonth: Number(pm.card.exp_month || 0),
+            expYear: Number(pm.card.exp_year || 0),
+          }
+        : null,
+    });
+
+    return paymentMethodId;
+  } catch (err) {
+    console.warn("[guest-checkout] failed to validate default payment method", {
+      guestId: guestKey,
+      customerId: customerIdStr,
+      paymentMethodId,
+      error: err?.message || err,
+    });
+    return null;
+  }
 }
 
 function normalizeOrigin(origin) {
@@ -465,6 +742,20 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
+    const resolvedDefaultPmId = await ensureMemberCheckoutCardState({
+      stripe,
+      store,
+      member,
+      customerId,
+    });
+
+    // If no usable default card is on file, fail fast instead of letting Checkout show a card form.
+    if (!resolvedDefaultPmId) {
+      return res.status(400).json({
+        message: "No saved card on file. Please save a card first, then retry subscription checkout.",
+        code: "missing_default_payment_method",
+      });
+    }
     let effectiveAmountCents = amountCents;
     if (paymentType === "balance_payoff") {
       const balanceOwedCents = centsFromNumber(member.total_owed || 0);
@@ -478,7 +769,16 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
+    const sessionMetadata = {
+      kind: "one_time_payment",
+      memberId: String(member.id),
+      memberName: safeString(member.full_name || "", 200),
+      amountCents: String(effectiveAmountCents),
+      paymentType,
+      description,
+    };
+
+    const sessionParams = applyCheckoutCardOnlyConfig({
       mode: "payment",
       customer: customerId,
       line_items: [
@@ -495,15 +795,18 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       ],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        kind: "one_time_payment",
-        memberId: String(member.id),
-        memberName: safeString(member.full_name || "", 200),
-        amountCents: String(effectiveAmountCents),
-        paymentType,
-        description,
-      },
-    }));
+      metadata: sessionMetadata,
+    });
+
+    if (resolvedDefaultPmId) {
+      sessionParams.payment_method_collection = "if_required";
+      sessionParams.payment_intent_data = {
+        payment_method: resolvedDefaultPmId,
+        metadata: sessionMetadata,
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return res.json({ url: session.url });
   });
@@ -532,6 +835,21 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
 
     const { guest, customerId } = await ensureGuestCustomer({ stripe, store, guestId });
+
+    const resolvedDefaultPmId = await ensureGuestCheckoutCardState({
+      stripe,
+      store,
+      guest,
+      customerId,
+    });
+
+    // If no usable default card is on file, block session creation to avoid Checkout asking for card entry.
+    if (!resolvedDefaultPmId) {
+      return res.status(400).json({
+        message: "No saved card on file. Please save a card first, then retry subscription checkout.",
+        code: "missing_default_payment_method",
+      });
+    }
     let effectiveAmountCents = amountCents;
     if (paymentType === "balance_payoff") {
       const balanceOwedCents = centsFromNumber(guest.total_owed || 0);
@@ -545,7 +863,16 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
+    const sessionMetadata = {
+      kind: "guest_one_time_payment",
+      guestId: String(guestId),
+      guestName: safeString(guest.full_name || "", 200),
+      amountCents: String(effectiveAmountCents),
+      paymentType,
+      description,
+    };
+
+    const sessionParams = applyCheckoutCardOnlyConfig({
       mode: "payment",
       customer: customerId,
       line_items: [
@@ -562,15 +889,18 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       ],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        kind: "guest_one_time_payment",
-        guestId: String(guestId),
-        guestName: safeString(guest.full_name || "", 200),
-        amountCents: String(effectiveAmountCents),
-        paymentType,
-        description,
-      },
-    }));
+      metadata: sessionMetadata,
+    });
+
+    if (resolvedDefaultPmId) {
+      sessionParams.payment_method_collection = "if_required";
+      sessionParams.payment_intent_data = {
+        payment_method: resolvedDefaultPmId,
+        metadata: sessionMetadata,
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return res.json({ url: session.url });
   });
@@ -594,6 +924,25 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
+
+    if (paymentType === "membership") {
+      const activeMembershipRecs = await store.filter(
+        "RecurringPayment",
+        { member_id: String(member.id), payment_type: "membership", is_active: true },
+        "-created_date",
+        1000
+      );
+      const hasActiveMembership =
+        Boolean(member.membership_active) ||
+        activeMembershipRecs.some((r) => Boolean(r?.stripe_subscription_id));
+
+      if (hasActiveMembership) {
+        return res.status(409).json({
+          message:
+            "Membership is already active for this member. Cancel existing membership before creating a new one.",
+        });
+      }
+    }
 
     if (paymentType === "balance_payoff") {
       const payoffTotalCents = dollarsToCents(req.body?.payoffTotal ?? member.total_owed);
@@ -748,44 +1097,6 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/MemberDetail?id=${encodeURIComponent(member.id)}`)}&stripe=cancel`;
 
-    const isMembershipThisMonth = paymentType === "membership" && applyMonth === "this_month";
-    if (isMembershipThisMonth) {
-      const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
-        mode: "payment",
-        customer: customerId,
-        payment_intent_data: {
-          setup_future_usage: "off_session",
-        },
-        line_items: [
-          {
-            price_data: {
-              currency: process.env.STRIPE_CURRENCY || "usd",
-              product_data: {
-                name: "Monthly Membership",
-              },
-              unit_amount: amountCents,
-            },
-            quantity: 1,
-          },
-        ],
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        metadata: {
-          kind: "membership_first_month",
-          memberId: String(member.id),
-          memberName: safeString(member.full_name || "", 200),
-          paymentType,
-          amountCents: String(amountCents),
-          applyMonth,
-          standardAmountCents: String(standardAmountCents),
-          payoffAmountCents: String(effectivePayoffCents),
-          payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
-        },
-      }));
-
-      return res.json({ url: session.url });
-    }
-
     const subscriptionData = {
       metadata: {
         memberId: String(member.id),
@@ -800,14 +1111,20 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     let billingAnchorDate;
     if (paymentType === "membership") {
+      billingAnchorDate = firstOfFollowingMonthAt14Utc();
+      const billingAnchor = Math.floor(billingAnchorDate.getTime() / 1000);
       subscriptionData.metadata.applyMonth = applyMonth;
-      if (applyMonth === "next_month") {
-        billingAnchorDate = firstOfNextMonthUtc();
-        const billingAnchor = Math.floor(billingAnchorDate.getTime() / 1000);
-        subscriptionData.trial_end = billingAnchor;
-        subscriptionData.metadata.billingAnchor = isoDateOnly(billingAnchorDate);
-      }
+      subscriptionData.billing_cycle_anchor = billingAnchor;
+      subscriptionData.proration_behavior = "none";
+      subscriptionData.metadata.billingAnchor = isoDateOnly(billingAnchorDate);
+      subscriptionData.metadata.billingAnchorUtc = billingAnchorDate.toISOString();
     }
+    const resolvedDefaultPmId = await ensureMemberCheckoutCardState({
+      stripe,
+      store,
+      member,
+      customerId,
+    });
 
     const sessionMetadata = {
       kind: "subscription",
@@ -823,12 +1140,23 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       sessionMetadata.applyMonth = applyMonth;
       if (billingAnchorDate) {
         sessionMetadata.billingAnchor = isoDateOnly(billingAnchorDate);
+        sessionMetadata.billingAnchorUtc = billingAnchorDate.toISOString();
       }
     }
 
-    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
+    console.log("[subscription-checkout] creating checkout session", {
+      memberId: String(member.id),
+      customerId: String(customerId),
+      paymentType,
+      applyMonth: paymentType === "membership" ? applyMonth : undefined,
+      hasSavedDefault: Boolean(resolvedDefaultPmId),
+      savedDefaultId: resolvedDefaultPmId ? `${resolvedDefaultPmId.slice(0, 8)}...` : null,
+    });
+
+    const sessionParams = applyCheckoutCardOnlyConfig({
       mode: "subscription",
       customer: customerId,
+      payment_method_collection: "if_required",
       line_items: [
         {
           price_data: {
@@ -853,7 +1181,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: sessionMetadata,
-    }));
+    });
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return res.json({ url: session.url });
   });
@@ -885,9 +1215,10 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     const successUrl = `${frontendOrigin}${safeString(req.body?.successPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=success`;
     const cancelUrl = `${frontendOrigin}${safeString(req.body?.cancelPath || `/GuestDetail?id=${encodeURIComponent(guestId)}`)}&stripe=cancel`;
 
-    const session = await stripe.checkout.sessions.create(applyCheckoutCardOnlyConfig({
+    const sessionParams = applyCheckoutCardOnlyConfig({
       mode: "subscription",
       customer: customerId,
+      payment_method_collection: "if_required",
       line_items: [
         {
           price_data: {
@@ -927,7 +1258,9 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
         amountCents: String(amountCents),
         payoffTotalCents: req.body?.payoffTotal ? String(dollarsToCents(req.body.payoffTotal) ?? "") : "",
       },
-    }));
+    });
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     return res.json({ url: session.url });
   });

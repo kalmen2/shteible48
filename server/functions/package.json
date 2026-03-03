@@ -6,7 +6,11 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "dedupe:membership-subs": "node scripts/dedupeMembershipSubscriptions.js",
+    "reconcile:membership-subs": "node scripts/reconcileMembershipSubscriptions.js",
+    "count:stripe-members": "node scripts/stripeMemberCount.js",
+    "list:stripe-unlinked": "node scripts/listUnlinkedStripeCustomers.js"
   },
   "engines": {
     "node": "24"

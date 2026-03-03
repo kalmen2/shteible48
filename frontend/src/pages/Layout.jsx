@@ -45,13 +45,13 @@ export default function Layout({ children, currentPageName }) {
   }, [currentPageName]);
 
   const navItems = [
-    { name: 'Dashboard', icon: DollarSign, page: 'Dashboard' },
-    { name: 'Members', icon: Users, page: 'Members' },
-    { name: 'Guests / Old', icon: Users, page: 'Guests' },
-    { name: 'Transactions', icon: Calendar, page: 'Calendar' },
-    { name: 'Months', icon: Receipt, page: 'Months' },
-    { name: 'Emails', icon: Mail, page: 'EmailManagement' },
-    { name: 'Settings', icon: Settings, page: 'Settings' },
+    { name: 'לוח בקרה', icon: DollarSign, page: 'Dashboard' },
+    { name: 'חברים', icon: Users, page: 'Members' },
+    { name: 'אורחים / ישן', icon: Users, page: 'Guests' },
+    { name: 'עסקאות', icon: Calendar, page: 'Calendar' },
+    { name: 'חודשים', icon: Receipt, page: 'Months' },
+    { name: 'אימיילים', icon: Mail, page: 'EmailManagement' },
+    { name: 'הגדרות', icon: Settings, page: 'Settings' },
   ];
 
   const sidebarWidth = isCollapsed ? 80 : 256;
@@ -60,7 +60,7 @@ export default function Layout({ children, currentPageName }) {
   const scopedNavItems = isScopedUser
     ? [
         {
-          name: 'My Details',
+          name: 'הפרטים שלי',
           icon: Users,
           page:
             role === 'guest'
@@ -91,15 +91,15 @@ export default function Layout({ children, currentPageName }) {
               }`}
             >
               <h1 className="text-xl font-bold">Shtiebel 48</h1>
-              <h2 className="text-lg font-semibold text-blue-100">Manager</h2>
-              <p className="text-xs text-blue-200 mt-1">Member & Billing System</p>
+              <h2 className="text-lg font-semibold text-blue-100">ניהול</h2>
+              <p className="text-xs text-blue-200 mt-1">מערכת חברים וחיובים</p>
             </div>
             <button
               type="button"
               onClick={() => setIsCollapsed((prev) => !prev)}
               className="rounded-md p-2 text-blue-100 hover:bg-blue-800 hover:text-white transition-colors"
-              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={isCollapsed ? 'הרחב תפריט' : 'כווץ תפריט'}
+              title={isCollapsed ? 'הרחב תפריט' : 'כווץ תפריט'}
             >
               {isCollapsed ? (
                 <ChevronRight className="w-5 h-5" />
@@ -156,7 +156,7 @@ export default function Layout({ children, currentPageName }) {
             className={`group w-full flex items-center rounded-lg transition-all duration-200 text-blue-100 hover:bg-blue-800/50 ${
               isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3'
             }`}
-            title={isCollapsed ? 'Logout' : undefined}
+            title={isCollapsed ? 'התנתקות' : undefined}
           >
             <LogOut className="w-5 h-5 transition-transform duration-300 group-hover:scale-105" />
             <span
@@ -164,7 +164,7 @@ export default function Layout({ children, currentPageName }) {
                 isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
               }`}
             >
-              Logout
+              התנתקות
             </span>
           </button>
         </div>

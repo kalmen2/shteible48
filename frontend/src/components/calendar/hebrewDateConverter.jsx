@@ -1,45 +1,71 @@
-import { HDate, getSedra, HebrewCalendar, flags } from '@hebcal/core';
-import { isLeapYear as hebcalIsLeapYear } from '@hebcal/hdate';
+import { gematriya, HDate, HebrewCalendar, Locale, flags } from '@hebcal/core';
 
-function formatHebrewNumber(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  try {
-    const formatted = new Intl.NumberFormat('he-u-nu-hebr').format(n);
-    if (formatted && formatted !== String(n)) return formatted;
-  } catch {}
+const HEBREW_LOCALE = 'he-x-NoNikud';
+const PARSHA_MASK = flags.PARSHA_HASHAVUA;
+const HOLIDAY_MASK =
+  flags.CHAG |
+  flags.MINOR_HOLIDAY |
+  flags.MINOR_FAST |
+  flags.MAJOR_FAST |
+  flags.MODERN_HOLIDAY |
+  flags.ROSH_CHODESH |
+  flags.CHOL_HAMOED;
 
-  const ones = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
-  const tens = ['', 'י', 'כ', 'ל'];
-  if (n <= 9) return ones[n];
-  if (n === 10) return 'י';
-  if (n === 15) return 'טו';
-  if (n === 16) return 'טז';
-  if (n < 20) return `י${ones[n - 10]}`;
-  if (n <= 30) {
-    const t = Math.floor(n / 10);
-    const o = n % 10;
-    return `${tens[t]}${ones[o]}`;
-  }
-  return String(n);
+function isValidDate(value) {
+  return value instanceof Date && !Number.isNaN(value.getTime());
 }
 
-function getHebrewMonthName(year, month, locale = 'he') {
-  const h = new HDate(1, month, year);
-  if (typeof h.getMonthName === 'function') {
-    return h.getMonthName(locale) || h.getMonthName();
-  }
-  return h.getMonthName?.() || String(month);
+function atStartOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date, amount) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDateRange(startDate, endDate) {
+  if (!isValidDate(startDate) || !isValidDate(endDate)) return null;
+  const start = atStartOfDay(startDate);
+  const end = atStartOfDay(endDate);
+  if (start.getTime() <= end.getTime()) return { start, end };
+  return { start: end, end: start };
+}
+
+function getHebrewMonthName(hebrewYear, hebrewMonth, locale = HEBREW_LOCALE) {
+  const monthName = HDate.getMonthName(hebrewMonth, hebrewYear);
+  return Locale.gettext(monthName, locale);
+}
+
+function getUpcomingShabbat(date) {
+  return new HDate(date).onOrAfter(6).greg();
+}
+
+function getEventRender(ev, locale) {
+  return ev.render ? ev.render(locale) : ev.getDesc();
 }
 
 export function getHebrewDate(date) {
-  const h = new HDate(date);
+  const hd = new HDate(date);
+  const day = hd.getDate();
+  const year = hd.getFullYear();
+  const monthNum = hd.getMonth();
+
   return {
-    day: h.getDate(),
-    dayHebrew: formatHebrewNumber(h.getDate()),
-    month: getHebrewMonthName(h.getFullYear(), h.getMonth()),
-    monthNum: h.getMonth(), // 1-based month number from Hebcal
-    year: h.getFullYear(),
+    day,
+    dayHebrew: gematriya(day),
+    month: getHebrewMonthName(year, monthNum, HEBREW_LOCALE),
+    monthNum, // 1-based month number from Hebcal (Nisan=1)
+    year,
+    yearHebrew: gematriya(year),
   };
 }
 
@@ -47,15 +73,50 @@ export function hebrewDateToGregorian(year, month, day) {
   return new HDate(day, month, year).greg();
 }
 
-export function getParsha(date) {
-  const shabbat = new Date(date);
-  const daysUntilShabbat = (6 - shabbat.getDay() + 7) % 7;
-  shabbat.setDate(shabbat.getDate() + daysUntilShabbat);
-  const hd = new HDate(shabbat);
-  const sedra = getSedra(hd.getFullYear(), false).lookup(hd);
-  const names = sedra?.parsha;
-  if (!names || names.length === 0) return null;
-  return names.join(' - ');
+export function getParshaMapByDate(
+  startDate,
+  endDate,
+  { israel = false, locale = HEBREW_LOCALE } = {}
+) {
+  const range = normalizeDateRange(startDate, endDate);
+  if (!range) return {};
+
+  const events = HebrewCalendar.calendar({
+    start: range.start,
+    end: addDays(range.end, 1),
+    il: israel,
+    sedrot: true,
+    noHolidays: true,
+    candlelighting: false,
+    mask: PARSHA_MASK,
+  });
+
+  const map = {};
+  for (const ev of events) {
+    const g = ev.getDate?.().greg?.();
+    if (!g) continue;
+    map[toDateKey(g)] = getEventRender(ev, locale);
+  }
+  return map;
+}
+
+export function getParsha(date, { israel = false, locale = HEBREW_LOCALE } = {}) {
+  if (!isValidDate(date)) return null;
+
+  const shabbat = getUpcomingShabbat(date);
+  const events = HebrewCalendar.calendar({
+    start: shabbat,
+    end: addDays(shabbat, 1),
+    il: israel,
+    sedrot: true,
+    noHolidays: true,
+    candlelighting: false,
+    mask: PARSHA_MASK,
+  });
+
+  const parsha = events.find((ev) => ((ev.getFlags?.() ?? ev.mask ?? 0) & PARSHA_MASK) !== 0);
+  if (!parsha) return null;
+  return getEventRender(parsha, locale);
 }
 
 export function isShabbat(date) {
@@ -66,32 +127,28 @@ export function isErevShabbat(date) {
   return date.getDay() === 5;
 }
 
-export function getHebrewMonthsList(hebrewYear) {
-  const monthsInYear = hebcalIsLeapYear(hebrewYear) ? 13 : 12;
-  const months = [];
-  for (let month = 1; month <= monthsInYear; month += 1) {
-    months.push(getHebrewMonthName(hebrewYear, month));
-  }
-  return months;
+export function getHebrewMonthsList(hebrewYear, { locale = HEBREW_LOCALE } = {}) {
+  const monthsInYear = HDate.isLeapYear(hebrewYear) ? 13 : 12;
+  return Array.from({ length: monthsInYear }, (_, index) =>
+    getHebrewMonthName(hebrewYear, index + 1, locale)
+  );
 }
 
 export function isHebrewLeap(year) {
-  return hebcalIsLeapYear(year);
+  return HDate.isLeapYear(year);
 }
 
-const HOLIDAY_MASK =
-  flags.CHAG |
-  flags.MINOR_HOLIDAY |
-  flags.MINOR_FAST |
-  flags.MAJOR_FAST |
-  flags.MODERN_HOLIDAY |
-  flags.ROSH_CHODESH |
-  flags.CHOL_HAMOED;
+export function getHolidaysByDate(
+  startDate,
+  endDate,
+  { israel = false, locale = HEBREW_LOCALE } = {}
+) {
+  const range = normalizeDateRange(startDate, endDate);
+  if (!range) return {};
 
-export function getHolidaysByDate(startDate, endDate, { israel = false } = {}) {
   const events = HebrewCalendar.calendar({
-    start: startDate,
-    end: endDate,
+    start: range.start,
+    end: addDays(range.end, 1),
     il: israel,
     sedrot: false,
     omer: false,
@@ -104,9 +161,9 @@ export function getHolidaysByDate(startDate, endDate, { israel = false } = {}) {
     if ((mask & HOLIDAY_MASK) === 0) continue;
     const g = ev.getDate?.().greg?.();
     if (!g) continue;
-    const key = g.toISOString().slice(0, 10);
+    const key = toDateKey(g);
     if (!map[key]) map[key] = [];
-    map[key].push(ev.render ? ev.render('he') : ev.getDesc());
+    map[key].push(getEventRender(ev, locale));
   }
   return map;
 }

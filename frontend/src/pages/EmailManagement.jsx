@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -14,12 +14,6 @@ import {
   Send,
   AlertCircle,
   FileText,
-  Clock,
-  Zap,
-  Printer,
-  Calendar as CalendarIcon,
-  AlertTriangle,
-  CheckCircle2,
 } from 'lucide-react';
 import {
   Select,
@@ -28,16 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { toLocalDate, toLocalMonthDate } from '@/utils/dates';
+import { format } from 'date-fns';
 
 export default function EmailManagement() {
-  const [emailSubject, setEmailSubject] = useState('Monthly Balance Statement');
+  const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
   const [sendType, setSendType] = useState('now'); // "now" or "monthly"
-  const [viewMode, setViewMode] = useState('send'); // "send" or "monthly"
-  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
-  const [attachInvoice, setAttachInvoice] = useState(true);
+  const [attachInvoice, setAttachInvoice] = useState(false);
   const [isBodyCentered, setIsBodyCentered] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendLog, setSendLog] = useState([]);
@@ -54,7 +45,6 @@ export default function EmailManagement() {
   // One-time send recipient selection
   const [sendRecipientMode, setSendRecipientMode] = useState('all'); // "all" or "selected"
   const [sendSelectedRecipientIds, setSendSelectedRecipientIds] = useState([]);
-  const [printFilter, setPrintFilter] = useState('all');
   const LEGACY_DEFAULT_EMAIL_BODY_VARIANTS = React.useMemo(
     () => [
       `Dear {member_name},
@@ -84,34 +74,9 @@ Synagogue Administration`,
     queryFn: () => base44.entities.Guest.list('-full_name', 1000),
   });
 
-  const { data: plans = [] } = useQuery({
-    queryKey: ['membershipPlans'],
-    queryFn: () => base44.entities.MembershipPlan.list('-created_date', 1),
-  });
-
-  const { data: membershipCharges = [] } = useQuery({
-    queryKey: ['membershipCharges'],
-    queryFn: () => base44.entities.MembershipCharge.listAll('-created_date'),
-  });
-
   const { data: statementTemplates = [] } = useQuery({
     queryKey: ['statementTemplates'],
     queryFn: () => base44.entities.StatementTemplate.list('-created_date', 1),
-  });
-
-  const { data: recurringPayments = [] } = useQuery({
-    queryKey: ['recurringPayments'],
-    queryFn: () => base44.entities.RecurringPayment.filter({ is_active: true }),
-  });
-
-  const { data: allTransactions = [] } = useQuery({
-    queryKey: ['allTransactions'],
-    queryFn: () => base44.entities.Transaction.listAll('-date'),
-  });
-
-  const { data: allGuestTransactions = [] } = useQuery({
-    queryKey: ['allGuestTransactions'],
-    queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
   });
 
   const { data: schedules = [] } = useQuery({
@@ -126,7 +91,6 @@ Synagogue Administration`,
   }, [scheduleId, schedules, isCreatingSchedule]);
 
   const schedule = schedules.find((item) => item.id === scheduleId) || null;
-  const currentPlan = plans[0];
 
 
   const normalizeLegacyBodyForCompare = (value) =>
@@ -135,52 +99,16 @@ Synagogue Administration`,
       .trim()
       .toLowerCase();
 
-  const isLegacyDefaultBody = (value) => {
-    const normalized = normalizeLegacyBodyForCompare(value);
-    if (!normalized) return false;
-    return LEGACY_DEFAULT_EMAIL_BODY_VARIANTS.some(
-      (candidate) => normalizeLegacyBodyForCompare(candidate) === normalized
-    );
-  };
-
-
-  useEffect(() => {
-    const handleAfterPrint = () => setPrintFilter('all');
-    window.addEventListener('afterprint', handleAfterPrint);
-    return () => window.removeEventListener('afterprint', handleAfterPrint);
-  }, []);
-
-  const getMemberCharges = (memberId) =>
-    membershipCharges.filter(
-      (c) =>
-        c.member_id === memberId &&
-        c.is_active &&
-        (c.charge_type === 'standard_donation' || c.charge_type === 'payoff')
-    );
-  const getMemberRecurringPayments = (memberId) =>
-    recurringPayments.filter(
-      (p) =>
-        p.member_id === memberId &&
-        p.is_active &&
-        (p.payment_type === 'balance_payoff' || p.payment_type === 'additional_monthly')
-    );
-  const getMemberTotalMonthly = (member) => {
-    const standardAmount = Number(currentPlan?.standard_amount || 0);
-    if (!member) return standardAmount;
-    const chargesTotal = getMemberCharges(member.id).reduce(
-      (sum, c) => sum + Number(c.amount || 0),
-      0
-    );
-    const payoffRecurring = getMemberRecurringPayments(member.id)
-      .filter((p) => p.payment_type === 'balance_payoff')
-      .reduce((sum, p) => sum + Number(p.amount_per_month || 0), 0);
-    return (
-      standardAmount +
-      (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
-      (Number.isFinite(payoffRecurring) ? payoffRecurring : 0)
-    );
-  };
-
+  const isLegacyDefaultBody = useCallback(
+    (value) => {
+      const normalized = normalizeLegacyBodyForCompare(value);
+      if (!normalized) return false;
+      return LEGACY_DEFAULT_EMAIL_BODY_VARIANTS.some(
+        (candidate) => normalizeLegacyBodyForCompare(candidate) === normalized
+      );
+    },
+    [LEGACY_DEFAULT_EMAIL_BODY_VARIANTS]
+  );
   useEffect(() => {
     if (!schedule) return;
     setScheduleDay(Number(schedule.day_of_month ?? 1));
@@ -206,7 +134,7 @@ Synagogue Administration`,
     setEmailBody(isLegacyDefaultBody(loadedBody) ? '' : loadedBody);
     if (typeof schedule.attach_invoice === 'boolean') setAttachInvoice(schedule.attach_invoice);
     if (typeof schedule.center_body === 'boolean') setIsBodyCentered(schedule.center_body);
-  }, [schedule, members, guests, LEGACY_DEFAULT_EMAIL_BODY_VARIANTS]);
+  }, [schedule, members, guests, isLegacyDefaultBody]);
 
   const resetScheduleForm = () => {
     setScheduleId(null);
@@ -251,20 +179,23 @@ Synagogue Administration`,
     return map;
   }, [allRecipients]);
 
-  const resolveRecipientKey = (rawId) => {
-    if (!rawId && rawId !== 0) return null;
-    if (typeof rawId === 'string' && rawId.includes(':')) return rawId;
-    const rawStr = String(rawId);
-    const member = members.find(
-      (m) => String(m.id) === rawStr || String(m.member_id) === rawStr
-    );
-    if (member) return `member:${member.id}`;
-    const guest = guests.find(
-      (g) => String(g.id) === rawStr || String(g.guest_id) === rawStr
-    );
-    if (guest) return `guest:${guest.id}`;
-    return null;
-  };
+  const resolveRecipientKey = useCallback(
+    (rawId) => {
+      if (!rawId && rawId !== 0) return null;
+      if (typeof rawId === 'string' && rawId.includes(':')) return rawId;
+      const rawStr = String(rawId);
+      const member = members.find(
+        (m) => String(m.id) === rawStr || String(m.member_id) === rawStr
+      );
+      if (member) return `member:${member.id}`;
+      const guest = guests.find(
+        (g) => String(g.id) === rawStr || String(g.guest_id) === rawStr
+      );
+      if (guest) return `guest:${guest.id}`;
+      return null;
+    },
+    [members, guests]
+  );
 
   const scheduleRecipients = React.useMemo(() => {
     if (!schedule || schedule.send_to !== 'selected') return [];
@@ -279,7 +210,7 @@ Synagogue Administration`,
     return Array.from(uniqueKeys)
       .map((key) => recipientByKey.get(key))
       .filter(Boolean);
-  }, [schedule, recipientByKey, members, guests]);
+  }, [schedule, recipientByKey, resolveRecipientKey]);
 
   const scheduleDisplay = React.useMemo(() => {
     if (!schedule) return null;
@@ -386,91 +317,11 @@ Synagogue Administration`,
       .replace(/&gt;/g, '>')
       .trim();
 
-  const allStatementTransactions = React.useMemo(
-    () => [...(allTransactions || []), ...(allGuestTransactions || [])],
-    [allTransactions, allGuestTransactions]
-  );
-
-  const monthOptions = React.useMemo(() => {
-    const monthMap = new Map();
-    for (const tx of allStatementTransactions || []) {
-      const date = toLocalDate(tx.date);
-      if (!date) continue;
-      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-      const key = format(monthStart, 'yyyy-MM');
-      if (!monthMap.has(key)) {
-        monthMap.set(key, monthStart);
-      }
-    }
-    return Array.from(monthMap.entries())
-      .map(([value, date]) => ({
-        value,
-        date,
-        label: format(date, 'MMMM yyyy'),
-      }))
-      .sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [allStatementTransactions]);
-
-  useEffect(() => {
-    if (!monthOptions.length) return;
-    const exists = monthOptions.some((m) => m.value === selectedMonth);
-    if (!exists) {
-      setSelectedMonth(monthOptions[0].value);
-    }
-  }, [monthOptions, selectedMonth]);
-
   const hasSavedTemplate = statementTemplates.length > 0;
   const resolvedTemplate = React.useMemo(
     () => resolveStatementTemplate(statementTemplates[0]),
     [statementTemplates]
   );
-
-  // Get transactions for selected month
-  const getMonthlyTransactions = (transactions, id, idField) => {
-    const baseMonth = toLocalMonthDate(selectedMonth);
-    if (!baseMonth) return [];
-    const monthStart = startOfMonth(baseMonth);
-    const monthEnd = endOfMonth(baseMonth);
-
-    return transactions.filter((t) => {
-      if (t[idField] !== id) return false;
-      if (!t.date) return false;
-      const transDate = toLocalDate(t.date);
-      if (!transDate) return false;
-      return transDate >= monthStart && transDate <= monthEnd;
-    });
-  };
-
-  const getRecipientMonthlyData = (recipient) => {
-    const isGuest = recipient.kind === 'guest';
-    const list = isGuest ? allGuestTransactions : allTransactions;
-    const idField = isGuest ? 'guest_id' : 'member_id';
-    const transactions = getMonthlyTransactions(list, recipient.id, idField);
-    const charges = transactions
-      .filter((t) => t.type === 'charge')
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    const payments = transactions
-      .filter((t) => t.type === 'payment')
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
-    return { transactions, charges, payments, balance: charges - payments };
-  };
-
-  const recipientsMissingEmailForMonth = React.useMemo(() => {
-    return allRecipients.filter((rec) => !String(rec.email || '').trim());
-  }, [allRecipients]);
-
-  const handlePrint = (mode) => {
-    if (!hasSavedTemplate) {
-      toast({
-        title: 'Save a statement template first',
-        description: 'Create and save a template in Settings before printing statements.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    setPrintFilter(mode);
-    setTimeout(() => window.print(), 0);
-  };
 
   const saveScheduleMutation = useMutation({
     mutationFn: async ({ payload, forceCreate }) => {
@@ -644,138 +495,64 @@ Synagogue Administration`,
   const savingSchedule = saveScheduleMutation.isPending;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+    <div className="min-h-screen bg-slate-50">
       <style>{`
         .email-quill-center .ql-editor {
           text-align: center;
         }
+        .email-quill-tall .ql-editor {
+          min-height: 180px;
+        }
       `}</style>
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-4xl font-bold text-slate-900 mb-2">Email Management</h1>
-              <p className="text-slate-600">Send monthly balance reminders to members</p>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap justify-end">
-              <button
-                onClick={() => setViewMode('send')}
-                className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  viewMode === 'send'
-                    ? 'bg-blue-900 text-white'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <Send className="w-4 h-4 inline mr-2" />
-                Send Emails
-              </button>
-              <button
-                onClick={() => setViewMode('monthly')}
-                className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  viewMode === 'monthly'
-                    ? 'bg-blue-900 text-white'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <CalendarIcon className="w-4 h-4 inline mr-2" />
-                Monthly Statements
-              </button>
-            </div>
-          </div>
-        </div>
+      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
 
-        {viewMode === 'send' && (
-          <>
-            {/* Stats Card */}
-            <Card className="mb-6 border-slate-200 shadow-lg">
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="flex items-center gap-4">
-                    <Mail className="w-8 h-8 text-blue-900" />
-                    <div>
-                      <div className="text-sm text-slate-600">Total Members & Guests</div>
-                      <div className="text-2xl font-bold text-slate-900">
-                        {allRecipients.length}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <AlertCircle className="w-8 h-8 text-amber-600" />
-                    <div>
-                      <div className="text-sm text-slate-600">With Balance</div>
-                      <div className="text-2xl font-bold text-amber-600">
-                        {recipientsWithBalance.length}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <Mail className="w-8 h-8 text-green-600" />
-                    <div>
-                      <div className="text-sm text-slate-600">With Email</div>
-                      <div className="text-2xl font-bold text-green-600">
-                        {allRecipients.filter((r) => r.email).length}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Email Template */}
-            <Card className="mb-6 border-slate-200 shadow-lg">
+        {/* Email Template */}
+            <Card className="mb-6 border-slate-200 bg-white shadow-sm">
               <CardHeader className="border-b border-slate-200 bg-slate-50">
-                <CardTitle>Email Template</CardTitle>
+                <CardTitle className="text-slate-900">Email Management</CardTitle>
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
                 <div className="space-y-2">
-                  <Label>Send Schedule</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <Label className="text-slate-700">Send Mode</Label>
+                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-1">
                     <button
                       type="button"
                       onClick={() => setSendType('now')}
-                      className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
                         sendType === 'now'
-                          ? 'border-blue-900 bg-blue-50 text-blue-900'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <Zap className="w-5 h-5" />
-                      <div className="text-left">
-                        <div className="font-semibold">Send Now</div>
-                        <div className="text-xs">One-time send</div>
-                      </div>
+                      Send Now
                     </button>
                     <button
                       type="button"
                       onClick={() => setSendType('monthly')}
-                      className={`flex items-center justify-center gap-2 p-4 rounded-lg border-2 transition-all ${
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
                         sendType === 'monthly'
-                          ? 'border-blue-900 bg-blue-50 text-blue-900'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <Clock className="w-5 h-5" />
-                      <div className="text-left">
-                        <div className="font-semibold">Monthly</div>
-                        <div className="text-xs">Auto-recurring</div>
-                      </div>
+                      Monthly
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="subject">Subject</Label>
+                  <Label htmlFor="subject" className="text-slate-700">Subject</Label>
                   <input
                     id="subject"
                     value={emailSubject}
                     onChange={(e) => setEmailSubject(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="body">Email Body</Label>
+                  <Label htmlFor="body" className="text-slate-700">Email Body</Label>
                   <div
-                    className={`rounded-lg border border-slate-300 ${
+                    className={`email-quill-tall rounded-lg border border-slate-300 ${
                       isBodyCentered ? 'email-quill-center' : ''
                     }`}
                   >
@@ -814,54 +591,56 @@ Synagogue Administration`,
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                  <input
-                    type="checkbox"
-                    id="attachInvoice"
-                    checked={attachInvoice}
-                    onChange={(e) => setAttachInvoice(e.target.checked)}
-                    disabled={!hasSavedTemplate}
-                    className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
-                  />
-                  <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
-                    <FileText className="w-5 h-5 text-blue-900" />
-                    <div>
-                      <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
-                      <div className="text-sm text-slate-600">
-                        Include member statement as PDF attachment
-                        {!hasSavedTemplate && ' (save a template to enable)'}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <input
+                      type="checkbox"
+                      id="attachInvoice"
+                      checked={attachInvoice}
+                      onChange={(e) => setAttachInvoice(e.target.checked)}
+                      disabled={!hasSavedTemplate}
+                      className="h-5 w-5 rounded border-slate-300 text-blue-600"
+                    />
+                    <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
+                      <FileText className="h-5 w-5 text-blue-700" />
+                      <div>
+                        <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
+                        <div className="text-sm text-slate-600">
+                          Include member statement as PDF attachment
+                          {!hasSavedTemplate && ' (save a template to enable)'}
+                        </div>
                       </div>
-                    </div>
-                  </label>
-                </div>
+                    </label>
+                  </div>
 
-                <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                  <input
-                    type="checkbox"
-                    id="centerBody"
-                    checked={isBodyCentered}
-                    onChange={(e) => setIsBodyCentered(e.target.checked)}
-                    className="w-5 h-5 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
-                  />
-                  <label htmlFor="centerBody" className="flex items-center gap-2 cursor-pointer">
-                    <span className="font-semibold text-slate-900">Center email body</span>
-                    <span className="text-sm text-slate-600">
-                      Centers the email text in the UI and the sent email.
-                    </span>
-                  </label>
+                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <input
+                      type="checkbox"
+                      id="centerBody"
+                      checked={isBodyCentered}
+                      onChange={(e) => setIsBodyCentered(e.target.checked)}
+                      className="h-5 w-5 rounded border-slate-300 text-blue-600"
+                    />
+                    <label htmlFor="centerBody" className="flex items-center gap-2 cursor-pointer">
+                      <span className="font-semibold text-slate-900">Center email body</span>
+                      <span className="text-sm text-slate-600">
+                        Centers the email text in the UI and the sent email.
+                      </span>
+                    </label>
+                  </div>
                 </div>
 
                 {sendType === 'now' && (
                   <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-                    <Label>Recipients (one-time send)</Label>
+                    <Label className="text-slate-700">Recipients (one-time send)</Label>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <button
                         type="button"
                         onClick={() => setSendRecipientMode('all')}
                         className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                           sendRecipientMode === 'all'
-                            ? 'border-blue-900 bg-blue-50 text-blue-900'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                         }`}
                       >
                         <Mail className="w-4 h-4" />
@@ -877,8 +656,8 @@ Synagogue Administration`,
                         onClick={() => setSendRecipientMode('selected')}
                         className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                           sendRecipientMode === 'selected'
-                            ? 'border-blue-900 bg-blue-50 text-blue-900'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                            ? 'border-blue-600 bg-blue-50 text-blue-700'
+                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                         }`}
                       >
                         <AlertCircle className="w-4 h-4" />
@@ -889,11 +668,11 @@ Synagogue Administration`,
                       </button>
                     </div>
                     {sendRecipientMode === 'selected' && (
-                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                      <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200 p-2">
                         {allRecipients.map((rec) => (
                           <label
                             key={`${rec.kind}-${rec.id}`}
-                            className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
+                            className="flex items-center gap-3 rounded px-2 py-2 hover:bg-slate-50"
                           >
                             <input
                               type="checkbox"
@@ -910,12 +689,12 @@ Synagogue Administration`,
                                   );
                                 }
                               }}
-                              className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
                             />
                             <div className="flex-1">
                               <div className="text-sm font-medium text-slate-900">{rec.name}</div>
                               <div className="text-xs text-slate-500 flex items-center gap-2">
-                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-700 uppercase">
+                                <span className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase text-slate-700">
                                   {rec.kind}
                                 </span>
                                 <span>{rec.email || 'No email'}</span>
@@ -933,9 +712,9 @@ Synagogue Administration`,
 
                 {sendType === 'monthly' && (
                   <div className="space-y-4">
-                    <Card className="border-slate-200 shadow-sm">
+                    <Card className="border-slate-200 bg-white shadow-sm">
                       <CardHeader className="border-b border-slate-200 bg-slate-50">
-                        <CardTitle className="text-base">Saved Schedules</CardTitle>
+                        <CardTitle className="text-base text-slate-900">Saved Schedules</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4">
                         {schedules.length === 0 ? (
@@ -981,12 +760,12 @@ Synagogue Administration`,
                                   }}
                                   className={`w-full rounded-lg border px-4 py-3 text-left transition ${
                                     isSelected
-                                      ? 'border-blue-400 bg-blue-50'
-                                      : 'border-slate-200 bg-white hover:border-slate-300'
+                                      ? 'border-blue-600 bg-blue-50'
+                                      : 'border-slate-300 bg-white hover:border-slate-400'
                                   }`}
                                 >
                                   <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="font-semibold text-slate-800">
+                                    <div className="font-semibold text-slate-900">
                                       {item.name || `Schedule ${item.id.slice(0, 6)}`}
                                     </div>
                                     <span
@@ -1019,7 +798,7 @@ Synagogue Administration`,
                     <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
-                        <Label>Schedule</Label>
+                        <Label className="text-slate-700">Schedule</Label>
                         <Select
                           value={scheduleId || 'new'}
                           onValueChange={(value) => {
@@ -1046,7 +825,7 @@ Synagogue Administration`,
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="scheduleName">Schedule Name</Label>
+                        <Label htmlFor="scheduleName" className="text-slate-700">Schedule Name</Label>
                         <Input
                           id="scheduleName"
                           value={scheduleName}
@@ -1068,7 +847,7 @@ Synagogue Administration`,
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
-                        <Label>Day of Month</Label>
+                        <Label className="text-slate-700">Day of Month</Label>
                         <Select
                           value={String(scheduleDay)}
                           onValueChange={(value) => setScheduleDay(Number(value))}
@@ -1087,17 +866,17 @@ Synagogue Administration`,
                         <p className="text-xs text-slate-500">Short months send on the last day.</p>
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="scheduleTime">Time</Label>
+                        <Label htmlFor="scheduleTime" className="text-slate-700">Time</Label>
                         <input
                           id="scheduleTime"
                           type="time"
                           value={scheduleTime}
                           onChange={(e) => setScheduleTime(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg h-10"
+                          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Timezone</Label>
+                        <Label className="text-slate-700">Timezone</Label>
                         <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
                           <SelectTrigger className="h-10">
                             <SelectValue />
@@ -1114,15 +893,15 @@ Synagogue Administration`,
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Recipients</Label>
+                      <Label className="text-slate-700">Recipients</Label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <button
                           type="button"
                           onClick={() => setScheduleRecipientMode('all')}
                           className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                             scheduleRecipientMode === 'all'
-                              ? 'border-blue-900 bg-blue-50 text-blue-900'
-                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                              ? 'border-blue-600 bg-blue-50 text-blue-700'
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                           }`}
                         >
                           <Mail className="w-4 h-4" />
@@ -1138,8 +917,8 @@ Synagogue Administration`,
                           onClick={() => setScheduleRecipientMode('selected')}
                           className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
                             scheduleRecipientMode === 'selected'
-                              ? 'border-blue-900 bg-blue-50 text-blue-900'
-                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                              ? 'border-blue-600 bg-blue-50 text-blue-700'
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                           }`}
                         >
                           <AlertCircle className="w-4 h-4" />
@@ -1150,12 +929,12 @@ Synagogue Administration`,
                         </button>
                       </div>
                       {scheduleRecipientMode === 'selected' && (
-                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg p-2">
+                        <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200 p-2">
                           {allRecipients.map((person) => {
                             return (
                               <label
                                 key={person.key}
-                                className="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-50"
+                                className="flex items-center gap-3 rounded px-2 py-2 hover:bg-slate-50"
                               >
                                 <input
                                   type="checkbox"
@@ -1172,7 +951,7 @@ Synagogue Administration`,
                                       );
                                     }
                                   }}
-                                  className="w-4 h-4 text-blue-900 rounded border-slate-300"
+                                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
                                 />
                                 <div className="flex-1">
                                   <div className="text-sm font-medium text-slate-900">
@@ -1200,7 +979,7 @@ Synagogue Administration`,
                         ? savingSchedule
                         : sending || recipientsWithBalance.length === 0
                     }
-                    className="w-full h-12 bg-blue-900 hover:bg-blue-800"
+                    className="h-11 w-full bg-blue-700 hover:bg-blue-600"
                   >
                     <Send className="w-5 h-5 mr-2" />
                     {sendType === 'monthly'
@@ -1222,7 +1001,7 @@ Synagogue Administration`,
                   {sendType === 'monthly' && scheduleId && !isCreatingSchedule && (
                     <Button
                       variant="outline"
-                      className="w-full border-blue-200 text-blue-700 hover:bg-blue-50"
+                      className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
                       onClick={() => handleSaveSchedule(true)}
                       disabled={savingSchedule}
                     >
@@ -1305,7 +1084,7 @@ Synagogue Administration`,
                     {schedule && (
                       <Button
                         variant="outline"
-                        className="w-full border-red-200 text-red-600 hover:bg-red-50"
+                        className="w-full border-red-500/40 text-red-300 hover:bg-red-500/10"
                         disabled={deleteScheduleMutation.isPending}
                         onClick={() => {
                           if (confirm('Delete the monthly email schedule?')) {
@@ -1321,86 +1100,24 @@ Synagogue Administration`,
               </CardContent>
             </Card>
 
-            {/* Members/Guests Preview */}
-            <Card className="mb-6 border-slate-200 shadow-lg">
-              <CardHeader className="border-b border-slate-200 bg-slate-50">
-                <CardTitle>Members & Guests (balance shown)</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {allRecipients.length === 0 ? (
-                  <div className="p-12 text-center text-slate-500">No members or guests</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Name
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Type
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Email
-                          </th>
-                          <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                            Balance
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {allRecipients.map((rec) => (
-                          <tr
-                            key={`${rec.kind}-${rec.id}`}
-                            className="hover:bg-blue-50/30 transition-colors"
-                          >
-                            <td className="py-4 px-6">
-                              <div className="font-semibold text-slate-900">{rec.name}</div>
-                            </td>
-                            <td className="py-4 px-6">
-                              <span className="inline-block px-2 py-1 rounded-full text-[11px] bg-slate-100 text-slate-700 uppercase font-semibold">
-                                {rec.kind}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6">
-                              {rec.email ? (
-                                <div className="text-sm text-slate-600">{rec.email}</div>
-                              ) : (
-                                <div className="text-sm text-red-600">No email</div>
-                              )}
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <span className="text-lg font-bold text-amber-600">
-                                ${(rec.balance || 0).toFixed(2)}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Send Log */}
             {sendLog.length > 0 && (
-              <Card className="border-slate-200 shadow-lg">
+              <Card className="border-slate-200 bg-white shadow-sm">
                 <CardHeader className="border-b border-slate-200 bg-slate-50">
-                  <CardTitle>Send Log</CardTitle>
+                  <CardTitle className="text-slate-900">Send Log</CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
+                      <thead className="border-b border-slate-200 bg-slate-50">
                         <tr>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
                             Member
                           </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
                             Status
                           </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
+                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
                             Details
                           </th>
                         </tr>
@@ -1408,7 +1125,7 @@ Synagogue Administration`,
                       <tbody className="divide-y divide-slate-100">
                         {sendLog.map((log, idx) => (
                           <tr key={idx}>
-                            <td className="py-4 px-6 font-medium">{log.member}</td>
+                            <td className="px-6 py-4 font-medium text-slate-900">{log.member}</td>
                             <td className="py-4 px-6">
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium ${
@@ -1416,13 +1133,13 @@ Synagogue Administration`,
                                     ? 'bg-green-100 text-green-800'
                                     : log.status === 'failed'
                                       ? 'bg-red-100 text-red-800'
-                                      : 'bg-slate-100 text-slate-800'
+                                      : 'bg-slate-100 text-slate-700'
                                 }`}
                               >
                                 {log.status}
                               </span>
                             </td>
-                            <td className="py-4 px-6 text-sm text-slate-600">
+                            <td className="px-6 py-4 text-sm text-slate-600">
                               {log.email || log.reason}
                             </td>
                           </tr>
@@ -1433,279 +1150,6 @@ Synagogue Administration`,
                 </CardContent>
               </Card>
             )}
-          </>
-        )}
-
-        {viewMode === 'monthly' && (
-          <>
-            {/* Month Selection */}
-            <Card className="mb-6 border-slate-200 shadow-lg">
-              <CardHeader className="border-b border-slate-200 bg-slate-50">
-                <CardTitle>Select Month</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6">
-                {monthOptions.length === 0 ? (
-                  <div className="text-sm text-slate-500">No transaction months available yet.</div>
-                ) : (
-                  <div className="flex items-center gap-4">
-                    <Label className="text-sm font-semibold text-slate-700">Month:</Label>
-                    <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                      <SelectTrigger className="w-64 h-11">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {monthOptions.map((month) => (
-                          <SelectItem key={month.value} value={month.value}>
-                            {month.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Monthly Statements Table */}
-            <Card className="border-slate-200 shadow-lg">
-              <CardHeader className="border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center justify-between">
-                  <CardTitle>
-                    Monthly Statements -{' '}
-                    {monthOptions.find((m) => m.value === selectedMonth)?.label || 'No Data'}
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => handlePrint('all')}
-                      variant="outline"
-                      className="h-9"
-                      disabled={monthOptions.length === 0 || !hasSavedTemplate}
-                    >
-                      <Printer className="w-4 h-4 mr-2" />
-                      Print All
-                    </Button>
-                    <Button
-                      onClick={() => handlePrint('missing-email')}
-                      variant="outline"
-                      className="h-9"
-                      disabled={
-                        monthOptions.length === 0 ||
-                        recipientsMissingEmailForMonth.length === 0 ||
-                        !hasSavedTemplate
-                      }
-                    >
-                      <Printer className="w-4 h-4 mr-2" />
-                      Print Missing Email
-                    </Button>
-                    <Button
-                      onClick={async () => {
-                        if (attachInvoice && !hasSavedTemplate) {
-                          toast({
-                            title: 'Save a statement template first',
-                            description: 'Save your statement template in Settings before attaching invoices.',
-                            variant: 'destructive',
-                          });
-                          return;
-                        }
-                        setSending(true);
-                        setSendLog([]);
-                        const log = [];
-
-                        for (const recipient of allRecipients) {
-                          const monthlyData = getRecipientMonthlyData(recipient);
-                          if (!recipient.email) {
-                            log.push({
-                              member: recipient.name,
-                              status: 'skipped',
-                              reason: 'No email',
-                            });
-                            continue;
-                          }
-
-                          try {
-                            const body = `Dear ${recipient.name},\n\nHere is your statement for ${monthOptions.find((m) => m.value === selectedMonth)?.label}:\n\nCharges: $${monthlyData.charges.toFixed(2)}\nPayments: $${monthlyData.payments.toFixed(2)}\nNet for Month: $${monthlyData.balance.toFixed(2)}\n\nTransactions: ${monthlyData.transactions.length}\n\nThank you,\nSynagogue Administration`;
-
-                            await base44.integrations.Core.SendEmail({
-                              to: recipient.email,
-                              subject: `Monthly Statement - ${monthOptions.find((m) => m.value === selectedMonth)?.label}`,
-                              body: body,
-                              pdf: attachInvoice
-                                ? {
-                                    memberName: recipient.name || 'Member',
-                                    memberId:
-                                      recipient.ref?.member_id ||
-                                      recipient.ref?.guest_id ||
-                                      recipient.id,
-                                    balance: monthlyData.balance,
-                                    statementDate: selectedMonth,
-                                    note: 'This statement reflects your monthly activity.',
-                                    template: resolvedTemplate,
-                                  }
-                                : undefined,
-                            });
-
-                            log.push({
-                              member: recipient.name,
-                              status: 'sent',
-                              email: recipient.email,
-                            });
-                          } catch (error) {
-                            log.push({
-                              member: recipient.name,
-                              status: 'failed',
-                              reason: error.message,
-                            });
-                          }
-                        }
-
-                        setSendLog(log);
-                        setSending(false);
-                        const sentCount = log.filter((item) => item.status === 'sent').length;
-                        const failedCount = log.filter((item) => item.status === 'failed').length;
-                        toast({
-                          title: failedCount ? 'Emails sent with issues' : 'Emails sent',
-                          description: `Sent ${sentCount} of ${log.length} emails.`,
-                          variant: failedCount ? 'destructive' : 'default',
-                        });
-                      }}
-                      disabled={sending || monthOptions.length === 0}
-                      className="bg-blue-900 hover:bg-blue-800 h-9"
-                    >
-                      <Mail className="w-4 h-4 mr-2" />
-                      {sending ? 'Sending...' : 'Email All'}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto print-overflow">
-                  <table className="w-full">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                      <tr>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                          Member/Guest
-                        </th>
-                        <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                          Email
-                        </th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                          Charges
-                        </th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                          Payments
-                        </th>
-                        <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                          Net
-                        </th>
-                        <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
-                          Transactions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {allRecipients.map((recipient) => {
-                        const monthlyData = getRecipientMonthlyData(recipient);
-                        const hasEmail = Boolean(String(recipient.email || '').trim());
-                        if (printFilter === 'missing-email' && hasEmail) return null;
-                        return (
-                          <tr key={recipient.key} className="hover:bg-blue-50/30 transition-colors">
-                            <td className="py-4 px-6">
-                              <div className="font-semibold text-slate-900">{recipient.name}</div>
-                            </td>
-                            <td className="py-4 px-6">
-                              {recipient.email ? (
-                                <div className="text-sm text-slate-600">{recipient.email}</div>
-                              ) : (
-                                <div className="text-sm text-red-600">No email</div>
-                              )}
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <span className="font-semibold text-amber-600">
-                                ${monthlyData.charges.toFixed(2)}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <span className="font-semibold text-green-600">
-                                ${monthlyData.payments.toFixed(2)}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <span
-                                className={`text-lg font-bold ${
-                                  monthlyData.balance > 0
-                                    ? 'text-amber-600'
-                                    : monthlyData.balance < 0
-                                      ? 'text-green-600'
-                                      : 'text-slate-600'
-                                }`}
-                              >
-                                ${monthlyData.balance.toFixed(2)}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-center text-slate-600">
-                              {monthlyData.transactions.length}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Send Log for Monthly */}
-            {sendLog.length > 0 && (
-              <Card className="mt-6 border-slate-200 shadow-lg">
-                <CardHeader className="border-b border-slate-200 bg-slate-50">
-                  <CardTitle>Send Log</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto print-overflow">
-                    <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Member
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Status
-                          </th>
-                          <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
-                            Details
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {sendLog.map((log, idx) => (
-                          <tr key={idx}>
-                            <td className="py-4 px-6 font-medium">{log.member}</td>
-                            <td className="py-4 px-6">
-                              <span
-                                className={`px-2 py-1 rounded text-xs font-medium ${
-                                  log.status === 'sent'
-                                    ? 'bg-green-100 text-green-800'
-                                    : log.status === 'failed'
-                                      ? 'bg-red-100 text-red-800'
-                                      : 'bg-slate-100 text-slate-800'
-                                }`}
-                              >
-                                {log.status}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-sm text-slate-600">
-                              {log.email || log.reason}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        )}
       </div>
     </div>
   );

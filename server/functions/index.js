@@ -13,6 +13,7 @@ const {onSchedule} = require("firebase-functions/v2/scheduler");
 const app = require("./app");
 const { runMonthlyEmailScheduler } = require("./emailScheduler");
 const { runMonthlyMembershipCharges } = require("./monthlyMembershipCharges");
+const { runMembershipSubscriptionReconciliation } = require("./membershipSubscriptionReconcile");
 
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
@@ -37,13 +38,24 @@ exports.monthlyEmailScheduler = onSchedule("every 1 minutes", async () => {
 });
 
 exports.monthlyMembershipCharges = onSchedule(
-  { schedule: "0 2 * * *", timeZone: process.env.BILLING_TIME_ZONE || "UTC" },
+  { schedule: "0 12 1 * *", timeZone: "UTC" },
   async () => {
   try {
     await runMonthlyMembershipCharges();
   } catch (err) {
     console.error("Monthly membership charge scheduler failed:", err?.message || err);
   }
+  }
+);
+
+exports.membershipSubscriptionReconciler = onSchedule(
+  { schedule: "every 6 hours", timeZone: "UTC" },
+  async () => {
+    try {
+      await runMembershipSubscriptionReconciliation();
+    } catch (err) {
+      console.error("Membership subscription reconcile scheduler failed:", err?.message || err);
+    }
   }
 );
 

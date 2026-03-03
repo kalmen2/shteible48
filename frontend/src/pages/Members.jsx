@@ -150,8 +150,8 @@ export default function Members() {
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
       toast({
-        title: 'Member updated',
-        description: 'Changes saved successfully.',
+        title: 'פרטי החבר עודכנו',
+        description: 'השינויים נשמרו בהצלחה.',
       });
     },
     onError: async (error, variables) => {
@@ -178,8 +178,8 @@ export default function Members() {
             setEditMemberDialogOpen(false);
             setSelectedMember(null);
             toast({
-              title: 'Member updated',
-              description: 'Changes saved successfully.',
+              title: 'פרטי החבר עודכנו',
+              description: 'השינויים נשמרו בהצלחה.',
             });
             return;
           }
@@ -188,8 +188,8 @@ export default function Members() {
         // fall through to error toast
       }
       toast({
-        title: 'Update failed',
-        description: error?.message || 'Unable to save member changes.',
+        title: 'העדכון נכשל',
+        description: error?.message || 'לא ניתן לשמור את שינויי החבר.',
         variant: 'destructive',
       });
     },
@@ -294,23 +294,23 @@ export default function Members() {
 
   const handleActivateSelected = async () => {
     if (!currentPlan?.standard_amount) {
-      alert('Please set a monthly plan amount in Settings first.');
+      alert('אנא הגדירו קודם סכום חודשי סטנדרטי בהגדרות.');
       return;
     }
     const selectedMembers = members.filter((m) => selectedMemberIds.includes(m.id));
     const inactiveMembers = selectedMembers.filter((m) => !m.membership_active);
     if (inactiveMembers.length === 0) {
-      alert('No inactive members selected.');
+      alert('לא נבחרו חברים לא פעילים.');
       return;
     }
     if (inactiveMembers.length > 1) {
-      alert('Bulk direct activation was removed. Please activate members one at a time.');
+      alert('הפעלה מרובה הוסרה. יש להפעיל חבר אחד בכל פעם.');
       return;
     }
 
     const target = inactiveMembers[0];
-    const targetName = target.english_name || target.full_name || target.hebrew_name || 'Member';
-    const ok = window.confirm(`Open Stripe Checkout to activate membership for ${targetName}?`);
+    const targetName = target.english_name || target.full_name || target.hebrew_name || 'חבר';
+    const ok = window.confirm(`לפתוח את Stripe Checkout להפעלת חברות עבור ${targetName}?`);
     if (!ok) return;
 
     setSelectedMember(target);
@@ -334,15 +334,15 @@ export default function Members() {
   const handleDeleteSelected = () => {
     if (selectedMemberIds.length === 0) return;
     const ok = window.confirm(
-      `Delete ${selectedMemberIds.length} member(s)? This cannot be undone.`
+      `למחוק ${selectedMemberIds.length} חברים? לא ניתן לבטל פעולה זו.`
     );
     if (!ok) return;
     deleteMembersMutation.mutate(selectedMemberIds);
   };
 
   const handleDeleteMember = (member) => {
-    const name = member.english_name || member.full_name || member.hebrew_name || 'this member';
-    const ok = window.confirm(`Delete ${name}? This cannot be undone.`);
+    const name = member.english_name || member.full_name || member.hebrew_name || 'חבר זה';
+    const ok = window.confirm(`למחוק את ${name}? לא ניתן לבטל פעולה זו.`);
     if (!ok) return;
     deleteMemberMutation.mutate(member.id);
   };
@@ -379,7 +379,7 @@ export default function Members() {
       });
 
       if (result?.status !== 'success' || !result?.output) {
-        throw new Error(result?.message || 'Could not extract members from file');
+        throw new Error(result?.message || 'לא ניתן היה לחלץ חברים מהקובץ');
       }
 
       const raw = result.output.members || result.output;
@@ -401,9 +401,7 @@ export default function Members() {
         .filter((m) => m.full_name || m.english_name || m.hebrew_name);
 
       if (cleaned.length === 0) {
-        throw new Error(
-          'No member rows found. Make sure your file has English or Hebrew name columns.'
-        );
+        throw new Error('לא נמצאו שורות חברים. ודאו שיש עמודות של שם באנגלית או בעברית.');
       }
 
       const existingIds = new Set((members || []).map((m) => m.member_id).filter(Boolean));
@@ -418,7 +416,7 @@ export default function Members() {
       setUploadDialogOpen(false);
       setUploadFile(null);
     } catch (error) {
-      alert('Upload failed: ' + (error?.message || error));
+      alert('ההעלאה נכשלה: ' + (error?.message || error));
     }
     setUploading(false);
   };
@@ -476,8 +474,8 @@ export default function Members() {
       queryClient.invalidateQueries({ queryKey: ['members'] });
     } catch (err) {
       toast({
-        title: 'Deactivation failed',
-        description: err?.message || 'Unable to deactivate membership right now.',
+        title: 'כיבוי החברות נכשל',
+        description: err?.message || 'לא ניתן לכבות חברות כרגע.',
         variant: 'destructive',
       });
     }
@@ -600,7 +598,7 @@ export default function Members() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
-                    Selected Actions ({selectedMemberIds.length})
+                    Actions for Selected ({selectedMemberIds.length})
                     <ChevronDown className="w-4 h-4 ml-2" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -634,8 +632,7 @@ export default function Members() {
                       required
                     />
                     <p className="text-xs text-slate-500">
-                      Upload a CSV or Excel file with columns: english_name, hebrew_name, email,
-                      phone, address. Member IDs are generated automatically.
+                      Upload a CSV or Excel file with columns: english_name, hebrew_name, email, phone, address. Member IDs will be generated automatically.
                     </p>
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
@@ -670,7 +667,7 @@ export default function Members() {
                 </DialogHeader>
                 <form onSubmit={handleAddMember} className="space-y-4 mt-4">
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-slate-600">
-                    A unique 4-digit member ID will be automatically generated.
+                    Unique 4-digit Member ID will be generated automatically.
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="english_name">English Name</Label>
@@ -678,7 +675,6 @@ export default function Members() {
                       id="english_name"
                       value={newMember.english_name}
                       onChange={(e) => setNewMember({ ...newMember, english_name: e.target.value })}
-                      //placeholder="Harav Moshe Fogel"
                       className="h-11"
                     />
                   </div>
@@ -688,7 +684,6 @@ export default function Members() {
                       id="hebrew_name"
                       value={newMember.hebrew_name}
                       onChange={(e) => setNewMember({ ...newMember, hebrew_name: e.target.value })}
-                      //placeholder="הרב משה פוגל"
                       className="h-11"
                     />
                   </div>
@@ -699,7 +694,6 @@ export default function Members() {
                       type="email"
                       value={newMember.email}
                       onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                      //placeholder="john@example.com"
                       className="h-11"
                     />
                   </div>
@@ -709,7 +703,6 @@ export default function Members() {
                       id="phone"
                       value={newMember.phone}
                       onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
-                      //placeholder="123-456-7890"
                       className="h-11"
                     />
                   </div>
@@ -719,7 +712,6 @@ export default function Members() {
                       id="address"
                       value={newMember.address}
                       onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
-                      //placeholder="123 Main St"
                       className="h-11"
                     />
                   </div>
@@ -744,12 +736,20 @@ export default function Members() {
         {/* Members List */}
         <Card className="border-slate-200 shadow-lg">
           <CardHeader className="border-b border-slate-200 bg-slate-50">
-            <CardTitle>Members & Charges</CardTitle>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <CardTitle>Members & Charges</CardTitle>
+              <div className="text-sm font-medium text-slate-700">
+                Standard Monthly Amount:{' '}
+                <span className="font-bold text-slate-900">
+                  {currentPlan ? `$${currentPlan.standard_amount.toFixed(2)}` : 'No plan defined'}
+                </span>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {filteredMembers.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
-                {members.length === 0 ? 'No members yet' : 'No members found matching your search'}
+                {members.length === 0 ? 'עדיין אין חברים' : 'לא נמצאו חברים לפי החיפוש'}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -776,9 +776,6 @@ export default function Members() {
                       <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
                         Status
                       </th>
-                      <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                        Standard Amount
-                      </th>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
                         Additional Charges
                       </th>
@@ -786,7 +783,7 @@ export default function Members() {
                         Total Monthly
                       </th>
                       <th className="text-right py-4 px-6 text-sm font-semibold text-slate-700">
-                        Balance Owed
+                        Balance Due
                       </th>
                       <th className="text-center py-4 px-6 text-sm font-semibold text-slate-700">
                         Actions
@@ -800,7 +797,7 @@ export default function Members() {
                       const totalMonthly = getMemberTotalMonthly(member);
                       const displayBalance = member.total_owed || 0;
                       const primaryName =
-                        member.english_name || member.full_name || member.hebrew_name || 'Unnamed';
+                        member.english_name || member.full_name || member.hebrew_name || 'ללא שם';
                       const secondaryName =
                         member.hebrew_name && member.hebrew_name !== primaryName
                           ? member.hebrew_name
@@ -857,15 +854,6 @@ export default function Members() {
                               )}
                             </div>
                           </td>
-                          <td className="py-4 px-6 text-right">
-                            {currentPlan ? (
-                              <span className="text-lg font-bold text-slate-900">
-                                ${currentPlan.standard_amount.toFixed(2)}
-                              </span>
-                            ) : (
-                              <span className="text-sm text-slate-500">No plan set</span>
-                            )}
-                          </td>
                           <td className="py-4 px-6">
                             {memberCharges.length > 0 || memberRecurring.length > 0 ? (
                               <div className="space-y-1">
@@ -873,8 +861,8 @@ export default function Members() {
                                   <div key={charge.id} className="flex items-center gap-2">
                                     <span className="text-sm px-2 py-1 bg-amber-100 text-amber-800 rounded">
                                       {charge.charge_type === 'standard_donation'
-                                        ? 'Donation'
-                                        : 'Pay Off'}
+                                        ? 'Recurring Donation'
+                                        : 'Installment'}
                                     </span>
                                     <span className="text-sm font-medium">
                                       ${charge.amount.toFixed(2)}
@@ -897,7 +885,7 @@ export default function Members() {
                                   .map((payment) => (
                                     <div key={payment.id} className="flex items-center gap-2">
                                       <span className="text-sm px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                        Payoff
+                                        Installment
                                       </span>
                                       <span className="text-sm font-medium">
                                         ${payment.amount_per_month.toFixed(2)}
@@ -949,7 +937,7 @@ export default function Members() {
                                 variant="ghost"
                                 onClick={() => handleDeleteMember(member)}
                                 className="text-red-600 hover:text-red-700"
-                                title="Delete member"
+                                title="מחיקת חבר"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -960,7 +948,7 @@ export default function Members() {
                                   onClick={() => openPaymentDialog(member)}
                                 >
                                   <Plus className="w-4 h-4 mr-1" />
-                                  Add Membership
+                                  הוספת חברות
                                 </Button>
                               ) : (
                                 <>
@@ -970,7 +958,7 @@ export default function Members() {
                                     className="border-red-600 text-red-600 hover:bg-red-50"
                                     onClick={() => openDeactivateDialog(member)}
                                   >
-                                    Remove
+                                    הסרה
                                   </Button>
                                   <Button
                                     size="sm"
@@ -981,7 +969,7 @@ export default function Members() {
                                     }}
                                   >
                                     <Plus className="w-4 h-4 mr-1" />
-                                    Add Charge
+                                    הוספת חיוב
                                   </Button>
                                 </>
                               )}
@@ -1003,24 +991,24 @@ export default function Members() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5" />
-                Add Payment Method
+                הוספת אמצעי תשלום
               </DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={activateMembership} className="space-y-4 mt-4">
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="text-sm text-slate-600 mb-1">Activating membership for:</div>
+                  <div className="text-sm text-slate-600 mb-1">הפעלת חברות עבור:</div>
                   <div className="font-semibold text-slate-900">{selectedMember.full_name}</div>
                   <div className="text-xs mt-1">
                     {selectedMember.stripe_default_payment_method_id ? (
-                      <span className="text-green-700">Card on file</span>
+                      <span className="text-green-700">כרטיס קיים במערכת</span>
                     ) : (
-                      <span className="text-amber-700">No card on file</span>
+                      <span className="text-amber-700">אין כרטיס במערכת</span>
                     )}
                   </div>
                   {currentPlan && (
                     <div className="text-sm text-slate-600 mt-2">
-                      Monthly Amount:{' '}
+                      סכום חודשי:{' '}
                       <span className="font-semibold">
                         ${currentPlan.standard_amount.toFixed(2)}
                       </span>
@@ -1030,7 +1018,7 @@ export default function Members() {
 
                 {/* New: Payment month choice */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-slate-700">Apply first payment to:</Label>
+                  <Label className="text-sm text-slate-700">להחיל את התשלום הראשון על:</Label>
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2">
                       <input
@@ -1040,7 +1028,7 @@ export default function Members() {
                         checked={paymentMonthChoice === 'this'}
                         onChange={() => setPaymentMonthChoice('this')}
                       />
-                      <span>This month</span>
+                      <span>החודש הזה</span>
                     </label>
                     <label className="flex items-center gap-2">
                       <input
@@ -1050,16 +1038,16 @@ export default function Members() {
                         checked={paymentMonthChoice === 'next'}
                         onChange={() => setPaymentMonthChoice('next')}
                       />
-                      <span>Next month</span>
+                      <span>החודש הבא</span>
                     </label>
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
-                    If you select "Next month", the first payment will apply to next month and recurring charges will start the following month.
+                    אם תבחרו בחודש הבא, התשלום הראשון יחול על החודש הבא והחיובים הקבועים יתחילו בחודש שלאחריו.
                   </div>
                 </div>
 
                 <div className="text-sm text-slate-600">
-                  You’ll enter payment details securely in Stripe Checkout.
+                  פרטי התשלום יוזנו בצורה מאובטחת ב-Stripe Checkout.
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4">
@@ -1068,14 +1056,14 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setPaymentDialogOpen(false)}
                   >
-                    Cancel
+                    ביטול
                   </Button>
                   <Button
                     type="submit"
                     className="bg-green-600 hover:bg-green-700"
                     disabled={processing}
                   >
-                    {processing ? 'Processing...' : 'Activate Membership'}
+                    {processing ? 'מעבד...' : 'הפעלת חברות'}
                   </Button>
                 </div>
               </form>
@@ -1089,30 +1077,30 @@ export default function Members() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-amber-700">
                 <AlertCircle className="w-5 h-5" />
-                Deactivate Membership
+                השבתת חברות
               </DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <div className="space-y-4 mt-4">
                 <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
                   <p className="text-sm text-slate-700 mb-2">
-                    Are you sure you want to deactivate membership for{' '}
+                    האם אתם בטוחים שברצונכם להשבית חברות עבור{' '}
                     <span className="font-semibold">{selectedMember.full_name}</span>?
                   </p>
                   <p className="text-sm text-amber-700 font-medium">
-                    Note: The membership will remain active until the end of this month.
+                    שימו לב: החברות תישאר פעילה עד סוף החודש הנוכחי.
                   </p>
                 </div>
 
                 <div className="flex justify-end gap-3">
                   <Button variant="outline" onClick={() => setDeactivateDialogOpen(false)}>
-                    Cancel
+                    ביטול
                   </Button>
                   <Button
                     className="bg-red-600 hover:bg-red-700"
                     onClick={() => deactivateMembership(selectedMember)}
                   >
-                    Deactivate
+                    השבתה
                   </Button>
                 </div>
               </div>
@@ -1124,12 +1112,12 @@ export default function Members() {
         <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Member</DialogTitle>
+              <DialogTitle>עריכת חבר</DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit_english_name">English Name</Label>
+                  <Label htmlFor="edit_english_name">שם באנגלית</Label>
                   <Input
                     id="edit_english_name"
                     value={selectedMember.english_name || ''}
@@ -1140,7 +1128,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_hebrew_name">Hebrew Name</Label>
+                  <Label htmlFor="edit_hebrew_name">שם בעברית</Label>
                   <Input
                     id="edit_hebrew_name"
                     value={selectedMember.hebrew_name || ''}
@@ -1151,7 +1139,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_email">Email</Label>
+                  <Label htmlFor="edit_email">אימייל</Label>
                   <Input
                     id="edit_email"
                     type="email"
@@ -1159,31 +1147,31 @@ export default function Members() {
                     onChange={(e) =>
                       setSelectedMember({ ...selectedMember, email: e.target.value })
                     }
-                    placeholder="john@example.com"
+                    placeholder="name@example.com"
                     className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_phone">Phone</Label>
+                  <Label htmlFor="edit_phone">טלפון</Label>
                   <Input
                     id="edit_phone"
                     value={selectedMember.phone || ''}
                     onChange={(e) =>
                       setSelectedMember({ ...selectedMember, phone: e.target.value })
                     }
-                    placeholder="123-456-7890"
+                    placeholder="050-000-0000"
                     className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_address">Address</Label>
+                  <Label htmlFor="edit_address">כתובת</Label>
                   <Input
                     id="edit_address"
                     value={selectedMember.address || ''}
                     onChange={(e) =>
                       setSelectedMember({ ...selectedMember, address: e.target.value })
                     }
-                    placeholder="123 Main St"
+                    placeholder="רחוב ודירה"
                     className="h-11"
                   />
                 </div>
@@ -1193,10 +1181,10 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setEditMemberDialogOpen(false)}
                   >
-                    Cancel
+                    ביטול
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                    Save Changes
+                    שמירת שינויים
                   </Button>
                 </div>
               </form>
@@ -1208,28 +1196,28 @@ export default function Members() {
         <Dialog open={chargeDialogOpen} onOpenChange={setChargeDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Additional Charge</DialogTitle>
+              <DialogTitle>הוספת חיוב נוסף</DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={handleAddCharge} className="space-y-4 mt-4">
                 <div className="p-3 bg-slate-50 rounded-lg">
-                  <span className="text-sm text-slate-600">Member: </span>
+                  <span className="text-sm text-slate-600">חבר: </span>
                   <span className="font-semibold text-slate-900">{selectedMember.full_name}</span>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="chargeType">Charge Type *</Label>
+                  <Label htmlFor="chargeType">סוג חיוב *</Label>
                   <Select value={chargeType} onValueChange={setChargeType}>
                     <SelectTrigger className="h-11">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="standard_donation">Standard Donation</SelectItem>
-                      <SelectItem value="pay_off">Pay Off (Until Balance Clear)</SelectItem>
+                      <SelectItem value="standard_donation">תרומה קבועה</SelectItem>
+                      <SelectItem value="pay_off">פריסה (עד סגירת היתרה)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="chargeAmount">Amount *</Label>
+                  <Label htmlFor="chargeAmount">סכום *</Label>
                   <Input
                     id="chargeAmount"
                     type="number"
@@ -1247,10 +1235,10 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setChargeDialogOpen(false)}
                   >
-                    Cancel
+                    ביטול
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                    Add Charge
+                    הוספת חיוב
                   </Button>
                 </div>
               </form>

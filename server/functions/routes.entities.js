@@ -1,5 +1,6 @@
 const express = require("express");
 const { assertEntityName } = require("./entityStore.js");
+const { getStripe } = require("./stripeClient.js");
 
 const ENTITY_FIELD_ALLOWLIST = {
   Member: [
@@ -98,6 +99,60 @@ function getMemberUserId(req) {
 
 function getGuestUserId(req) {
   return req?.user?.guest_id ? String(req.user.guest_id) : null;
+}
+
+function isStripeMissingResourceError(err) {
+  const code = String(err?.code || "");
+  const message = String(err?.message || "");
+  return code === "resource_missing" || /No such/i.test(message);
+}
+
+async function cleanupStripeForDeletedProfile({ store, entity, existing }) {
+  if (entity !== "Member" && entity !== "Guest") return;
+  const profileId = String(existing?.id || "");
+  if (!profileId) return;
+
+  const recurringWhere =
+    entity === "Member" ? { member_id: profileId } : { guest_id: profileId };
+  const recurring = await store.filter("RecurringPayment", recurringWhere, undefined, 1000);
+
+  const subscriptionIds = new Set();
+  if (existing?.stripe_subscription_id) {
+    subscriptionIds.add(String(existing.stripe_subscription_id));
+  }
+  for (const rec of recurring || []) {
+    if (rec?.stripe_subscription_id) {
+      subscriptionIds.add(String(rec.stripe_subscription_id));
+    }
+  }
+
+  const customerId = existing?.stripe_customer_id
+    ? String(existing.stripe_customer_id)
+    : null;
+  if (subscriptionIds.size === 0 && !customerId) {
+    return;
+  }
+
+  const stripe = getStripe();
+
+  for (const subscriptionId of subscriptionIds) {
+    try {
+      await stripe.subscriptions.cancel(subscriptionId);
+    } catch (err) {
+      if (isStripeMissingResourceError(err)) continue;
+      throw err;
+    }
+  }
+
+  if (customerId) {
+    try {
+      await stripe.customers.del(customerId);
+    } catch (err) {
+      if (!isStripeMissingResourceError(err)) {
+        throw err;
+      }
+    }
+  }
 }
 
 function enforceUserReadScope(req, entity, where = {}) {
@@ -484,6 +539,16 @@ function createEntitiesRouter({ store }) {
 
       const [existing] = await store.filter(entity, { id }, undefined, 1);
       if (!existing) return res.status(404).json({ message: `${entity} not found` });
+      if (entity === "Member" || entity === "Guest") {
+        try {
+          await cleanupStripeForDeletedProfile({ store, entity, existing });
+        } catch (err) {
+          const status = Number(err?.status || err?.statusCode || 502);
+          return res.status(status).json({
+            message: `Failed to remove ${entity} from Stripe: ${err?.message || "Unknown Stripe error"}`,
+          });
+        }
+      }
       const deleted = await store.remove(entity, id);
       if (!deleted) return res.status(404).json({ message: `${entity} not found` });
       if (entity === "Transaction") {

@@ -1,23 +1,13 @@
 const { connectMongo } = require("./mongo");
 const { createMongoEntityStore } = require("./store.mongo");
 
-function getZonedParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(date).map((p) => [p.type, p.value]));
+function getUtcParts(date) {
   return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
   };
 }
 
@@ -25,8 +15,8 @@ function monthKeyFromParts(parts) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
 }
 
-function monthLabel(date, timeZone) {
-  return new Intl.DateTimeFormat("en-US", { timeZone, month: "short", year: "numeric" }).format(date);
+function monthLabelUtc(date) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", year: "numeric" }).format(date);
 }
 
 function monthStartIsoFromParts(parts) {
@@ -65,11 +55,10 @@ async function runMonthlyMembershipCharges() {
     return { ok: true, skipped: "no_members" };
   }
 
-  const timeZone = process.env.BILLING_TIME_ZONE || "UTC";
   const now = new Date();
-  const nowParts = getZonedParts(now, timeZone);
+  const nowParts = getUtcParts(now);
   const currentMonth = monthKeyFromParts(nowParts);
-  const label = monthLabel(now, timeZone);
+  const label = monthLabelUtc(now);
   const chargeDate = monthStartIsoFromParts(nowParts);
   let charged = 0;
   let skipped = 0;
