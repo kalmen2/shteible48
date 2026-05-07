@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check, Pencil, ChevronsUpDown } from 'lucide-react';
 import {
   format,
   startOfMonth,
@@ -41,8 +41,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
+
+const createDefaultRole = () => ({ role_name: '', payment_type: 'flexible', fixed_amount: 0 });
+
+const createDefaultEventHonors = () => [
+  {
+    name: '',
+    roles: [createDefaultRole()],
+  },
+];
+
+const normalizeEventHonors = (honors = []) => {
+  if (!Array.isArray(honors) || honors.length === 0) {
+    return createDefaultEventHonors();
+  }
+
+  return honors.map((honor) => {
+    const roles = Array.isArray(honor?.roles) ? honor.roles : [];
+    return {
+      name: honor?.name || '',
+      roles:
+        roles.length > 0
+          ? roles.map((role) => ({
+              role_name: role?.role_name || '',
+              payment_type: role?.payment_type === 'fixed' ? 'fixed' : 'flexible',
+              fixed_amount: Number(role?.fixed_amount) || 0,
+            }))
+          : [createDefaultRole()],
+    };
+  });
+};
 
 export default function Calendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -51,17 +91,22 @@ export default function Calendar() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [honorData, setHonorData] = useState({});
+  const [activeAssigneePicker, setActiveAssigneePicker] = useState(null);
   const [newEventDialogOpen, setNewEventDialogOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState(null);
   const [newEventName, setNewEventName] = useState('');
-  const [newEventHonors, setNewEventHonors] = useState([
-    { name: '', roles: [{ role_name: '', payment_type: 'flexible', fixed_amount: 0 }] },
-  ]);
+  const [newEventHonors, setNewEventHonors] = useState(createDefaultEventHonors());
 
   const queryClient = useQueryClient();
 
   const { data: members = [] } = useQuery({
     queryKey: ['members'],
     queryFn: () => base44.entities.Member.list('-full_name', 1000),
+  });
+
+  const { data: guests = [] } = useQuery({
+    queryKey: ['guests'],
+    queryFn: () => base44.entities.Guest.list('full_name', 1000),
   });
 
   const { data: customEvents = [] } = useQuery({
@@ -73,6 +118,69 @@ export default function Calendar() {
     queryKey: ['allTransactions'],
     queryFn: () => base44.entities.Transaction.listAll('-date'),
   });
+
+  const { data: allGuestTransactions = [] } = useQuery({
+    queryKey: ['guestTransactions'],
+    queryFn: () => base44.entities.GuestTransaction.listAll('-date'),
+  });
+
+  const peopleOptions = [
+    ...members.map((member) => ({
+      key: `member:${member.id}`,
+      id: member.id,
+      type: 'member',
+      displayName:
+        member.full_name ||
+        member.english_name ||
+        member.hebrew_name ||
+        member.member_id ||
+        'Unnamed member',
+      searchText: [
+        member.full_name,
+        member.english_name,
+        member.hebrew_name,
+        member.email,
+        member.member_id,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    })),
+    ...guests.map((guest) => ({
+      key: `guest:${guest.id}`,
+      id: guest.id,
+      type: 'guest',
+      displayName: guest.full_name || guest.email || guest.phone || 'Unnamed guest',
+      searchText: [guest.full_name, guest.email, guest.phone].filter(Boolean).join(' '),
+    })),
+  ].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
+
+  const peopleByKey = peopleOptions.reduce((acc, person) => {
+    acc[person.key] = person;
+    return acc;
+  }, {});
+
+  const memberOptions = peopleOptions.filter((person) => person.type === 'member');
+  const guestOptions = peopleOptions.filter((person) => person.type === 'guest');
+
+  const transactionsForSelectedDate = selectedDate
+    ? [
+        ...allTransactions.filter((transaction) => transaction.date === selectedDate),
+        ...allGuestTransactions.filter((transaction) => transaction.date === selectedDate),
+      ]
+    : [];
+
+  const transactionCountByDate = useMemo(() => {
+    const counts = {};
+    for (const transaction of allTransactions) {
+      if (!transaction?.date) continue;
+      counts[transaction.date] = (counts[transaction.date] || 0) + 1;
+    }
+    for (const transaction of allGuestTransactions) {
+      if (!transaction?.date) continue;
+      counts[transaction.date] = (counts[transaction.date] || 0) + 1;
+    }
+    return counts;
+  }, [allTransactions, allGuestTransactions]);
 
   const currentYear = currentMonth.getFullYear();
   const currentMonthNum = currentMonth.getMonth();
@@ -160,13 +268,15 @@ export default function Calendar() {
         const role = honor?.roles[roleIndex];
         const rawAmount = data.amount ?? (role?.payment_type === 'fixed' ? role.fixed_amount : '');
         const amount = Number(rawAmount);
-        if (data.memberId && Number.isFinite(amount) && amount > 0) {
-          const member = members.find((m) => m.id === data.memberId);
+        const assigneeKey = data.assigneeKey || data.memberId || '';
+        const assignee = peopleByKey[assigneeKey];
+        if (assignee && Number.isFinite(amount) && amount > 0) {
           transactions.push({
             honor: honorName,
             role: role?.role_name || '',
-            memberId: data.memberId,
-            memberName: member?.full_name || '',
+            assigneeType: assignee.type,
+            assigneeId: assignee.id,
+            assigneeName: assignee.displayName,
             amount,
           });
         }
@@ -178,7 +288,25 @@ export default function Calendar() {
     }
   };
 
-  const handleCreateEvent = (e) => {
+  const resetEventForm = () => {
+    setEditingEventId(null);
+    setNewEventName('');
+    setNewEventHonors(createDefaultEventHonors());
+  };
+
+  const openCreateEventDialog = () => {
+    resetEventForm();
+    setNewEventDialogOpen(true);
+  };
+
+  const handleEventDialogOpenChange = (open) => {
+    setNewEventDialogOpen(open);
+    if (!open) {
+      resetEventForm();
+    }
+  };
+
+  const handleSubmitEvent = (e) => {
     e.preventDefault();
     const filteredHonors = newEventHonors
       .filter((h) => h.name.trim() !== '' && h.roles.some((r) => r.role_name.trim() !== ''))
@@ -187,13 +315,23 @@ export default function Calendar() {
         roles: h.roles.filter((r) => r.role_name.trim() !== ''),
       }));
 
-    if (newEventName.trim() && filteredHonors.length > 0) {
-      createEventMutation.mutate({
-        name: newEventName.trim(),
-        honors: filteredHonors,
-        is_custom: true,
-      });
+    const trimmedName = newEventName.trim();
+    if (!trimmedName || filteredHonors.length === 0) {
+      return;
     }
+
+    const payload = {
+      name: trimmedName,
+      honors: filteredHonors,
+      is_custom: true,
+    };
+
+    if (editingEventId) {
+      updateEventMutation.mutate({ eventId: editingEventId, eventData: payload });
+      return;
+    }
+
+    createEventMutation.mutate(payload);
   };
 
   const selectedEventData = selectedEvent
@@ -206,10 +344,24 @@ export default function Calendar() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
       setNewEventDialogOpen(false);
-      setNewEventName('');
-      setNewEventHonors([
-        { name: '', roles: [{ role_name: '', payment_type: 'flexible', fixed_amount: 0 }] },
-      ]);
+      resetEventForm();
+    },
+    onError: (error) => {
+      alert(error?.message || 'Failed to create event. Please try again.');
+    },
+  });
+
+  const updateEventMutation = useMutation({
+    mutationFn: ({ eventId, eventData }) => base44.entities.InputType.update(eventId, eventData),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['inputTypes'] });
+      setSelectedEvent(variables.eventData.name);
+      setHonorData({});
+      setNewEventDialogOpen(false);
+      resetEventForm();
+    },
+    onError: (error) => {
+      alert(error?.message || 'Failed to update event. Please try again.');
     },
   });
 
@@ -227,15 +379,33 @@ export default function Calendar() {
     },
   });
 
+  const isSavingEvent = createEventMutation.isPending || updateEventMutation.isPending;
+
   const saveTransactionsMutation = useMutation({
     mutationFn: async (transactions) => {
       for (const transaction of transactions) {
+        const description = `${selectedEvent} - ${transaction.honor}${transaction.role ? ` (${transaction.role})` : ''}`;
+        const amount = parseFloat(transaction.amount);
+
+        if (transaction.assigneeType === 'guest') {
+          await base44.entities.GuestTransaction.create({
+            guest_id: transaction.assigneeId,
+            guest_name: transaction.assigneeName,
+            type: 'charge',
+            description,
+            amount,
+            date: selectedDate,
+            category: selectedEvent,
+          });
+          continue;
+        }
+
         await base44.entities.Transaction.create({
-          member_id: transaction.memberId,
-          member_name: transaction.memberName,
+          member_id: transaction.assigneeId,
+          member_name: transaction.assigneeName,
           type: 'charge',
-          description: `${selectedEvent} - ${transaction.honor}${transaction.role ? ` (${transaction.role})` : ''}`,
-          amount: parseFloat(transaction.amount),
+          description,
+          amount,
           date: selectedDate,
           category: selectedEvent,
         });
@@ -243,10 +413,13 @@ export default function Calendar() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      queryClient.invalidateQueries({ queryKey: ['guests'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['allTransactions'] });
+      queryClient.invalidateQueries({ queryKey: ['guestTransactions'] });
       setHonorData({});
       setSelectedEvent('');
+      setActiveAssigneePicker(null);
     },
   });
 
@@ -259,28 +432,34 @@ export default function Calendar() {
   const weekdayLabels = calendarMode === 'hebrew' ? hebrewWeekdays : englishWeekdays;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <Card className="border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-gradient-to-r from-blue-900 to-blue-800 text-white">
-            <div className="mb-4 flex justify-center">
-              <div className="inline-flex rounded-lg bg-blue-800 p-1">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_15%_15%,rgba(125,211,252,0.22),transparent_35%),radial-gradient(circle_at_85%_5%,rgba(56,189,248,0.18),transparent_30%),linear-gradient(135deg,#f8fafc_0%,#eef2ff_48%,#e2e8f0_100%)]">
+      <div className="mx-auto max-w-7xl px-4 py-4 md:px-6 md:py-5">
+        <Card className="overflow-hidden rounded-3xl border border-slate-200/70 bg-white/80 shadow-[0_22px_56px_rgba(15,23,42,0.14)] backdrop-blur-md">
+          <CardHeader className="relative overflow-hidden border-b border-sky-200/30 bg-gradient-to-br from-slate-950 via-blue-900 to-cyan-800 p-4 text-white md:p-5">
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute -top-24 right-12 h-52 w-52 rounded-full bg-cyan-300/25 blur-3xl" />
+              <div className="absolute bottom-[-120px] left-[-40px] h-64 w-64 rounded-full bg-blue-300/20 blur-3xl" />
+            </div>
+
+            <div className="relative z-10">
+              <div className="mb-3 flex justify-center">
+                <div className="inline-flex rounded-2xl border border-white/20 bg-white/10 p-1 backdrop-blur">
                 <button
                   onClick={() => setCalendarMode('english')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all md:text-sm ${
                     calendarMode === 'english'
-                      ? 'bg-white text-blue-900 shadow-sm'
-                      : 'text-blue-100 hover:text-white'
+                      ? 'bg-white text-blue-950 shadow-sm'
+                      : 'text-blue-100/90 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   English Calendar
                 </button>
                 <button
                   onClick={() => setCalendarMode('hebrew')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                  className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all md:text-sm ${
                     calendarMode === 'hebrew'
-                      ? 'bg-white text-blue-900 shadow-sm'
-                      : 'text-blue-100 hover:text-white'
+                      ? 'bg-white text-blue-950 shadow-sm'
+                      : 'text-blue-100/90 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   Hebrew Calendar
@@ -288,24 +467,24 @@ export default function Calendar() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between gap-3">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 text-white hover:bg-blue-800 flex-shrink-0"
+                className="h-9 w-9 flex-shrink-0 rounded-xl border border-white/20 bg-white/10 text-white hover:bg-white/20"
                 onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
               >
-                <ChevronLeft className="h-5 w-5" />
+                <ChevronLeft className="h-4 w-4" />
               </Button>
 
               {calendarMode === 'english' ? (
-                <div className="flex items-center gap-3 flex-1 justify-center">
+                <div className="flex flex-1 items-center justify-center gap-2.5">
                   <select
                     value={currentMonthNum}
                     onChange={(e) =>
                       setCurrentMonth(new Date(currentYear, parseInt(e.target.value), 1))
                     }
-                    className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
+                    className="cursor-pointer rounded-xl border border-white/25 bg-white/15 px-3 py-1.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
                   >
                     {months.map((month, idx) => (
                       <option key={idx} value={idx} className="bg-blue-900">
@@ -319,7 +498,7 @@ export default function Calendar() {
                     onChange={(e) =>
                       setCurrentMonth(new Date(parseInt(e.target.value), currentMonthNum, 1))
                     }
-                    className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
+                    className="cursor-pointer rounded-xl border border-white/25 bg-white/15 px-3 py-1.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
                   >
                     {years.map((year) => (
                       <option key={year} value={year} className="bg-blue-900">
@@ -328,12 +507,12 @@ export default function Calendar() {
                     ))}
                   </select>
 
-                  <div className="text-blue-100 text-sm ml-2">
+                  <div className="ml-1 text-xs text-blue-100/90 md:text-sm">
                     ({currentHebrewDate.month} {currentHebrewDate.year})
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 flex-1 justify-center">
+                <div className="flex flex-1 items-center justify-center gap-2.5">
                   <select
                     value={currentHebrewDate.monthNum}
                     onChange={(e) => {
@@ -344,7 +523,7 @@ export default function Calendar() {
                       );
                       setCurrentMonth(newDate);
                     }}
-                    className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
+                    className="cursor-pointer rounded-xl border border-white/25 bg-white/15 px-3 py-1.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
                   >
                     {hebrewMonthsList.map((month, idx) => (
                       <option key={idx} value={idx + 1} className="bg-blue-900">
@@ -363,7 +542,7 @@ export default function Calendar() {
                       );
                       setCurrentMonth(newDate);
                     }}
-                    className="px-4 py-2 border border-blue-700 rounded-lg font-medium bg-blue-800 text-white hover:bg-blue-700 cursor-pointer"
+                    className="cursor-pointer rounded-xl border border-white/25 bg-white/15 px-3 py-1.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
                   >
                     {hebrewYears.map((year) => (
                       <option key={year} value={year} className="bg-blue-900">
@@ -372,7 +551,7 @@ export default function Calendar() {
                     ))}
                   </select>
 
-                  <div className="text-blue-100 text-sm ml-2">
+                  <div className="ml-1 text-xs text-blue-100/90 md:text-sm">
                     ({format(currentMonth, 'MMM yyyy')})
                   </div>
                 </div>
@@ -381,27 +560,28 @@ export default function Calendar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 text-white hover:bg-blue-800 flex-shrink-0"
+                className="h-9 w-9 flex-shrink-0 rounded-xl border border-white/20 bg-white/10 text-white hover:bg-white/20"
                 onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
               >
-                <ChevronRight className="h-5 w-5" />
+                <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+            </div>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="p-5 md:p-6">
             <>
-              <div className="grid grid-cols-7 gap-2 mb-4">
+              <div className="mb-3 grid grid-cols-7 gap-1.5">
                 {weekdayLabels.map((day, i) => (
                   <div
                     key={i}
-                    className={`text-center font-semibold py-3 ${i === 6 ? 'text-blue-900' : 'text-slate-700'}`}
+                    className={`rounded-lg py-2.5 text-center text-xs font-semibold tracking-wide ${i === 6 ? 'bg-blue-100 text-blue-900' : 'bg-slate-100/80 text-slate-700'}`}
                   >
                     {day}
                   </div>
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-1.5">
                 {days.map((day, i) => {
                   const isCurrentMonth = isSameMonth(day, currentMonth);
                   const isToday = isSameDay(day, new Date());
@@ -412,6 +592,7 @@ export default function Calendar() {
                   const dateKey = format(day, 'yyyy-MM-dd');
                   const parsha = isSaturday ? parshaMap[dateKey] : null;
                   const holidayNames = holidayMap[dateKey];
+                  const dayTransactionCount = transactionCountByDate[dateKey] || 0;
 
                   return (
                     <button
@@ -419,14 +600,14 @@ export default function Calendar() {
                       onClick={() => handleDateClick(day)}
                       disabled={!isCurrentMonth}
                       className={`
-                        min-h-[120px] p-3 rounded-lg border-2 transition-all
+                        min-h-[96px] rounded-xl border p-3 transition-all duration-200 md:min-h-[104px]
                         flex flex-col items-start justify-between
-                        ${!isCurrentMonth ? 'bg-slate-50 border-slate-100 opacity-40 cursor-not-allowed' : 'bg-white border-slate-200'}
-                        ${isCurrentMonth ? 'hover:border-blue-500 hover:shadow-md cursor-pointer' : ''}
-                        ${isSelected ? 'border-blue-600 bg-blue-50' : ''}
-                        ${isToday && !isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500' : ''}
-                        ${isSaturday && isCurrentMonth ? 'bg-blue-50 border-blue-300' : ''}
-                        ${isFriday && isCurrentMonth ? 'bg-blue-50/50' : ''}
+                        ${!isCurrentMonth ? 'cursor-not-allowed border-slate-200/60 bg-slate-100/70 opacity-35' : 'cursor-pointer border-slate-200 bg-white/90 shadow-sm'}
+                        ${isCurrentMonth ? 'hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-100/70' : ''}
+                        ${isSelected ? 'border-blue-600 bg-gradient-to-b from-blue-50 to-cyan-50 shadow-lg shadow-blue-100/60' : ''}
+                        ${isToday && !isSelected ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-400/80' : ''}
+                        ${isSaturday && isCurrentMonth ? 'border-blue-300 bg-blue-50/85' : ''}
+                        ${isFriday && isCurrentMonth ? 'bg-sky-50/80' : ''}
                       `}
                     >
                       <div className="flex flex-col items-start w-full">
@@ -441,9 +622,14 @@ export default function Calendar() {
                         >
                           {format(day, 'd')}
                         </span>
-                        <span className="text-xs text-slate-500 mt-1">
+                        <span className="mt-1 text-xs text-slate-500">
                           {hebrewDay.dayHebrew || hebrewDay.day} {hebrewDay.month}
                         </span>
+                        {isCurrentMonth && dayTransactionCount > 0 && (
+                          <span className="mt-1 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
+                            {dayTransactionCount} tx
+                          </span>
+                        )}
                       </div>
                       {isSaturday && isCurrentMonth && parsha && (
                         <div className="flex flex-col items-start">
@@ -451,7 +637,7 @@ export default function Calendar() {
                         </div>
                       )}
                       {isCurrentMonth && holidayNames?.length ? (
-                        <div className="mt-2 text-[10px] text-amber-700 font-semibold line-clamp-2 text-left">
+                        <div className="mt-1.5 rounded-md bg-amber-50/80 px-1.5 py-0.5 text-left text-[10px] font-semibold text-amber-700 line-clamp-2">
                           {holidayNames.join(', ')}
                         </div>
                       ) : null}
@@ -465,12 +651,12 @@ export default function Calendar() {
 
 
         {/* Transaction Dialog */}
-        <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
-          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>הוספת עסקאות</DialogTitle>
+        <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen} modal={false}>
+          <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto rounded-3xl border border-slate-200/80 bg-white/95 shadow-2xl shadow-slate-300/30">
+            <DialogHeader className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+              <DialogTitle className="text-xl font-bold text-slate-900">Add Transactions</DialogTitle>
               {selectedDateObj && (
-                <DialogDescription>
+                <DialogDescription className="text-slate-600">
                   {format(selectedDateObj, 'MMMM d, yyyy')} • {format(selectedDateObj, 'EEEE')}
                   {selectedWeekParsha ? ` - ${selectedWeekParsha}` : ''}
                 </DialogDescription>
@@ -482,57 +668,79 @@ export default function Calendar() {
               </div>
 
               {/* Event Selection */}
-              <div className="mb-6 space-y-4">
+              <div className="mb-6 space-y-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <Label className="text-lg font-semibold">בחירת אירוע</Label>
+                  <Label className="text-lg font-semibold">Event Selection</Label>
                   <div className="flex items-center gap-2">
                     {selectedEventData && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const ok = window.confirm(`למחוק את האירוע "${selectedEventData.name}"?`);
-                          if (!ok) return;
-                          deleteEventMutation.mutate(selectedEventData.id);
-                        }}
-                        className="text-red-600 hover:text-red-700"
-                        disabled={deleteEventMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        {deleteEventMutation.isPending ? 'מוחק...' : 'מחיקת אירוע'}
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingEventId(selectedEventData.id);
+                            setNewEventName(selectedEventData.name || '');
+                            setNewEventHonors(normalizeEventHonors(selectedEventData.honors));
+                            setNewEventDialogOpen(true);
+                          }}
+                          disabled={deleteEventMutation.isPending || isSavingEvent}
+                        >
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Edit Event
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const ok = window.confirm(
+                              `Delete the event "${selectedEventData.name}"?`
+                            );
+                            if (!ok) return;
+                            deleteEventMutation.mutate(selectedEventData.id);
+                          }}
+                          className="text-red-600 hover:text-red-700"
+                          disabled={deleteEventMutation.isPending || isSavingEvent}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          {deleteEventMutation.isPending ? 'Deleting...' : 'Delete Event'}
+                        </Button>
+                      </>
                     )}
-                    <Dialog open={newEventDialogOpen} onOpenChange={setNewEventDialogOpen}>
+                    <Dialog open={newEventDialogOpen} onOpenChange={handleEventDialogOpenChange}>
                       <Button
-                        onClick={() => setNewEventDialogOpen(true)}
+                        onClick={openCreateEventDialog}
                         className="bg-blue-900 hover:bg-blue-800"
                         size="sm"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        הוספת סוג אירוע
+                        Add Event Type
                       </Button>
                       <DialogContent className="max-w-2xl">
                         <div style={{maxHeight: '70vh', overflowY: 'auto'}}>
                         <DialogHeader>
-                          <DialogTitle>יצירת סוג אירוע חדש</DialogTitle>
+                          <DialogTitle>
+                            {editingEventId ? 'Edit Event Type' : 'Create New Event Type'}
+                          </DialogTitle>
                           <DialogDescription>
-                            הגדירו שם אירוע ואת הכיבודים/תפקידים שלו.
+                            {editingEventId
+                              ? 'Update the event name and its honors/roles.'
+                              : 'Define an event name and its honors/roles.'}
                           </DialogDescription>
                         </DialogHeader>
-                        <form onSubmit={handleCreateEvent} className="space-y-6">
+                        <form onSubmit={handleSubmitEvent} className="space-y-6">
                           <div className="space-y-2">
-                            <Label htmlFor="eventName">שם האירוע *</Label>
+                            <Label htmlFor="eventName">Event Name *</Label>
                             <Input
                               id="eventName"
                               value={newEventName}
                               onChange={(e) => setNewEventName(e.target.value)}
-                              placeholder="לדוגמה: חנוכה, בר מצווה וכו׳"
+                              placeholder="e.g., Chanukah, Bar Mitzvah, etc."
                               required
                               className="h-11"
                             />
                           </div>
                           <div className="space-y-3">
-                            <Label>כיבודים ותפקידים *</Label>
+                            <Label>Honor Options and Roles *</Label>
                             {newEventHonors.map((honor, honorIndex) => (
                               <div
                                 key={honorIndex}
@@ -546,7 +754,7 @@ export default function Calendar() {
                                       updated[honorIndex].name = e.target.value;
                                       setNewEventHonors(updated);
                                     }}
-                                    placeholder={`שם כיבוד ${honorIndex + 1}`}
+                                    placeholder={`Honor ${honorIndex + 1}`}
                                     className="h-11 flex-1"
                                   />
                                   {newEventHonors.length > 1 && (
@@ -567,7 +775,7 @@ export default function Calendar() {
                                 </div>
 
                                 <div className="space-y-2 pl-4 border-l-2 border-blue-200">
-                                  <Label className="text-sm text-slate-600">תפקידים</Label>
+                                  <Label className="text-sm text-slate-600">Roles</Label>
                                   {honor.roles.map((role, roleIndex) => (
                                     <div key={roleIndex} className="flex gap-2 items-end">
                                       <div className="flex-1">
@@ -579,7 +787,7 @@ export default function Calendar() {
                                               e.target.value;
                                             setNewEventHonors(updated);
                                           }}
-                                          placeholder="תפקיד (למשל: קונה, מקבל)"
+                                          placeholder="Role (e.g., Buyer, Recipient)"
                                           className="h-10"
                                         />
                                       </div>
@@ -595,8 +803,8 @@ export default function Calendar() {
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                          <SelectItem value="flexible">גמיש</SelectItem>
-                                          <SelectItem value="fixed">קבוע</SelectItem>
+                                          <SelectItem value="flexible">Flexible</SelectItem>
+                                          <SelectItem value="fixed">Fixed</SelectItem>
                                         </SelectContent>
                                       </Select>
                                       {role.payment_type === 'fixed' && (
@@ -610,7 +818,7 @@ export default function Calendar() {
                                               parseFloat(e.target.value) || 0;
                                             setNewEventHonors(updated);
                                           }}
-                                          placeholder="סכום"
+                                          placeholder="Amount"
                                           className="h-10 w-24"
                                         />
                                       )}
@@ -649,7 +857,7 @@ export default function Calendar() {
                                     className="w-full border-dashed"
                                   >
                                     <Plus className="w-3 h-3 mr-2" />
-                                    הוספת תפקיד
+                                    Add Role
                                   </Button>
                                 </div>
                               </div>
@@ -671,19 +879,27 @@ export default function Calendar() {
                               className="w-full border-dashed"
                             >
                               <Plus className="w-4 h-4 mr-2" />
-                              הוספת כיבוד נוסף
+                              Add Another Honor
                             </Button>
                           </div>
                           <div className="flex justify-end gap-3">
                             <Button
                               type="button"
                               variant="outline"
-                              onClick={() => setNewEventDialogOpen(false)}
+                              onClick={() => handleEventDialogOpenChange(false)}
                             >
-                              ביטול
+                              Cancel
                             </Button>
-                            <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                              יצירת אירוע
+                            <Button
+                              type="submit"
+                              className="bg-blue-900 hover:bg-blue-800"
+                              disabled={isSavingEvent}
+                            >
+                              {isSavingEvent
+                                ? 'Saving...'
+                                : editingEventId
+                                  ? 'Save Changes'
+                                  : 'Create Event'}
                             </Button>
                           </div>
                         </form>
@@ -700,13 +916,13 @@ export default function Calendar() {
                     setHonorData({});
                   }}
                 >
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="בחרו אירוע..." />
+                  <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white shadow-sm">
+                    <SelectValue placeholder="Choose an event..." />
                   </SelectTrigger>
                   <SelectContent>
                     {customEvents.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-slate-500">
-                        עדיין אין אירועים. צרו אירוע ראשון כדי להתחיל.
+                        No events yet. Create your first event to get started.
                       </div>
                     ) : (
                       customEvents.map((event) => (
@@ -721,32 +937,40 @@ export default function Calendar() {
 
               {/* Honors Table */}
               {selectedEvent && currentHonors.length > 0 && (
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
-                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
-                    <h3 className="font-semibold text-slate-900">{selectedEvent} - כיבודים</h3>
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3">
+                    <h3 className="font-semibold text-slate-900">{selectedEvent} - Honors</h3>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
+                      <thead className="border-b border-slate-200 bg-slate-50/80">
                         <tr>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            כיבוד
+                            Honor
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            תפקיד
+                            Role
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            חבר
+                            Person
                           </th>
                           <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                            סכום
+                            Amount
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100/90">
                         {currentHonors.map((honor) =>
-                          honor.roles.map((role, roleIndex) => (
-                            <tr key={`${honor.name}-${roleIndex}`}>
+                          honor.roles.map((role, roleIndex) => {
+                            const rowKey = `${honor.name}-${roleIndex}`;
+                            const selectedAssigneeKey =
+                              honorData[honor.name]?.[roleIndex]?.assigneeKey ||
+                              honorData[honor.name]?.[roleIndex]?.memberId ||
+                              '';
+                            const selectedAssignee = peopleByKey[selectedAssigneeKey];
+
+                            return (
+                              <tr key={rowKey}>
                               {roleIndex === 0 && (
                                 <td
                                   className="py-3 px-4 font-medium text-slate-900"
@@ -760,29 +984,98 @@ export default function Calendar() {
                                   <span>{role.role_name}</span>
                                   {role.payment_type === 'fixed' && (
                                     <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                                      קבוע: ${role.fixed_amount}
+                                      Fixed: ${role.fixed_amount}
                                     </span>
                                   )}
                                 </div>
                               </td>
                               <td className="py-3 px-4">
-                                <Select
-                                  value={honorData[honor.name]?.[roleIndex]?.memberId || ''}
-                                  onValueChange={(value) =>
-                                    handleHonorChange(honor.name, roleIndex, 'memberId', value)
+                                <Popover
+                                  open={activeAssigneePicker === rowKey}
+                                  onOpenChange={(open) =>
+                                    setActiveAssigneePicker(open ? rowKey : null)
                                   }
                                 >
-                                  <SelectTrigger className="h-10">
-                                    <SelectValue placeholder="בחרו חבר..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {members.map((member) => (
-                                      <SelectItem key={member.id} value={member.id}>
-                                        {member.full_name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={activeAssigneePicker === rowKey}
+                                      className="h-10 w-full justify-between font-normal"
+                                    >
+                                      <span className="truncate">
+                                        {selectedAssignee ? selectedAssignee.displayName : 'Select person...'}
+                                      </span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] rounded-xl border-slate-200 p-0 shadow-lg" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Type a name..." />
+                                      <CommandList>
+                                        <CommandEmpty>No person found.</CommandEmpty>
+                                        {memberOptions.length > 0 && (
+                                          <CommandGroup heading="Members">
+                                            {memberOptions.map((person) => (
+                                              <CommandItem
+                                                key={person.key}
+                                                value={`${person.displayName} ${person.searchText} member`}
+                                                onSelect={() => {
+                                                  handleHonorChange(
+                                                    honor.name,
+                                                    roleIndex,
+                                                    'assigneeKey',
+                                                    person.key
+                                                  );
+                                                  setActiveAssigneePicker(null);
+                                                }}
+                                              >
+                                                <Check
+                                                  className={cn(
+                                                    'mr-2 h-4 w-4',
+                                                    selectedAssigneeKey === person.key
+                                                      ? 'opacity-100'
+                                                      : 'opacity-0'
+                                                  )}
+                                                />
+                                                <span className="truncate">{person.displayName}</span>
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        )}
+                                        {guestOptions.length > 0 && (
+                                          <CommandGroup heading="Guests">
+                                            {guestOptions.map((person) => (
+                                              <CommandItem
+                                                key={person.key}
+                                                value={`${person.displayName} ${person.searchText} guest`}
+                                                onSelect={() => {
+                                                  handleHonorChange(
+                                                    honor.name,
+                                                    roleIndex,
+                                                    'assigneeKey',
+                                                    person.key
+                                                  );
+                                                  setActiveAssigneePicker(null);
+                                                }}
+                                              >
+                                                <Check
+                                                  className={cn(
+                                                    'mr-2 h-4 w-4',
+                                                    selectedAssigneeKey === person.key
+                                                      ? 'opacity-100'
+                                                      : 'opacity-0'
+                                                  )}
+                                                />
+                                                <span className="truncate">{person.displayName}</span>
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        )}
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
                               </td>
                               <td className="py-3 px-4">
                                 <Input
@@ -809,8 +1102,9 @@ export default function Calendar() {
                                   readOnly={role.payment_type === 'fixed'}
                                 />
                               </td>
-                            </tr>
-                          ))
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -821,10 +1115,10 @@ export default function Calendar() {
                       disabled={
                         Object.keys(honorData).length === 0 || saveTransactionsMutation.isPending
                       }
-                      className="w-full h-11 bg-blue-900 hover:bg-blue-800"
+                      className="h-11 w-full rounded-xl bg-blue-900 hover:bg-blue-800"
                     >
                       <Check className="w-5 h-5 mr-2" />
-                      {saveTransactionsMutation.isPending ? 'שומר...' : 'שמירת כל העסקאות'}
+                      {saveTransactionsMutation.isPending ? 'Saving...' : 'Save All Transactions'}
                     </Button>
                   </div>
                 </div>
@@ -834,31 +1128,30 @@ export default function Calendar() {
               {selectedDate && (
                 <div className="mt-6 pt-6 border-t border-slate-200">
                   <h3 className="text-lg font-semibold text-slate-900 mb-3">
-                    עסקאות בתאריך זה
+                    Transactions on this date
                   </h3>
-                  {allTransactions.filter((t) => t.date === selectedDate).length === 0 ? (
-                    <div className="p-4 bg-slate-50 rounded-lg text-slate-500 text-center">
-                      עדיין לא נרשמו עסקאות בתאריך זה
+                  {transactionsForSelectedDate.length === 0 ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-center text-slate-500">
+                      No transactions recorded for this date yet.
                     </div>
                   ) : (
-                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                       <table className="w-full">
-                        <thead className="bg-slate-50 border-b border-slate-200">
+                        <thead className="border-b border-slate-200 bg-slate-50/80">
                           <tr>
                             <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                              אירוע/כיבוד
+                              Event/Honor
                             </th>
                             <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700">
-                              חבר
+                              Person
                             </th>
                             <th className="text-right py-3 px-4 text-sm font-semibold text-slate-700">
-                              סכום
+                              Amount
                             </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {allTransactions
-                            .filter((t) => t.date === selectedDate)
+                          {transactionsForSelectedDate
                             .map((transaction) => (
                               <tr key={transaction.id} className="hover:bg-slate-50">
                                 <td className="py-3 px-4">
@@ -872,7 +1165,7 @@ export default function Calendar() {
                                   )}
                                 </td>
                                 <td className="py-3 px-4 text-slate-700">
-                                  {transaction.member_name}
+                                  {transaction.member_name || transaction.guest_name || '-'}
                                 </td>
                                 <td className="py-3 px-4 text-right">
                                   <span
@@ -891,8 +1184,8 @@ export default function Calendar() {
               )}
 
               {!selectedEvent && (
-                <div className="py-8 text-center text-slate-500 border-t border-slate-200 mt-4">
-                  <p>בחרו אירוע למעלה כדי להוסיף עסקאות חדשות</p>
+                <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 py-8 text-center text-slate-500">
+                  <p>Select an event above to add new transactions</p>
                 </div>
               )}
             </div>

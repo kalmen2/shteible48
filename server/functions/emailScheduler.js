@@ -18,18 +18,37 @@ function getZonedParts(date, timeZone) {
     minute: "2-digit",
     hour12: false,
   });
+  const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  });
   const parts = Object.fromEntries(formatter.formatToParts(date).map((p) => [p.type, p.value]));
+  const weekdayName = weekdayFormatter.format(date);
+  const weekdayMap = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
   return {
     year: Number(parts.year),
     month: Number(parts.month),
     day: Number(parts.day),
     hour: Number(parts.hour),
     minute: Number(parts.minute),
+    weekday: weekdayMap[weekdayName] ?? 0,
   };
 }
 
 function monthKeyFromParts(parts) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+}
+
+function dayKeyFromParts(parts) {
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function daysInMonth(year, month) {
@@ -38,11 +57,14 @@ function daysInMonth(year, month) {
 
 function normalizeSchedule(schedule) {
   if (!schedule) return null;
+  const frequency = schedule.frequency === "weekly" ? "weekly" : "monthly";
   return {
     id: schedule.id,
     name: schedule.name ? String(schedule.name) : "",
     enabled: Boolean(schedule.enabled),
+    frequency,
     day_of_month: Number(schedule.day_of_month ?? 1),
+    day_of_week: Number(schedule.day_of_week ?? 1),
     hour: Number(schedule.hour ?? 9),
     minute: Number(schedule.minute ?? 0),
     time_zone: String(schedule.time_zone || "America/New_York"),
@@ -53,6 +75,7 @@ function normalizeSchedule(schedule) {
     attach_invoice: Boolean(schedule.attach_invoice),
     center_body: Boolean(schedule.center_body),
     last_sent_month: schedule.last_sent_month ? String(schedule.last_sent_month) : null,
+    last_sent_period: schedule.last_sent_period ? String(schedule.last_sent_period) : null,
   };
 }
 
@@ -216,15 +239,27 @@ async function runMonthlyEmailScheduler() {
     const schedule = normalizeSchedule(record);
     if (!schedule || !schedule.enabled) continue;
     const nowParts = getZonedParts(new Date(), schedule.time_zone);
+    if (nowParts.hour !== schedule.hour || nowParts.minute !== schedule.minute) continue;
+
+    if (schedule.frequency === "weekly") {
+      const targetWeekday = Math.max(0, Math.min(6, Number(schedule.day_of_week ?? 1)));
+      if (nowParts.weekday !== targetWeekday) continue;
+      const dayKey = dayKeyFromParts(nowParts);
+      const periodKey = `weekly:${dayKey}`;
+      if (schedule.last_sent_period === periodKey) continue;
+      dueSchedules.push({ schedule, monthlyKey: null, periodKey });
+      continue;
+    }
+
     const targetDay = Math.min(schedule.day_of_month, daysInMonth(nowParts.year, nowParts.month));
-    if (nowParts.day !== targetDay || nowParts.hour !== schedule.hour || nowParts.minute !== schedule.minute) {
-      continue;
-    }
+    if (nowParts.day !== targetDay) continue;
+
     const currentMonth = monthKeyFromParts(nowParts);
-    if (schedule.last_sent_month === currentMonth) {
+    const periodKey = `monthly:${currentMonth}`;
+    if (schedule.last_sent_month === currentMonth || schedule.last_sent_period === periodKey) {
       continue;
     }
-    dueSchedules.push({ schedule, currentMonth });
+    dueSchedules.push({ schedule, monthlyKey: currentMonth, periodKey });
   }
 
   if (!dueSchedules.length) {
@@ -233,9 +268,7 @@ async function runMonthlyEmailScheduler() {
 
   const members = await store.list("Member", "-created_date", 10000);
   const guests = await store.list("Guest", "-created_date", 10000);
-  const plans = await store.list("MembershipPlan", "-created_date", 1);
   const templates = await store.list("StatementTemplate", "-created_date", 1);
-  const currentPlan = plans[0];
   const activeTemplate = templates[0];
   let sent = 0;
   let skippedNoEmail = 0;
@@ -243,7 +276,7 @@ async function runMonthlyEmailScheduler() {
 
   for (const entry of dueSchedules) {
     const schedule = entry.schedule;
-    const currentMonth = entry.currentMonth;
+    const monthlyKey = entry.monthlyKey;
     const selected = normalizeSelectedIds(schedule.selected_member_ids);
     const recipients =
       schedule.send_to === "selected"
@@ -251,7 +284,7 @@ async function runMonthlyEmailScheduler() {
             ...members.filter((m) => selected.memberIds.has(m.id)),
             ...guests.filter((g) => selected.guestIds.has(g.id)),
           ]
-        : members;
+        : [...members, ...guests];
 
     for (const record of recipients) {
       if (!record.email) {
@@ -297,7 +330,7 @@ async function runMonthlyEmailScheduler() {
           memberName: record.full_name || record.english_name || record.hebrew_name || "Member",
           memberId: record.member_id || record.id,
           balance: balanceValue,
-          statementDate: currentMonth,
+          statementDate: monthlyKey || dayKeyFromParts(getZonedParts(new Date(), schedule.time_zone)),
           note: "This statement reflects your current balance and transaction history.",
           template: activeTemplate,
           charges,
@@ -331,7 +364,11 @@ async function runMonthlyEmailScheduler() {
       }
     }
 
-    await store.update("EmailSchedule", schedule.id, { last_sent_month: currentMonth });
+    const updatePayload = { last_sent_period: entry.periodKey };
+    if (monthlyKey) {
+      updatePayload.last_sent_month = monthlyKey;
+    }
+    await store.update("EmailSchedule", schedule.id, updatePayload);
   }
 
   return { ok: true, sent, skippedNoEmail, failed, schedules: dueSchedules.length };

@@ -9,6 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileText, Save, Eye, DollarSign } from 'lucide-react';
 import { toast } from 'sonner';
 
+const sectionTitleClass =
+  'border-b border-slate-200 pb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500';
+
 export default function Settings() {
   const queryClient = useQueryClient();
 
@@ -93,8 +96,14 @@ export default function Settings() {
 
   const handleSaveMonthlyAmount = (e) => {
     e.preventDefault();
+    const amount = parseFloat(monthlyAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a valid monthly amount.');
+      return;
+    }
+
     createPlanMutation.mutate({
-      standard_amount: parseFloat(monthlyAmount),
+      standard_amount: amount,
       is_active: true,
     });
   };
@@ -103,7 +112,7 @@ export default function Settings() {
     const printWindow = window.open('', '', 'height=800,width=800');
     printWindow.document.write('<html><head><title>Statement Preview</title>');
     printWindow.document.write(
-      '<style>@media print { @page { margin: 0.5in; } } body { font-family: Arial, sans-serif; }</style>'
+      '<style>@media print { @page { margin: 0.5in; } } body { font-family: Cambria, Georgia, serif; background:#f8fafc; }</style>'
     );
     printWindow.document.write('</head><body>');
     printWindow.document.write(`
@@ -211,15 +220,15 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+    <div className="min-h-screen bg-gradient-to-br from-stone-50 via-slate-50 to-blue-50">
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2">Settings</h1>
-          <p className="text-slate-600">Customize your application settings</p>
+          <p className="text-slate-600">Fine-tune statement templates and billing defaults</p>
         </div>
 
         <Tabs defaultValue="statement" className="w-full">
-          <TabsList>
+          <TabsList className="h-12 rounded-xl border border-slate-200 bg-white px-1">
             <TabsTrigger value="statement" className="flex items-center gap-2">
               <FileText className="w-4 h-4" />
               Statement Template
@@ -233,14 +242,14 @@ export default function Settings() {
           <TabsContent value="statement" className="mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Editor Panel */}
-              <Card className="border-slate-200 shadow-lg">
-                <CardHeader className="border-b border-slate-200 bg-slate-50">
+              <Card className="border-slate-200 shadow-lg rounded-2xl">
+                <CardHeader className="border-b border-slate-200 bg-white">
                   <CardTitle>Statement Template Editor</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-6">
                   {/* Header Section */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold text-slate-900 border-b pb-2">Header Settings</h3>
+                    <h3 className={sectionTitleClass}>Header Settings</h3>
                     <div className="space-y-2">
                       <Label>Header Title</Label>
                       <Input
@@ -287,9 +296,9 @@ export default function Settings() {
 
                   {/* Display Options */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold text-slate-900 border-b pb-2">Display Options</h3>
+                    <h3 className={sectionTitleClass}>Display Options</h3>
                     <div className="space-y-3">
-                      <label className="flex items-center gap-3 cursor-pointer">
+                      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={template.show_member_id}
@@ -300,7 +309,7 @@ export default function Settings() {
                         />
                         <span className="text-sm">Show Member ID</span>
                       </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
+                      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={template.show_email}
@@ -311,7 +320,7 @@ export default function Settings() {
                         />
                         <span className="text-sm">Show Email Address</span>
                       </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
+                      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={template.show_charges_section}
@@ -322,7 +331,7 @@ export default function Settings() {
                         />
                         <span className="text-sm">Show Charges Section</span>
                       </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
+                      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={template.show_payments_section}
@@ -333,7 +342,7 @@ export default function Settings() {
                         />
                         <span className="text-sm">Show Payments Section</span>
                       </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
+                      <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={template.show_footer}
@@ -349,9 +358,9 @@ export default function Settings() {
 
                   {/* Colors */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold text-slate-900 border-b pb-2">Colors</h3>
+                    <h3 className={sectionTitleClass}>Colors</h3>
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-white">
                         <Label
                           className="flex items-center gap-3 cursor-pointer flex-1"
                           htmlFor="charges-color"
@@ -372,7 +381,7 @@ export default function Settings() {
                           className="w-16 h-8 cursor-pointer"
                         />
                       </div>
-                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-white">
                         <Label
                           className="flex items-center gap-3 cursor-pointer flex-1"
                           htmlFor="payments-color"
@@ -393,7 +402,7 @@ export default function Settings() {
                           className="w-16 h-8 cursor-pointer"
                         />
                       </div>
-                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-white">
                         <Label
                           className="flex items-center gap-3 cursor-pointer flex-1"
                           htmlFor="balance-color"
@@ -419,7 +428,7 @@ export default function Settings() {
 
                   {/* Typography */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold text-slate-900 border-b pb-2">Typography</h3>
+                    <h3 className={sectionTitleClass}>Typography</h3>
                     <div className="space-y-2">
                       <Label>Body Font Size</Label>
                       <Input
@@ -435,7 +444,7 @@ export default function Settings() {
 
                   {/* Footer */}
                   <div className="space-y-4">
-                    <h3 className="font-semibold text-slate-900 border-b pb-2">Footer</h3>
+                    <h3 className={sectionTitleClass}>Footer</h3>
                     <div className="space-y-2">
                       <Label>Footer Text</Label>
                       <Input
@@ -447,14 +456,14 @@ export default function Settings() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-3 pt-4">
-                    <Button onClick={handlePreview} variant="outline" className="flex-1">
+                  <div className="flex gap-3 pt-4 border-t border-slate-200">
+                    <Button onClick={handlePreview} variant="outline" className="flex-1 h-11">
                       <Eye className="w-4 h-4 mr-2" />
                       Preview
                     </Button>
                     <Button
                       onClick={handleSave}
-                      className="flex-1 bg-blue-900 hover:bg-blue-800"
+                      className="flex-1 h-11 bg-slate-900 hover:bg-slate-800"
                       disabled={
                         createTemplateMutation.isPending || updateTemplateMutation.isPending
                       }
@@ -469,13 +478,13 @@ export default function Settings() {
               </Card>
 
               {/* Live Preview Panel */}
-              <Card className="border-slate-200 shadow-lg">
-                <CardHeader className="border-b border-slate-200 bg-slate-50">
+              <Card className="border-slate-200 shadow-lg rounded-2xl">
+                <CardHeader className="border-b border-slate-200 bg-white">
                   <CardTitle>Live Preview</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
                   <div
-                    className="bg-white border-2 border-slate-200 rounded-lg p-8 shadow-inner"
+                    className="bg-white border border-slate-200 rounded-xl p-8 shadow-inner"
                     style={{ minHeight: '600px' }}
                   >
                     <div
@@ -493,6 +502,7 @@ export default function Settings() {
                             fontSize: `${template.header_font_size}px`,
                             fontWeight: 'bold',
                             color: template.header_color,
+                            fontFamily: 'Cambria, Georgia, serif',
                           }}
                         >
                           {template.header_title}
@@ -522,9 +532,10 @@ export default function Settings() {
                     <div
                       style={{
                         marginBottom: '20px',
-                        padding: '12px',
+                        padding: '14px',
                         backgroundColor: '#f8fafc',
                         borderLeft: `4px solid ${template.header_color}`,
+                        borderRadius: '8px',
                       }}
                     >
                       <div style={{ fontSize: `${template.body_font_size}px`, color: '#64748b' }}>
@@ -557,6 +568,10 @@ export default function Settings() {
                           style={{
                             fontSize: `${template.body_font_size}px`,
                             color: template.charges_color,
+                            backgroundColor: '#fff7ed',
+                            border: '1px solid #fed7aa',
+                            borderRadius: '8px',
+                            padding: '10px 12px',
                           }}
                         >
                           Sample charge: $50.00
@@ -580,6 +595,10 @@ export default function Settings() {
                           style={{
                             fontSize: `${template.body_font_size}px`,
                             color: template.payments_color,
+                            backgroundColor: '#f0fdf4',
+                            border: '1px solid #bbf7d0',
+                            borderRadius: '8px',
+                            padding: '10px 12px',
                           }}
                         >
                           Sample payment: $25.00
@@ -589,9 +608,10 @@ export default function Settings() {
                     <div
                       style={{
                         marginTop: '20px',
-                        padding: '15px',
+                        padding: '16px',
                         backgroundColor: '#fef3c7',
                         borderRadius: '8px',
+                        border: '1px solid #fcd34d',
                       }}
                     >
                       <div
@@ -639,8 +659,8 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="monthly" className="mt-6">
-            <Card className="border-slate-200 shadow-lg max-w-2xl">
-              <CardHeader className="border-b border-slate-200 bg-slate-50">
+            <Card className="border-slate-200 shadow-lg max-w-2xl rounded-2xl">
+              <CardHeader className="border-b border-slate-200 bg-white">
                 <CardTitle>Monthly Membership Charge</CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
@@ -673,7 +693,7 @@ export default function Settings() {
                   <div className="flex justify-end">
                     <Button
                       type="submit"
-                      className="bg-blue-900 hover:bg-blue-800"
+                      className="bg-slate-900 hover:bg-slate-800"
                       disabled={createPlanMutation.isPending}
                     >
                       <Save className="w-4 h-4 mr-2" />

@@ -59,6 +59,8 @@
     "firebase": "^12.2.1",
     "firebase-admin": "^13.5.0",
     "framer-motion": "^12.4.7",
+    "grapesjs": "^0.22.16",
+    "grapesjs-preset-webpage": "^1.0.3",
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.475.0",

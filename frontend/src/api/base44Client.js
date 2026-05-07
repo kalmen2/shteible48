@@ -1,4 +1,11 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+const isHostedOnFirebase =
+  typeof window !== 'undefined' &&
+  (window.location.hostname.endsWith('.web.app') || window.location.hostname.endsWith('.firebaseapp.com'));
+
+const API_BASE_URL = isHostedOnFirebase
+  ? '/api'
+  : configuredApiBaseUrl || 'http://localhost:3001/api';
 import { getToken, setToken, clearToken, setUser, clearUser } from '@/lib/auth';
 
 const clientOrigin = typeof window !== 'undefined' ? window.location.origin : undefined;
