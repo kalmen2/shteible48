@@ -149,6 +149,7 @@ function createMongoEntityStore({ db }) {
 
 
     async create(entity, data) {
+      await ensureIndexes(entity);
       const col = collectionFor(entity);
       let created;
       if (data?.id) {
@@ -163,6 +164,7 @@ function createMongoEntityStore({ db }) {
 
 
     async bulkCreate(entity, items) {
+      await ensureIndexes(entity);
       const col = collectionFor(entity);
       const createdItems = [];
       const { nanoid } = await import('nanoid');
