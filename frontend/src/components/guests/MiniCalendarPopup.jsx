@@ -39,6 +39,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [selectedHonor, setSelectedHonor] = useState('');
+  const [selectedRole, setSelectedRole] = useState('');
   const [manualAmount, setManualAmount] = useState('');
 
   const { data: customEvents = [] } = useQuery({
@@ -78,21 +79,42 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
   const selectedEventData = selectedEvent
     ? customEvents.find((e) => e.name === selectedEvent)
     : null;
-  const currentHonors = selectedEventData?.honors || [];
+  const currentHonors = (() => {
+    if (Array.isArray(selectedEventData?.honors) && selectedEventData.honors.length > 0) {
+      return selectedEventData.honors;
+    }
+    if (Array.isArray(selectedEventData?.options) && selectedEventData.options.length > 0) {
+      return selectedEventData.options
+        .map((option) => String(option || '').trim())
+        .filter(Boolean)
+        .map((option) => ({
+          name: option,
+          roles: [{ role_name: '', payment_type: 'flexible', fixed_amount: 0 }],
+        }));
+    }
+    return [];
+  })();
 
-  // Get selected honor data for fixed amount
   const selectedHonorData = selectedHonor
     ? currentHonors.find((h) => h.name === selectedHonor)
     : null;
-  const hasFixedAmount = selectedHonorData?.roles?.some((r) => r.payment_type === 'fixed');
-  const fixedAmount = selectedHonorData?.roles?.find(
-    (r) => r.payment_type === 'fixed'
-  )?.fixed_amount;
+  const honorRoles = Array.isArray(selectedHonorData?.roles) ? selectedHonorData.roles : [];
+  const selectableRoles = honorRoles
+    .map((role, index) => ({ ...role, index }))
+    .filter((role) => String(role?.role_name || '').trim() !== '');
+  const selectedRoleData =
+    selectedRole !== '' && Number.isInteger(Number(selectedRole))
+      ? honorRoles[Number(selectedRole)]
+      : null;
+  const effectiveRoleData = selectedRoleData || (honorRoles.length === 1 ? honorRoles[0] : null);
+  const hasFixedAmount = effectiveRoleData?.payment_type === 'fixed';
+  const fixedAmount = Number(effectiveRoleData?.fixed_amount) || 0;
 
   const handleDateClick = (date) => {
     setSelectedDate(format(date, 'yyyy-MM-dd'));
     setSelectedEvent('');
     setSelectedHonor('');
+    setSelectedRole('');
     setManualAmount('');
   };
 
@@ -102,12 +124,13 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
     const amount = hasFixedAmount ? fixedAmount : manualAmount;
     if (!amount || parseFloat(amount) <= 0) return;
 
-    const description = selectedHonor ? `${selectedEvent} - ${selectedHonor}` : selectedEvent;
+    const roleName = String(effectiveRoleData?.role_name || '').trim();
+    const description = [selectedEvent, selectedHonor, roleName].filter(Boolean).join(' - ');
 
     onEventSelected({
       date: selectedDate,
       amount: amount.toString(),
-      description: description,
+      description: description || selectedEvent,
       category: selectedEvent,
     });
 
@@ -118,6 +141,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
     setSelectedDate(null);
     setSelectedEvent('');
     setSelectedHonor('');
+    setSelectedRole('');
     setManualAmount('');
     onClose();
   };
@@ -336,6 +360,7 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                 onValueChange={(v) => {
                   setSelectedEvent(v);
                   setSelectedHonor('');
+                  setSelectedRole('');
                   setManualAmount('');
                 }}
               >
@@ -365,7 +390,21 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                 <Select
                   value={selectedHonor}
                   onValueChange={(v) => {
-                    setSelectedHonor(v);
+                    const nextHonor = v === '__none__' ? '' : v;
+                    setSelectedHonor(nextHonor);
+                    const nextHonorData = currentHonors.find((h) => h.name === nextHonor);
+                    const nextRoles = Array.isArray(nextHonorData?.roles) ? nextHonorData.roles : [];
+                    const namedRoles = nextRoles.filter(
+                      (role) => String(role?.role_name || '').trim() !== ''
+                    );
+                    if (namedRoles.length === 1) {
+                      const roleIndex = nextRoles.findIndex(
+                        (role) => role.role_name === namedRoles[0].role_name
+                      );
+                      setSelectedRole(roleIndex >= 0 ? String(roleIndex) : '');
+                    } else {
+                      setSelectedRole('');
+                    }
                     setManualAmount('');
                   }}
                 >
@@ -373,12 +412,38 @@ export default function MiniCalendarPopup({ open, onClose, onEventSelected }) {
                     <SelectValue placeholder="Choose an honor..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={null}>No specific honor</SelectItem>
+                    <SelectItem value="__none__">No specific honor</SelectItem>
                     {currentHonors.map((honor, idx) => (
                       <SelectItem key={idx} value={honor.name}>
                         {honor.name}
                         {honor.roles?.some((r) => r.payment_type === 'fixed') &&
                           ` (Fixed: $${honor.roles.find((r) => r.payment_type === 'fixed')?.fixed_amount})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Role Selection */}
+            {selectedHonor && selectableRoles.length > 0 && (
+              <div className="space-y-2">
+                <Label className="font-semibold">Select Role (Optional)</Label>
+                <Select
+                  value={selectedRole}
+                  onValueChange={(v) => {
+                    setSelectedRole(v);
+                    setManualAmount('');
+                  }}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Choose a role..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectableRoles.map((role) => (
+                      <SelectItem key={role.index} value={String(role.index)}>
+                        {role.role_name}
+                        {role.payment_type === 'fixed' && ` (Fixed: $${role.fixed_amount || 0})`}
                       </SelectItem>
                     ))}
                   </SelectContent>

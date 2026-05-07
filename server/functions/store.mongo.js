@@ -2,6 +2,8 @@
 const { ObjectId } = require("mongodb");
 const { assertEntityName, createRecord } = require("./entityStore.js");
 
+const STRIPE_SUBSCRIPTION_TXN_INDEX_NAME = "stripe_subscription_id_1_type_1_date_1";
+
 function normalizeSort(sort) {
   if (!sort || typeof sort !== "string") return null;
   const dir = sort.startsWith("-") ? -1 : 1;
@@ -33,6 +35,31 @@ function toPublic(doc) {
   return rest;
 }
 
+function isExpectedStripeRecurringIndex(indexInfo) {
+  return (
+    indexInfo?.unique === true &&
+    indexInfo?.partialFilterExpression?.stripe_subscription_id?.$type === "string"
+  );
+}
+
+async function ensureStripeRecurringTransactionIndex(entity, col) {
+  if (entity !== "Transaction" && entity !== "GuestTransaction") return;
+
+  try {
+    const indexes = await col.indexes();
+    const existing = indexes.find((idx) => idx.name === STRIPE_SUBSCRIPTION_TXN_INDEX_NAME);
+    if (existing && !isExpectedStripeRecurringIndex(existing)) {
+      await col.dropIndex(STRIPE_SUBSCRIPTION_TXN_INDEX_NAME);
+      console.log(`[store.indexes] Dropped legacy ${entity}.${STRIPE_SUBSCRIPTION_TXN_INDEX_NAME}`);
+    }
+  } catch (err) {
+    console.error(
+      `[store.indexes] Failed to reconcile ${entity}.${STRIPE_SUBSCRIPTION_TXN_INDEX_NAME}`,
+      err?.message || err
+    );
+  }
+}
+
 /** @param {{ db: import('mongodb').Db }} deps */
 function createMongoEntityStore({ db }) {
   const indexPromises = new Map();
@@ -46,9 +73,25 @@ function createMongoEntityStore({ db }) {
 
     if (entity === "Transaction") {
       specs.push({ keys: { member_id: 1, date: -1 } });
+      specs.push({
+        keys: { stripe_subscription_id: 1, type: 1, date: 1 },
+        options: {
+          name: STRIPE_SUBSCRIPTION_TXN_INDEX_NAME,
+          unique: true,
+          partialFilterExpression: { stripe_subscription_id: { $type: "string" } },
+        },
+      });
     }
     if (entity === "GuestTransaction") {
       specs.push({ keys: { guest_id: 1, date: -1 } });
+      specs.push({
+        keys: { stripe_subscription_id: 1, type: 1, date: 1 },
+        options: {
+          name: STRIPE_SUBSCRIPTION_TXN_INDEX_NAME,
+          unique: true,
+          partialFilterExpression: { stripe_subscription_id: { $type: "string" } },
+        },
+      });
     }
     if (entity === "MembershipCharge") {
       specs.push({ keys: { member_id: 1, is_active: 1 } });
@@ -59,11 +102,14 @@ function createMongoEntityStore({ db }) {
       specs.push({ keys: { stripe_subscription_id: 1 } });
     }
 
-    const promise = Promise.all(
-      specs.map(({ keys, options }) => col.createIndex(keys, options).catch((err) => {
-        console.error(`Failed to create index for ${entity}`, err?.message || err);
-      }))
-    );
+    const promise = (async () => {
+      await ensureStripeRecurringTransactionIndex(entity, col);
+      await Promise.all(
+        specs.map(({ keys, options }) => col.createIndex(keys, options).catch((err) => {
+          console.error(`Failed to create index for ${entity}`, err?.message || err);
+        }))
+      );
+    })();
     indexPromises.set(entity, promise);
     return promise;
   }

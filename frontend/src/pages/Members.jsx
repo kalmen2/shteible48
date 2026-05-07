@@ -184,8 +184,8 @@ export default function Members() {
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
       toast({
-        title: 'פרטי החבר עודכנו',
-        description: 'השינויים נשמרו בהצלחה.',
+        title: 'Member updated',
+        description: 'Changes saved successfully.',
       });
     },
     onError: async (error, variables) => {
@@ -212,8 +212,8 @@ export default function Members() {
             setEditMemberDialogOpen(false);
             setSelectedMember(null);
             toast({
-              title: 'פרטי החבר עודכנו',
-              description: 'השינויים נשמרו בהצלחה.',
+              title: 'Member updated',
+              description: 'Changes saved successfully.',
             });
             return;
           }
@@ -222,8 +222,8 @@ export default function Members() {
         // fall through to error toast
       }
       toast({
-        title: 'העדכון נכשל',
-        description: error?.message || 'לא ניתן לשמור את שינויי החבר.',
+        title: 'Update failed',
+        description: error?.message || 'Unable to save member changes.',
         variant: 'destructive',
       });
     },
@@ -1425,12 +1425,12 @@ export default function Members() {
         <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>עריכת חבר</DialogTitle>
+              <DialogTitle>Edit Member</DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit_english_name">שם באנגלית</Label>
+                  <Label htmlFor="edit_english_name">English Name</Label>
                   <Input
                     id="edit_english_name"
                     value={selectedMember.english_name || ''}
@@ -1441,7 +1441,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_hebrew_name">שם בעברית</Label>
+                  <Label htmlFor="edit_hebrew_name">Hebrew Name</Label>
                   <Input
                     id="edit_hebrew_name"
                     value={selectedMember.hebrew_name || ''}
@@ -1452,7 +1452,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_email">אימייל</Label>
+                  <Label htmlFor="edit_email">Email</Label>
                   <Input
                     id="edit_email"
                     type="email"
@@ -1465,7 +1465,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_phone">טלפון</Label>
+                  <Label htmlFor="edit_phone">Phone</Label>
                   <Input
                     id="edit_phone"
                     value={selectedMember.phone || ''}
@@ -1477,14 +1477,14 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_address">כתובת</Label>
+                  <Label htmlFor="edit_address">Address</Label>
                   <Input
                     id="edit_address"
                     value={selectedMember.address || ''}
                     onChange={(e) =>
                       setSelectedMember({ ...selectedMember, address: e.target.value })
                     }
-                    placeholder="רחוב ודירה"
+                    placeholder="Street and apartment"
                     className="h-11"
                   />
                 </div>
@@ -1494,10 +1494,10 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setEditMemberDialogOpen(false)}
                   >
-                    ביטול
+                    Cancel
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                    שמירת שינויים
+                    Save Changes
                   </Button>
                 </div>
               </form>

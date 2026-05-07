@@ -139,6 +139,23 @@ function getBalanceDeltaFromTransaction(transaction, direction) {
   return 0;
 }
 
+function isDuplicateKeyError(err) {
+  if (!err) return false;
+  if (Number(err?.code) === 11000) return true;
+  return /duplicate key|E11000/i.test(String(err?.message || ""));
+}
+
+function duplicateCreateMessage(entity, err) {
+  const indexName = String(err?.keyPattern ? Object.keys(err.keyPattern).join(",") : "");
+  if (entity === "GuestTransaction" && /stripe_subscription_id/i.test(indexName || err?.message || "")) {
+    return "A recurring guest transaction already exists for this date.";
+  }
+  if (entity === "Transaction" && /stripe_subscription_id/i.test(indexName || err?.message || "")) {
+    return "A recurring transaction already exists for this date.";
+  }
+  return `${entity} already exists`;
+}
+
 function getMonthKey(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -335,22 +352,32 @@ function createEntitiesRouter({ store }) {
       assertEntityName(entity);
 
       const payload = sanitizeEntityData(entity, req.body ?? {});
+      const createWithDuplicateHandling = async () => {
+        try {
+          return await store.create(entity, payload);
+        } catch (err) {
+          if (!isDuplicateKeyError(err)) throw err;
+          const conflict = new Error(duplicateCreateMessage(entity, err));
+          conflict.status = 409;
+          throw conflict;
+        }
+      };
       if (entity === "Transaction") {
         const resolved = await resolveMemberIdForUpdate(store, payload.member_id);
         payload.member_id = resolved.resolvedId;
-        const created = await store.create(entity, payload);
+        const created = await createWithDuplicateHandling();
         const delta = getBalanceDeltaFromTransaction(created, "create");
         await applyMemberBalanceDelta(store, created.member_id, delta);
         return res.status(201).json(created);
       }
       if (entity === "GuestTransaction") {
         await assertRelatedExists(store, "Guest", payload.guest_id, "guest_id");
-        const created = await store.create(entity, payload);
+        const created = await createWithDuplicateHandling();
         const delta = getBalanceDeltaFromTransaction(created, "create");
         await applyGuestBalanceDelta(store, created.guest_id, delta);
         return res.status(201).json(created);
       }
-      const created = await store.create(entity, payload);
+      const created = await createWithDuplicateHandling();
       if (entity === "Member") {
         await createInitialStandardCharge(store, created);
       }
