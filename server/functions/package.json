@@ -10,7 +10,10 @@
     "dedupe:membership-subs": "node scripts/dedupeMembershipSubscriptions.js",
     "reconcile:membership-subs": "node scripts/reconcileMembershipSubscriptions.js",
     "count:stripe-members": "node scripts/stripeMemberCount.js",
-    "list:stripe-unlinked": "node scripts/listUnlinkedStripeCustomers.js"
+    "list:stripe-unlinked": "node scripts/listUnlinkedStripeCustomers.js",
+    "migrate:subscription-anchors": "node scripts/migrateSubscriptionAnchors.js",
+    "backfill:stripe-payment-month": "node scripts/backfillStripePaymentToMemberMonth.js",
+    "backfill:affected-members-month": "node scripts/backfillStripePaymentsForAffectedMembers.js"
   },
   "engines": {
     "node": "24"
