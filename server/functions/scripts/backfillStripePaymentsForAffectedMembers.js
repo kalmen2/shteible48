@@ -127,22 +127,28 @@ function looksLikeMembershipPaymentIntent(pi) {
   return false;
 }
 
-async function resolveMembershipFromInvoice({
-  stripe,
-  paymentIntent,
-  memberSubscriptionIds,
-}) {
-  const invoiceId = paymentIntent?.invoice ? String(paymentIntent.invoice) : "";
-  if (!invoiceId) return false;
+function getInvoiceSubscriptionId(invoice) {
+  const topLevel = invoice?.subscription ? String(invoice.subscription) : "";
+  if (topLevel) return topLevel;
 
-  let invoice;
-  try {
-    invoice = await stripe.invoices.retrieve(invoiceId, { expand: ["lines"] });
-  } catch (_err) {
-    return false;
+  const parentSub = invoice?.parent?.subscription_details?.subscription
+    ? String(invoice.parent.subscription_details.subscription)
+    : "";
+  if (parentSub) return parentSub;
+
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const lineParentSub = line?.parent?.subscription_item_details?.subscription
+      ? String(line.parent.subscription_item_details.subscription)
+      : "";
+    if (lineParentSub) return lineParentSub;
   }
 
-  const invoiceSubId = invoice?.subscription ? String(invoice.subscription) : "";
+  return "";
+}
+
+async function invoiceLooksLikeMembership({ stripe, invoice, memberSubscriptionIds }) {
+  const invoiceSubId = getInvoiceSubscriptionId(invoice);
   if (invoiceSubId && memberSubscriptionIds.has(invoiceSubId)) return true;
 
   const invMdType = String(invoice?.metadata?.paymentType || invoice?.metadata?.payment_type || "");
@@ -161,6 +167,58 @@ async function resolveMembershipFromInvoice({
       const sub = await stripe.subscriptions.retrieve(invoiceSubId);
       const subMdType = String(sub?.metadata?.paymentType || sub?.metadata?.payment_type || "");
       if (subMdType === "membership") return true;
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+async function resolveMembershipFromInvoice({
+  stripe,
+  paymentIntent,
+  memberSubscriptionIds,
+}) {
+  const invoiceId = paymentIntent?.invoice ? String(paymentIntent.invoice) : "";
+  let invoice;
+  if (invoiceId) {
+    try {
+      invoice = await stripe.invoices.retrieve(invoiceId, { expand: ["lines"] });
+    } catch (_err) {
+      invoice = null;
+    }
+  }
+
+  if (invoice && (await invoiceLooksLikeMembership({ stripe, invoice, memberSubscriptionIds }))) {
+    return true;
+  }
+
+  const customerId = paymentIntent?.customer ? String(paymentIntent.customer) : "";
+  const paymentDateUtc = unixToYyyyMmDd(paymentIntent?.created);
+  if (customerId && paymentDateUtc) {
+    try {
+      const page = await stripe.invoices.list({
+        customer: customerId,
+        created: {
+          gte: parseDateStartToUnix(paymentDateUtc),
+          lte: parseDateEndToUnix(paymentDateUtc),
+        },
+        limit: 20,
+      });
+
+      for (const candidate of page?.data || []) {
+        const detailedInvoice = await stripe.invoices.retrieve(String(candidate.id), {
+          expand: ["lines"],
+        });
+        if (await invoiceLooksLikeMembership({
+          stripe,
+          invoice: detailedInvoice,
+          memberSubscriptionIds,
+        })) {
+          return true;
+        }
+      }
     } catch (_err) {
       return false;
     }

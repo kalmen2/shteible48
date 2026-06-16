@@ -26,6 +26,26 @@ function monthLabelFromUnixSeconds(sec) {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
+function getInvoiceSubscriptionId(invoice) {
+  const topLevel = invoice?.subscription ? String(invoice.subscription) : "";
+  if (topLevel) return topLevel;
+
+  const parentSub = invoice?.parent?.subscription_details?.subscription
+    ? String(invoice.parent.subscription_details.subscription)
+    : "";
+  if (parentSub) return parentSub;
+
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const lineParentSub = line?.parent?.subscription_item_details?.subscription
+      ? String(line.parent.subscription_item_details.subscription)
+      : "";
+    if (lineParentSub) return lineParentSub;
+  }
+
+  return "";
+}
+
 function isDuplicateError(err) {
   const code = err?.code || err?.errno || err?.sqlState;
   const msg = err?.message || "";
@@ -88,6 +108,17 @@ async function hasPaymentIntentTransaction(store, entity, paymentIntentId, type)
 async function createPaymentIntentTransactionIfMissing(store, entity, paymentIntentId, type, payload) {
   if (await hasPaymentIntentTransaction(store, entity, paymentIntentId, type)) return false;
   return await createRecordOnce(store, entity, payload);
+}
+
+async function hasEventBeenProcessed({ store, event }) {
+  if (!event?.id) return false;
+  const [existing] = await store.filter(
+    "WebhookEvent",
+    { id: String(event.id) },
+    undefined,
+    1
+  );
+  return Boolean(existing);
 }
 
 async function markEventProcessed({ store, event }) {
@@ -875,8 +906,13 @@ function createStripeWebhookHandler({ store }) {
         return res.status(400).json({ message: "Missing event id" });
       }
 
-      const recorded = await markEventProcessed({ store, event });
-      const isDuplicate = !recorded;
+      // Determine duplicates with a read-only check; the processed marker is
+      // persisted only AFTER the handler completes successfully (see below).
+      // This prevents a payment from being permanently dropped when the first
+      // attempt fails after the marker was written: Stripe's retry then
+      // re-runs the (idempotent) handler instead of short-circuiting on a
+      // marker that was set before any work was done.
+      const isDuplicate = await hasEventBeenProcessed({ store, event });
       if (isDuplicate && event.type !== "invoice.paid" && event.type !== "checkout.session.completed") {
         return res.json({ received: true, duplicate: true });
       }
@@ -1189,7 +1225,7 @@ function createStripeWebhookHandler({ store }) {
 
       if (event.type === "invoice.paid") {
         const invoice = event.data.object;
-        const subscriptionId = invoice.subscription;
+        const subscriptionId = getInvoiceSubscriptionId(invoice);
         if (subscriptionId && invoice.lines?.data?.length) {
           const firstLine = invoice.lines.data[0];
           const md = firstLine.metadata || invoice.metadata || {};
@@ -1323,7 +1359,7 @@ function createStripeWebhookHandler({ store }) {
       // If a membership invoice fails, accrue it to the member's balance with a month label.
       if (event.type === "invoice.payment_failed") {
         const invoice = event.data.object;
-        const subscriptionId = invoice.subscription;
+        const subscriptionId = getInvoiceSubscriptionId(invoice);
         if (subscriptionId && invoice.lines?.data?.length) {
           const firstLine = invoice.lines.data[0];
           const md = firstLine.metadata || invoice.metadata || {};
@@ -1421,6 +1457,13 @@ function createStripeWebhookHandler({ store }) {
             ended_date: new Date().toISOString().split("T")[0],
           });
         }
+      }
+
+      // Mark the event processed only after handling succeeded. If anything
+      // above threw, we fall into the catch below and return 500 without a
+      // marker, so Stripe retries and the idempotent handlers re-run.
+      if (!isDuplicate) {
+        await markEventProcessed({ store, event });
       }
 
       return res.json({ received: true, duplicate: isDuplicate || undefined });
