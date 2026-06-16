@@ -167,7 +167,7 @@ export default function Months() {
     );
   };
 
-  const getMemberTotalMonthly = (member) => {
+  const _getMemberTotalMonthly = (member) => {
     const standardAmount = Number(currentPlan?.standard_amount || 0);
     if (!member) return standardAmount;
     const memberCharges = getMemberCharges(member.id);
@@ -180,15 +180,6 @@ export default function Months() {
       standardAmount +
       (Number.isFinite(chargesTotal) ? chargesTotal : 0) +
       (Number.isFinite(recurringTotal) ? recurringTotal : 0)
-    );
-  };
-
-  const isMonthlyChargeDescription = (description) => {
-    const value = String(description || '').toLowerCase();
-    return (
-      value.includes('monthly membership') ||
-      value.includes('additional monthly payment') ||
-      value.includes('balance payoff plan')
     );
   };
 
@@ -213,7 +204,6 @@ export default function Months() {
     const payments = transactions
       .filter((t) => t.type === 'payment')
       .reduce((sum, t) => sum + (t.amount || 0), 0);
-    const totalMonthly = getMemberTotalMonthly(member);
     // Calculate balance as of end of month
     const allTransactionsUpToMonth = memberTransactions.filter((t) => {
       if (t.member_id !== member.id) return false;
@@ -696,8 +686,8 @@ export default function Months() {
     // Show month list view
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="mb-8 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
+          <div className="mb-8 flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 p-4 shadow-lg shadow-slate-300/25 backdrop-blur md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-4xl font-bold text-slate-900 mb-2">Monthly Statements</h1>
               <p className="text-slate-600">Select a month to view statements</p>
@@ -714,13 +704,13 @@ export default function Months() {
                   setSelectedYear(e.target.value);
                   setSelectedMonth(null);
                 }}
-                className="w-32 h-11"
+                className="w-32 h-11 rounded-xl border-slate-200 bg-white shadow-sm"
               />
             </div>
           </div>
 
-          <Card className="border-slate-200 shadow-lg">
-            <CardHeader className="border-b border-slate-200 bg-slate-50">
+          <Card className="border-slate-200/90 bg-white/95 shadow-xl shadow-slate-300/20">
+            <CardHeader className="border-b border-slate-200 bg-slate-50/80">
               <CardTitle>{selectedYear} - Select Month</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
@@ -740,7 +730,7 @@ export default function Months() {
                     <button
                       key={month.value}
                       onClick={() => setSelectedMonth(month.value)}
-                      className="w-full px-6 py-5 flex items-center justify-between transition-all hover:bg-blue-50 cursor-pointer"
+                      className="w-full px-6 py-5 flex items-center justify-between transition-all hover:bg-blue-50/70 cursor-pointer"
                     >
                       <div className="flex items-center gap-4">
                         <div className="text-lg font-bold text-slate-900">{month.label}</div>
@@ -763,10 +753,10 @@ export default function Months() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-8 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
+        <div className="mb-8 flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 p-4 shadow-lg shadow-slate-300/25 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div>
-            <Button variant="ghost" onClick={() => setSelectedMonth(null)} className="mb-2 -ml-2">
+            <Button variant="ghost" onClick={() => setSelectedMonth(null)} className="mb-2 -ml-2 rounded-xl">
               ← Back to Months
             </Button>
             <h1 className="text-4xl font-bold text-slate-900 mb-2">
@@ -775,13 +765,13 @@ export default function Months() {
             <p className="text-slate-600">Monthly statements for all members and guests</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button className="rounded-xl bg-green-600 hover:bg-green-700 shadow-sm">
               <Mail className="w-4 h-4 mr-2" />
               Email
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="bg-blue-900 hover:bg-blue-800">
+                <Button className="rounded-xl bg-blue-900 hover:bg-blue-800 shadow-sm">
                   <Printer className="w-4 h-4 mr-2" />
                   Print
                   <ChevronDown className="w-4 h-4 ml-2" />
@@ -1370,8 +1360,8 @@ export default function Months() {
         </div>
 
         {/* Members Table */}
-        <Card className="mb-6 border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-slate-50">
+        <Card className="mb-6 border-slate-200/90 bg-white/95 shadow-xl shadow-slate-300/20">
+          <CardHeader className="border-b border-slate-200 bg-slate-50/80">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-blue-900" />
               <CardTitle>Members</CardTitle>
@@ -1383,7 +1373,7 @@ export default function Months() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-slate-50/80 border-b border-slate-200">
                     <tr>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
                         Member
@@ -1403,7 +1393,7 @@ export default function Months() {
                     {membersWithActivity.map((member) => {
                       const data = getMemberMonthlyData(member, selectedMonth);
                       return (
-                        <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
+                        <tr key={member.id} className="hover:bg-blue-50/50 transition-colors">
                           <td className="py-4 px-6">
                             <div className="font-semibold text-slate-900">{member.full_name}</div>
                           </td>
@@ -1443,8 +1433,8 @@ export default function Months() {
         </Card>
 
         {/* Guests Table */}
-        <Card className="border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-slate-50">
+        <Card className="border-slate-200/90 bg-white/95 shadow-xl shadow-slate-300/20">
+          <CardHeader className="border-b border-slate-200 bg-slate-50/80">
             <div className="flex items-center gap-2">
               <UserPlus className="w-5 h-5 text-blue-900" />
               <CardTitle>Guests / Old</CardTitle>
@@ -1456,7 +1446,7 @@ export default function Months() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-slate-50/80 border-b border-slate-200">
                     <tr>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
                         Guest
@@ -1476,7 +1466,7 @@ export default function Months() {
                     {guestsWithActivity.map((guest) => {
                       const data = getGuestMonthlyData(guest, selectedMonth);
                       return (
-                        <tr key={guest.id} className="hover:bg-blue-50/30 transition-colors">
+                        <tr key={guest.id} className="hover:bg-blue-50/50 transition-colors">
                           <td className="py-4 px-6">
                             <div className="font-semibold text-slate-900">{guest.full_name}</div>
                           </td>

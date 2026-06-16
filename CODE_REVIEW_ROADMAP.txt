@@ -1,0 +1,104 @@
+PROFESSIONAL CODE REVIEW ROADMAP
+Backend-first, full-project review
+
+1) DEFINE SCOPE AND OUTPUT
+   - Decide targets: backend only, full stack, or full stack + infra.
+   - Confirm primary runtime: local Express vs Firebase Functions.
+   - Define deliverables: findings list, risk summary, fix plan, test gaps.
+
+2) COLLECT CONTEXT
+   - Read: README files, .env.example files, package.json scripts.
+   - Identify required services (MongoDB, Stripe, SMTP, Firebase).
+   - Note runtime versions (Node, Firebase Functions).
+
+3) BUILD THE SYSTEM MAP (HIGH LEVEL)
+   - Entry points: server/index.js, server/functions/index.js.
+   - HTTP surface area: auth, entities, payments, integrations, webhooks.
+   - Background jobs: monthly charges, email scheduler.
+   - Data model: list of entities and expected fields.
+   - External dependencies: Stripe, Firebase Admin, SMTP.
+
+4) BACKEND REVIEW (DEEP DIVE ORDER)
+   - Auth: JWT creation, verification, token storage, password hashing.
+   - Data layer: entity allowlist, store CRUD, indexing, validation.
+   - Entities routes: list/filter/create/update/delete behavior and guards.
+   - Payments: checkout creation, subscriptions, validation, idempotency.
+   - Stripe webhook: signature verification, event handling, dedupe, balance logic.
+   - Integrations: file upload, parsing, email sending, PDF generation.
+   - Scheduled jobs: recurrence, idempotency, timezone handling, retries.
+
+5) 
+/
+
+   - Compare API paths and payloads used in frontend vs backend routes.
+   - Verify error handling expectations and status codes.
+   - Ensure auth-required routes match frontend auth flow.
+
+6) SECURITY AND DATA INTEGRITY REVIEW
+   - Auth: weak secrets, missing signup controls, admin-only access.
+   - Webhooks: signature validation, replay handling, tamper protection.
+   - File uploads: type handling, size limits, path sanitization.
+   - PII: logging, email content, exposure in responses.
+   - Data consistency: total_owed updates, double-charging risks.
+
+7) RELIABILITY AND UX IMPACT
+   - Error handling coverage and consistent HTTP responses.
+   - Retry behavior for external services (Stripe, SMTP, Firebase).
+   - Edge cases: missing plan amount, missing card, zero/negative amounts.
+   - Pagination and limits for large datasets.
+
+8) PERFORMANCE AND COST
+   - Query patterns and indexes in Mongo.
+   - N+1 queries in loops (members, transactions, schedules).
+   - Firebase Function cold starts and runtime settings.
+   - Stripe API calls inside loops.
+
+9) TESTS AND VALIDATION
+   - Identify missing unit/integration tests.
+   - Add minimal coverage for auth, payments, webhook, and schedules.
+   - Document manual QA flows and seed data requirements.
+
+10) DOCUMENTATION AND OPERATIONS
+   - Ensure setup steps are accurate and current.
+   - Provide sample payloads for critical routes.
+   - Create runbooks for Stripe, SMTP, Firebase credentials.
+
+11) FINDINGS REPORT FORMAT
+   - For each issue:
+     - Severity: critical | high | medium | low
+     - Location: file:line
+     - Impact: what breaks or is risky
+     - Evidence: short quote or behavior
+     - Recommendation: concrete fix
+   - Add “Open Questions” and “Assumptions” sections.
+
+12) REMEDIATION PLAN
+   - Group fixes by area (auth, payments, data, integrations).
+   - Estimate effort and risk.
+   - Define order: security > data integrity > reliability > UX > refactors.
+
+SUGGESTED REVIEW ORDER FOR THIS REPO
+   - server/index.js (or server/functions/app.js + server/functions/index.js)
+   - server/auth.js or server/functions/auth.js
+   - server/functions/entityStore.js + server/functions/store.mongo.js
+   - server/functions/routes.entities.js
+   - server/functions/routes.payments.js
+   - server/functions/stripeWebhook.js
+   - server/functions/routes.integrations.js
+   - server/functions/emailService.js
+   - server/functions/emailScheduler.js
+   - server/functions/monthlyMembershipCharges.js
+   - server/functions/mongo.js
+   - server/functions/firebaseAdmin.js
+   - server/functions/stripeClient.js
+   - Frontend API client: frontend/src/api/base44Client.js
+
+NOTES TEMPLATE (COPY/PASTE)
+   Finding:
+   Severity:
+   Location:
+   Impact:
+   Recommendation:
+   Related tests:
+
+END

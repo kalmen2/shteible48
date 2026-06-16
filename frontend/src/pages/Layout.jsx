@@ -45,13 +45,13 @@ export default function Layout({ children, currentPageName }) {
   }, [currentPageName]);
 
   const navItems = [
-    { name: 'לוח בקרה', icon: DollarSign, page: 'Dashboard' },
-    { name: 'חברים', icon: Users, page: 'Members' },
-    { name: 'אורחים / ישן', icon: Users, page: 'Guests' },
-    { name: 'עסקאות', icon: Calendar, page: 'Calendar' },
-    { name: 'חודשים', icon: Receipt, page: 'Months' },
-    { name: 'אימיילים', icon: Mail, page: 'EmailManagement' },
-    { name: 'הגדרות', icon: Settings, page: 'Settings' },
+    { name: 'Dashboard', icon: DollarSign, page: 'Dashboard' },
+    { name: 'Members', icon: Users, page: 'Members' },
+    { name: 'Guests', icon: Users, page: 'Guests' },
+    { name: 'Calendar', icon: Calendar, page: 'Calendar' },
+    { name: 'Months', icon: Receipt, page: 'Months' },
+    { name: 'Emails', icon: Mail, page: 'EmailManagement' },
+    { name: 'Settings', icon: Settings, page: 'Settings' },
   ];
 
   const sidebarWidth = isCollapsed ? 80 : 256;
@@ -60,7 +60,7 @@ export default function Layout({ children, currentPageName }) {
   const scopedNavItems = isScopedUser
     ? [
         {
-          name: 'הפרטים שלי',
+          name: 'My Details',
           icon: Users,
           page:
             role === 'guest'
@@ -79,27 +79,35 @@ export default function Layout({ children, currentPageName }) {
     <div className="app-shell flex h-screen overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       {/* Left Sidebar */}
       <aside
-        className="app-sidebar fixed inset-y-0 left-0 z-30 bg-blue-900/80 text-white shadow-xl flex flex-col transition-[width] duration-300 ease-in-out backdrop-blur-md"
+        className="app-sidebar fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden border-r border-white/10 bg-gradient-to-b from-slate-950 via-blue-950 to-[#0b1936] text-slate-100 shadow-[0_20px_60px_rgba(2,6,23,0.55)] transition-[width] duration-300 ease-in-out"
         style={{ width: sidebarWidth }}
       >
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl" />
+          <div className="absolute bottom-[-160px] left-[-80px] h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_60%)]" />
+        </div>
+
         {/* Logo/Header */}
-        <div className="p-4 border-b border-blue-800">
+        <div className="relative z-10 border-b border-white/10 p-4">
           <div className="flex items-start justify-between gap-2">
             <div
               className={`overflow-hidden transition-all duration-300 ${
                 isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
               }`}
             >
-              <h1 className="text-xl font-bold">Shtiebel 48</h1>
-              <h2 className="text-lg font-semibold text-blue-100">ניהול</h2>
-              <p className="text-xs text-blue-200 mt-1">מערכת חברים וחיובים</p>
+              <div className="rounded-2xl border border-white/15 bg-white/5 px-3 py-2 backdrop-blur-sm">
+                <h1 className="text-xl font-bold tracking-tight text-white">Shtiebel 48</h1>
+                <h2 className="text-base font-semibold text-cyan-100">Management</h2>
+                <p className="mt-1 text-xs text-blue-100/80">Members & Billing System</p>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => setIsCollapsed((prev) => !prev)}
-              className="rounded-md p-2 text-blue-100 hover:bg-blue-800 hover:text-white transition-colors"
-              aria-label={isCollapsed ? 'הרחב תפריט' : 'כווץ תפריט'}
-              title={isCollapsed ? 'הרחב תפריט' : 'כווץ תפריט'}
+              className="rounded-xl border border-white/15 bg-white/10 p-2 text-blue-50 transition-all hover:bg-white/20 hover:text-white"
+              aria-label={isCollapsed ? 'Expand menu' : 'Collapse menu'}
+              title={isCollapsed ? 'Expand menu' : 'Collapse menu'}
             >
               {isCollapsed ? (
                 <ChevronRight className="w-5 h-5" />
@@ -111,7 +119,7 @@ export default function Layout({ children, currentPageName }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4">
+        <nav className="relative z-10 flex-1 p-3">
           <div className="space-y-2">
             {scopedNavItems.map((item) => {
               const Icon = item.icon;
@@ -129,12 +137,12 @@ export default function Layout({ children, currentPageName }) {
                     isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3'
                   } ${
                     isActive
-                      ? 'bg-blue-800/80 text-white shadow-lg ring-1 ring-white/10'
-                      : 'text-blue-100 hover:bg-blue-800/50'
+                      ? 'border border-cyan-200/30 bg-gradient-to-r from-cyan-300/20 via-sky-300/20 to-blue-400/25 text-white shadow-[0_8px_24px_rgba(59,130,246,0.35)]'
+                      : 'border border-transparent text-blue-100/90 hover:border-white/15 hover:bg-white/10 hover:text-white'
                   } ${isCollapsed ? 'hover:scale-[1.03]' : 'hover:translate-x-1'}`}
                 >
                   <Icon
-                    className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-105'}`}
+                    className={`h-5 w-5 transition-transform duration-300 ${isActive ? 'scale-110 text-cyan-100' : 'group-hover:scale-105'}`}
                   />
                   <span
                     className={`font-medium transition-all duration-300 ${
@@ -149,14 +157,14 @@ export default function Layout({ children, currentPageName }) {
           </div>
         </nav>
 
-        <div className="p-4 border-t border-blue-800">
+        <div className="relative z-10 border-t border-white/10 p-3">
           <button
             type="button"
             onClick={handleLogout}
-            className={`group w-full flex items-center rounded-lg transition-all duration-200 text-blue-100 hover:bg-blue-800/50 ${
+            className={`group flex w-full items-center rounded-xl border border-transparent text-blue-100/90 transition-all duration-200 hover:border-red-200/25 hover:bg-red-400/10 hover:text-white ${
               isCollapsed ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3'
             }`}
-            title={isCollapsed ? 'התנתקות' : undefined}
+            title={isCollapsed ? 'Logout' : undefined}
           >
             <LogOut className="w-5 h-5 transition-transform duration-300 group-hover:scale-105" />
             <span
@@ -164,7 +172,7 @@ export default function Layout({ children, currentPageName }) {
                 isCollapsed ? 'max-w-0 opacity-0' : 'max-w-xs opacity-100'
               }`}
             >
-              התנתקות
+              Logout
             </span>
           </button>
         </div>

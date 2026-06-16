@@ -742,20 +742,12 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
     }
 
     const { member, customerId } = await ensureCustomer({ stripe, store, memberId });
-    const resolvedDefaultPmId = await ensureMemberCheckoutCardState({
-      stripe,
-      store,
-      member,
-      customerId,
-    });
+    // Attach any saved card and set it as the customer's default so Stripe
+    // Checkout offers it for reuse (the member does not re-enter card details).
+    await ensureMemberCheckoutCardState({ stripe, store, member, customerId });
 
-    // If no usable default card is on file, fail fast instead of letting Checkout show a card form.
-    if (!resolvedDefaultPmId) {
-      return res.status(400).json({
-        message: "No saved card on file. Please save a card first, then retry subscription checkout.",
-        code: "missing_default_payment_method",
-      });
-    }
+    // A saved card (if any) is charged automatically; otherwise Checkout will
+    // collect a card on the spot and save it for next time (see below).
     let effectiveAmountCents = amountCents;
     if (paymentType === "balance_payoff") {
       const balanceOwedCents = centsFromNumber(member.total_owed || 0);
@@ -798,13 +790,13 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       metadata: sessionMetadata,
     });
 
-    if (resolvedDefaultPmId) {
-      sessionParams.payment_method_collection = "if_required";
-      sessionParams.payment_intent_data = {
-        payment_method: resolvedDefaultPmId,
-        metadata: sessionMetadata,
-      };
-    }
+    // A saved card on file is shown by Checkout for reuse; if none is on file,
+    // Checkout collects one. setup_future_usage saves the card for next time.
+    // (payment_method_collection is not valid for one-time payment mode.)
+    sessionParams.payment_intent_data = {
+      setup_future_usage: "off_session",
+      metadata: sessionMetadata,
+    };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
@@ -836,20 +828,12 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
 
     const { guest, customerId } = await ensureGuestCustomer({ stripe, store, guestId });
 
-    const resolvedDefaultPmId = await ensureGuestCheckoutCardState({
-      stripe,
-      store,
-      guest,
-      customerId,
-    });
+    // Attach any saved card and set it as the customer's default so Stripe
+    // Checkout offers it for reuse (the guest does not re-enter card details).
+    await ensureGuestCheckoutCardState({ stripe, store, guest, customerId });
 
-    // If no usable default card is on file, block session creation to avoid Checkout asking for card entry.
-    if (!resolvedDefaultPmId) {
-      return res.status(400).json({
-        message: "No saved card on file. Please save a card first, then retry subscription checkout.",
-        code: "missing_default_payment_method",
-      });
-    }
+    // A saved card (if any) is charged automatically; otherwise Checkout will
+    // collect a card on the spot and save it for next time (see below).
     let effectiveAmountCents = amountCents;
     if (paymentType === "balance_payoff") {
       const balanceOwedCents = centsFromNumber(guest.total_owed || 0);
@@ -892,13 +876,13 @@ function createPaymentsRouter({ store, publicBaseUrl, frontendBaseUrl, allowedFr
       metadata: sessionMetadata,
     });
 
-    if (resolvedDefaultPmId) {
-      sessionParams.payment_method_collection = "if_required";
-      sessionParams.payment_intent_data = {
-        payment_method: resolvedDefaultPmId,
-        metadata: sessionMetadata,
-      };
-    }
+    // A saved card on file is shown by Checkout for reuse; if none is on file,
+    // Checkout collects one. setup_future_usage saves the card for next time.
+    // (payment_method_collection is not valid for one-time payment mode.)
+    sessionParams.payment_intent_data = {
+      setup_future_usage: "off_session",
+      metadata: sessionMetadata,
+    };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 

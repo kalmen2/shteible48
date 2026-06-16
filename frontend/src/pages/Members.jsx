@@ -29,6 +29,7 @@ import {
   Plus,
   CreditCard,
   AlertCircle,
+  Printer,
   Upload,
   Download,
   UserPlus,
@@ -40,6 +41,34 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from '@/components/ui/use-toast';
+
+const csvEscape = (value) => {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+};
+
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const downloadCsv = (filename, rows) => {
+  const csvContent = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+};
+
+const getDisplayMemberName = (member) =>
+  member.english_name || member.full_name || member.hebrew_name || 'Unnamed member';
 
 const generateUniqueMemberId = (existingIds = new Set()) => {
   let attempt = 0;
@@ -125,6 +154,11 @@ export default function Members() {
     queryFn: () => base44.entities.RecurringPayment.filter({ is_active: true }),
   });
 
+  const { data: allTransactions = [] } = useQuery({
+    queryKey: ['allTransactions'],
+    queryFn: () => base44.entities.Transaction.listAll('-date'),
+  });
+
   const currentPlan = plans[0];
 
   const createMemberMutation = useMutation({
@@ -150,8 +184,8 @@ export default function Members() {
       setEditMemberDialogOpen(false);
       setSelectedMember(null);
       toast({
-        title: 'פרטי החבר עודכנו',
-        description: 'השינויים נשמרו בהצלחה.',
+        title: 'Member updated',
+        description: 'Changes saved successfully.',
       });
     },
     onError: async (error, variables) => {
@@ -178,8 +212,8 @@ export default function Members() {
             setEditMemberDialogOpen(false);
             setSelectedMember(null);
             toast({
-              title: 'פרטי החבר עודכנו',
-              description: 'השינויים נשמרו בהצלחה.',
+              title: 'Member updated',
+              description: 'Changes saved successfully.',
             });
             return;
           }
@@ -188,8 +222,8 @@ export default function Members() {
         // fall through to error toast
       }
       toast({
-        title: 'העדכון נכשל',
-        description: error?.message || 'לא ניתן לשמור את שינויי החבר.',
+        title: 'Update failed',
+        description: error?.message || 'Unable to save member changes.',
         variant: 'destructive',
       });
     },
@@ -294,23 +328,25 @@ export default function Members() {
 
   const handleActivateSelected = async () => {
     if (!currentPlan?.standard_amount) {
-      alert('אנא הגדירו קודם סכום חודשי סטנדרטי בהגדרות.');
+      alert('Please set a standard monthly amount in Settings first.');
       return;
     }
     const selectedMembers = members.filter((m) => selectedMemberIds.includes(m.id));
     const inactiveMembers = selectedMembers.filter((m) => !m.membership_active);
     if (inactiveMembers.length === 0) {
-      alert('לא נבחרו חברים לא פעילים.');
+      alert('No inactive members selected.');
       return;
     }
     if (inactiveMembers.length > 1) {
-      alert('הפעלה מרובה הוסרה. יש להפעיל חבר אחד בכל פעם.');
+      alert('Bulk activation was removed. Please activate one member at a time.');
       return;
     }
 
     const target = inactiveMembers[0];
-    const targetName = target.english_name || target.full_name || target.hebrew_name || 'חבר';
-    const ok = window.confirm(`לפתוח את Stripe Checkout להפעלת חברות עבור ${targetName}?`);
+    const targetName = target.english_name || target.full_name || target.hebrew_name || 'member';
+    const ok = window.confirm(
+      `Open Stripe Checkout to activate membership for ${targetName}?`
+    );
     if (!ok) return;
 
     setSelectedMember(target);
@@ -551,23 +587,281 @@ export default function Members() {
     );
   };
 
+  const getMemberTransactions = (memberId) => {
+    return allTransactions
+      .filter((t) => t.member_id === memberId)
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  };
+
+  const getMemberStatementSummary = (memberId) => {
+    const transactions = getMemberTransactions(memberId);
+    const totalCharges = transactions
+      .filter((t) => t.type === 'charge')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const totalPayments = transactions
+      .filter((t) => t.type === 'payment')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    return {
+      transactions,
+      totalCharges,
+      totalPayments,
+      balance: totalCharges - totalPayments,
+    };
+  };
+
+  const sortedMembersForReports = [...members].sort((a, b) =>
+    getDisplayMemberName(a).localeCompare(getDisplayMemberName(b), undefined, {
+      sensitivity: 'base',
+    })
+  );
+
+  const handleDownloadBalancesReport = () => {
+    if (sortedMembersForReports.length === 0) {
+      toast({ title: 'No members to export' });
+      return;
+    }
+
+    const rows = [
+      ['Member ID', 'Member Name', 'Email', 'Status', 'Total Monthly', 'Balance Due'],
+      ...sortedMembersForReports.map((member) => [
+        member.member_id || '',
+        getDisplayMemberName(member),
+        member.email || '',
+        member.membership_active ? 'Active' : 'Inactive',
+        Number(getMemberTotalMonthly(member) || 0).toFixed(2),
+        Number(member.total_owed || 0).toFixed(2),
+      ]),
+    ];
+
+    downloadCsv('members_balances.csv', rows);
+  };
+
+  const handleDownloadStatementsReport = () => {
+    if (sortedMembersForReports.length === 0) {
+      toast({ title: 'No members to export' });
+      return;
+    }
+
+    const rows = [
+      [
+        'Member ID',
+        'Member Name',
+        'Date',
+        'Type',
+        'Description',
+        'Category',
+        'Amount',
+        'Total Charges',
+        'Total Payments',
+        'Balance',
+      ],
+    ];
+
+    sortedMembersForReports.forEach((member) => {
+      const name = getDisplayMemberName(member);
+      const { transactions, totalCharges, totalPayments, balance } = getMemberStatementSummary(
+        member.id
+      );
+
+      if (transactions.length === 0) {
+        rows.push([
+          member.member_id || '',
+          name,
+          '',
+          '',
+          'No transactions',
+          '',
+          '',
+          totalCharges.toFixed(2),
+          totalPayments.toFixed(2),
+          balance.toFixed(2),
+        ]);
+        return;
+      }
+
+      transactions.forEach((transaction, index) => {
+        rows.push([
+          member.member_id || '',
+          name,
+          transaction.date || '',
+          transaction.type || '',
+          transaction.description || '',
+          transaction.category || '',
+          Number(transaction.amount || 0).toFixed(2),
+          index === 0 ? totalCharges.toFixed(2) : '',
+          index === 0 ? totalPayments.toFixed(2) : '',
+          index === 0 ? balance.toFixed(2) : '',
+        ]);
+      });
+    });
+
+    downloadCsv('members_statements.csv', rows);
+  };
+
+  const handlePrintBalancesReport = () => {
+    if (sortedMembersForReports.length === 0) {
+      toast({ title: 'No members to print' });
+      return;
+    }
+
+    const printWindow = window.open('', '', 'height=900,width=1100');
+    if (!printWindow) {
+      toast({ title: 'Popup blocked', description: 'Please allow popups to print reports.' });
+      return;
+    }
+
+    const rowsHtml = sortedMembersForReports
+      .map((member) => {
+        const name = getDisplayMemberName(member);
+        const totalMonthly = Number(getMemberTotalMonthly(member) || 0).toFixed(2);
+        const balance = Number(member.total_owed || 0).toFixed(2);
+        const status = member.membership_active ? 'Active' : 'Inactive';
+        return `
+          <tr>
+            <td>${escapeHtml(member.member_id || '')}</td>
+            <td>${escapeHtml(name)}</td>
+            <td>${escapeHtml(member.email || '')}</td>
+            <td>${escapeHtml(status)}</td>
+            <td style="text-align:right;">$${escapeHtml(totalMonthly)}</td>
+            <td style="text-align:right;">$${escapeHtml(balance)}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    printWindow.document.write('<html><head><title>Members Balance Report</title>');
+    printWindow.document.write(`
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #0f172a; }
+        h1 { margin: 0 0 4px; font-size: 22px; }
+        .meta { color: #475569; margin: 0 0 16px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #cbd5e1; padding: 8px 10px; font-size: 12px; }
+        th { background: #f1f5f9; text-align: left; }
+        @media print { @page { margin: 0.5in; } }
+      </style>
+    `);
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(`<h1>Members Balance Report</h1><p class="meta">Generated ${new Date().toLocaleString()}</p>`);
+    printWindow.document.write(`
+      <table>
+        <thead>
+          <tr>
+            <th>Member ID</th>
+            <th>Member Name</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Total Monthly</th>
+            <th>Balance Due</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    `);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  const handlePrintAllStatements = () => {
+    if (sortedMembersForReports.length === 0) {
+      toast({ title: 'No members to print' });
+      return;
+    }
+
+    const printWindow = window.open('', '', 'height=900,width=1100');
+    if (!printWindow) {
+      toast({ title: 'Popup blocked', description: 'Please allow popups to print reports.' });
+      return;
+    }
+
+    printWindow.document.write('<html><head><title>Members Statements</title>');
+    printWindow.document.write(`
+      <style>
+        body { font-family: Arial, sans-serif; color: #0f172a; }
+        .statement { padding: 16px 20px; }
+        .page-break { page-break-after: always; }
+        h2 { margin: 0 0 6px; font-size: 20px; }
+        .meta { color: #475569; font-size: 12px; margin-bottom: 4px; }
+        .summary { margin: 10px 0 12px; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border: 1px solid #cbd5e1; padding: 7px 9px; font-size: 12px; }
+        th { background: #f1f5f9; text-align: left; }
+        td.amount, th.amount { text-align: right; }
+        @media print { @page { margin: 0.5in; } }
+      </style>
+    `);
+    printWindow.document.write('</head><body>');
+
+    sortedMembersForReports.forEach((member, index) => {
+      const name = getDisplayMemberName(member);
+      const { transactions, totalCharges, totalPayments, balance } = getMemberStatementSummary(
+        member.id
+      );
+
+      const rowsHtml =
+        transactions.length > 0
+          ? transactions
+              .map(
+                (transaction) => `
+              <tr>
+                <td>${escapeHtml(transaction.date || '')}</td>
+                <td>${escapeHtml(transaction.type || '')}</td>
+                <td>${escapeHtml(transaction.description || '')}</td>
+                <td class="amount">$${escapeHtml(Number(transaction.amount || 0).toFixed(2))}</td>
+              </tr>
+            `
+              )
+              .join('')
+          : '<tr><td colspan="4" style="text-align:center;color:#64748b;">No transactions yet</td></tr>';
+
+      printWindow.document.write(`
+        <section class="statement ${index < sortedMembersForReports.length - 1 ? 'page-break' : ''}">
+          <h2>${escapeHtml(name)}</h2>
+          <div class="meta">Member ID: ${escapeHtml(member.member_id || 'N/A')} ${member.email ? `| Email: ${escapeHtml(member.email)}` : ''}</div>
+          <div class="meta">Generated ${escapeHtml(new Date().toLocaleString())}</div>
+          <div class="summary">
+            <div><strong>Total Charges:</strong> $${escapeHtml(totalCharges.toFixed(2))}</div>
+            <div><strong>Total Payments:</strong> $${escapeHtml(totalPayments.toFixed(2))}</div>
+            <div><strong>Balance Due:</strong> $${escapeHtml(balance.toFixed(2))}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th class="amount">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </section>
+      `);
+    });
+
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.print();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 py-8 md:px-6">
+        <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-white/70 bg-white/85 p-4 shadow-lg shadow-slate-300/25 backdrop-blur md:flex-row md:items-center md:justify-between">
           <h1 className="text-3xl font-bold text-slate-900">Members</h1>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
                 placeholder="Search members..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 h-10 w-64"
+                className="h-10 w-64 rounded-xl border-slate-200 bg-white pl-10 shadow-sm"
               />
             </div>
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-44 h-10">
+              <SelectTrigger className="w-44 h-10 rounded-xl border-slate-200 bg-white shadow-sm">
                 <SelectValue placeholder="Sort by..." />
               </SelectTrigger>
               <SelectContent>
@@ -577,7 +871,7 @@ export default function Members() {
             </Select>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" className="h-10 rounded-xl border-slate-200 bg-white shadow-sm">
                   <FileSpreadsheet className="w-4 h-4 mr-2" />
                   Import/Export
                   <ChevronDown className="w-4 h-4 ml-2" />
@@ -592,12 +886,28 @@ export default function Members() {
                   <Upload className="w-4 h-4 mr-2" />
                   Upload from Excel
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadBalancesReport}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download All Balances
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadStatementsReport}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download All Statements
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePrintBalancesReport}>
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print All Balances
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePrintAllStatements}>
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print All Statements
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             {selectedMemberIds.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" className="h-10 rounded-xl border-slate-200 bg-white shadow-sm">
                     Actions for Selected ({selectedMemberIds.length})
                     <ChevronDown className="w-4 h-4 ml-2" />
                   </Button>
@@ -656,7 +966,7 @@ export default function Members() {
             </Dialog>
             <Dialog open={addMemberDialogOpen} onOpenChange={setAddMemberDialogOpen}>
               <DialogTrigger asChild>
-                <Button className="bg-blue-900 hover:bg-blue-800">
+                <Button className="h-10 rounded-xl bg-blue-900 hover:bg-blue-800 shadow-sm">
                   <UserPlus className="w-4 h-4 mr-2" />
                   Add Member
                 </Button>
@@ -734,8 +1044,8 @@ export default function Members() {
         </div>
 
         {/* Members List */}
-        <Card className="border-slate-200 shadow-lg">
-          <CardHeader className="border-b border-slate-200 bg-slate-50">
+        <Card className="border-slate-200/90 bg-white/95 shadow-xl shadow-slate-300/20">
+          <CardHeader className="border-b border-slate-200 bg-slate-50/80">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <CardTitle>Members & Charges</CardTitle>
               <div className="text-sm font-medium text-slate-700">
@@ -754,7 +1064,7 @@ export default function Members() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-slate-50/80 border-b border-slate-200">
                     <tr>
                       <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700">
                         <input
@@ -803,7 +1113,7 @@ export default function Members() {
                           ? member.hebrew_name
                           : null;
                       return (
-                        <tr key={member.id} className="hover:bg-blue-50/30 transition-colors">
+                        <tr key={member.id} className="hover:bg-blue-50/50 transition-colors">
                           <td className="py-4 px-6 align-top">
                             <input
                               type="checkbox"
@@ -929,6 +1239,7 @@ export default function Members() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleEditMember(member)}
+                                className="rounded-lg"
                               >
                                 <Pencil className="w-4 h-4" />
                               </Button>
@@ -936,7 +1247,7 @@ export default function Members() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleDeleteMember(member)}
-                                className="text-red-600 hover:text-red-700"
+                                className="rounded-lg text-red-600 hover:text-red-700"
                                 title="מחיקת חבר"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -944,18 +1255,18 @@ export default function Members() {
                               {!member.membership_active ? (
                                 <Button
                                   size="sm"
-                                  className="bg-green-600 hover:bg-green-700"
+                                  className="rounded-lg bg-green-600 hover:bg-green-700"
                                   onClick={() => openPaymentDialog(member)}
                                 >
                                   <Plus className="w-4 h-4 mr-1" />
-                                  הוספת חברות
+                                  Add Membership
                                 </Button>
                               ) : (
                                 <>
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="border-red-600 text-red-600 hover:bg-red-50"
+                                    className="rounded-lg border-red-600 text-red-600 hover:bg-red-50"
                                     onClick={() => openDeactivateDialog(member)}
                                   >
                                     הסרה
@@ -963,6 +1274,7 @@ export default function Members() {
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    className="rounded-lg"
                                     onClick={() => {
                                       setSelectedMember(member);
                                       setChargeDialogOpen(true);
@@ -991,24 +1303,24 @@ export default function Members() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5" />
-                הוספת אמצעי תשלום
+                Add Payment Method
               </DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={activateMembership} className="space-y-4 mt-4">
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="text-sm text-slate-600 mb-1">הפעלת חברות עבור:</div>
+                  <div className="text-sm text-slate-600 mb-1">Activating membership for:</div>
                   <div className="font-semibold text-slate-900">{selectedMember.full_name}</div>
                   <div className="text-xs mt-1">
                     {selectedMember.stripe_default_payment_method_id ? (
-                      <span className="text-green-700">כרטיס קיים במערכת</span>
+                      <span className="text-green-700">Card on file</span>
                     ) : (
-                      <span className="text-amber-700">אין כרטיס במערכת</span>
+                      <span className="text-amber-700">No card on file</span>
                     )}
                   </div>
                   {currentPlan && (
                     <div className="text-sm text-slate-600 mt-2">
-                      סכום חודשי:{' '}
+                      Monthly amount:{' '}
                       <span className="font-semibold">
                         ${currentPlan.standard_amount.toFixed(2)}
                       </span>
@@ -1018,7 +1330,7 @@ export default function Members() {
 
                 {/* New: Payment month choice */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-slate-700">להחיל את התשלום הראשון על:</Label>
+                  <Label className="text-sm text-slate-700">Apply first payment to:</Label>
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2">
                       <input
@@ -1028,7 +1340,7 @@ export default function Members() {
                         checked={paymentMonthChoice === 'this'}
                         onChange={() => setPaymentMonthChoice('this')}
                       />
-                      <span>החודש הזה</span>
+                      <span>This month</span>
                     </label>
                     <label className="flex items-center gap-2">
                       <input
@@ -1038,16 +1350,17 @@ export default function Members() {
                         checked={paymentMonthChoice === 'next'}
                         onChange={() => setPaymentMonthChoice('next')}
                       />
-                      <span>החודש הבא</span>
+                      <span>Next month</span>
                     </label>
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
-                    אם תבחרו בחודש הבא, התשלום הראשון יחול על החודש הבא והחיובים הקבועים יתחילו בחודש שלאחריו.
+                    If you choose next month, the first payment will apply to next month and
+                    recurring billing will begin the following month.
                   </div>
                 </div>
 
                 <div className="text-sm text-slate-600">
-                  פרטי התשלום יוזנו בצורה מאובטחת ב-Stripe Checkout.
+                  Payment details will be entered securely in Stripe Checkout.
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4">
@@ -1056,14 +1369,14 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setPaymentDialogOpen(false)}
                   >
-                    ביטול
+                    Cancel
                   </Button>
                   <Button
                     type="submit"
                     className="bg-green-600 hover:bg-green-700"
                     disabled={processing}
                   >
-                    {processing ? 'מעבד...' : 'הפעלת חברות'}
+                    {processing ? 'Processing...' : 'Activate Membership'}
                   </Button>
                 </div>
               </form>
@@ -1112,12 +1425,12 @@ export default function Members() {
         <Dialog open={editMemberDialogOpen} onOpenChange={setEditMemberDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>עריכת חבר</DialogTitle>
+              <DialogTitle>Edit Member</DialogTitle>
             </DialogHeader>
             {selectedMember && (
               <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit_english_name">שם באנגלית</Label>
+                  <Label htmlFor="edit_english_name">English Name</Label>
                   <Input
                     id="edit_english_name"
                     value={selectedMember.english_name || ''}
@@ -1128,7 +1441,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_hebrew_name">שם בעברית</Label>
+                  <Label htmlFor="edit_hebrew_name">Hebrew Name</Label>
                   <Input
                     id="edit_hebrew_name"
                     value={selectedMember.hebrew_name || ''}
@@ -1139,7 +1452,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_email">אימייל</Label>
+                  <Label htmlFor="edit_email">Email</Label>
                   <Input
                     id="edit_email"
                     type="email"
@@ -1152,7 +1465,7 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_phone">טלפון</Label>
+                  <Label htmlFor="edit_phone">Phone</Label>
                   <Input
                     id="edit_phone"
                     value={selectedMember.phone || ''}
@@ -1164,14 +1477,14 @@ export default function Members() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit_address">כתובת</Label>
+                  <Label htmlFor="edit_address">Address</Label>
                   <Input
                     id="edit_address"
                     value={selectedMember.address || ''}
                     onChange={(e) =>
                       setSelectedMember({ ...selectedMember, address: e.target.value })
                     }
-                    placeholder="רחוב ודירה"
+                    placeholder="Street and apartment"
                     className="h-11"
                   />
                 </div>
@@ -1181,10 +1494,10 @@ export default function Members() {
                     variant="outline"
                     onClick={() => setEditMemberDialogOpen(false)}
                   >
-                    ביטול
+                    Cancel
                   </Button>
                   <Button type="submit" className="bg-blue-900 hover:bg-blue-800">
-                    שמירת שינויים
+                    Save Changes
                   </Button>
                 </div>
               </form>

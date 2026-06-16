@@ -14,6 +14,12 @@ import {
   Send,
   AlertCircle,
   FileText,
+  CalendarDays,
+  Clock3,
+  Search,
+  Users,
+  Repeat,
+  Trash2,
 } from 'lucide-react';
 import {
   Select,
@@ -27,15 +33,19 @@ import { format } from 'date-fns';
 export default function EmailManagement() {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
-  const [sendType, setSendType] = useState('now'); // "now" or "monthly"
+  const [sendType, setSendType] = useState('one-time'); // "one-time" or "scheduled"
   const [attachInvoice, setAttachInvoice] = useState(false);
   const [isBodyCentered, setIsBodyCentered] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendLog, setSendLog] = useState([]);
+  const [sendRecipientSearch, setSendRecipientSearch] = useState('');
   const [scheduleDay, setScheduleDay] = useState(1);
+  const [scheduleFrequency, setScheduleFrequency] = useState('monthly'); // "monthly" or "weekly"
+  const [scheduleWeekday, setScheduleWeekday] = useState(1); // 0=Sun ... 6=Sat
   const [scheduleTime, setScheduleTime] = useState('09:00');
   const [scheduleTimezone, setScheduleTimezone] = useState('America/New_York');
   const [scheduleRecipientMode, setScheduleRecipientMode] = useState('all');
+  const [scheduleRecipientSearch, setScheduleRecipientSearch] = useState('');
   const [selectedRecipientIds, setSelectedRecipientIds] = useState([]);
   const [scheduleMessage, setScheduleMessage] = useState(null);
   const [scheduleId, setScheduleId] = useState(null);
@@ -111,13 +121,16 @@ Synagogue Administration`,
   );
   useEffect(() => {
     if (!schedule) return;
+    const frequency = schedule.frequency === 'weekly' ? 'weekly' : 'monthly';
     setScheduleDay(Number(schedule.day_of_month ?? 1));
+    setScheduleFrequency(frequency);
+    setScheduleWeekday(Number(schedule.day_of_week ?? 1));
     const hour = Number(schedule.hour ?? 9);
     const minute = Number(schedule.minute ?? 0);
     setScheduleTime(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
     setScheduleTimezone(schedule.time_zone || 'America/New_York');
     setScheduleRecipientMode(schedule.send_to === 'selected' ? 'selected' : 'all');
-    setScheduleName(schedule.name || 'Monthly Schedule');
+    setScheduleName(schedule.name || (frequency === 'weekly' ? 'Weekly Schedule' : 'Monthly Schedule'));
     const normalizedSelected = Array.isArray(schedule.selected_member_ids)
       ? schedule.selected_member_ids.map((id) => {
           if (typeof id === 'string' && id.includes(':')) return id;
@@ -141,10 +154,13 @@ Synagogue Administration`,
     setIsCreatingSchedule(true);
     setScheduleName('');
     setEmailBody('');
+    setScheduleFrequency('monthly');
     setScheduleDay(1);
+    setScheduleWeekday(1);
     setScheduleTime('09:00');
     setScheduleTimezone('America/New_York');
     setScheduleRecipientMode('all');
+    setScheduleRecipientSearch('');
     setSelectedRecipientIds([]);
     setIsBodyCentered(false);
     setScheduleMessage(null);
@@ -214,12 +230,22 @@ Synagogue Administration`,
 
   const scheduleDisplay = React.useMemo(() => {
     if (!schedule) return null;
+    const frequency = schedule.frequency === 'weekly' ? 'weekly' : 'monthly';
     const hour = Number(schedule.hour ?? 9);
     const minute = Number(schedule.minute ?? 0);
     const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    const weekday = Number(schedule.day_of_week ?? 1);
+    const weekDayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const cadenceLabel =
+      frequency === 'weekly'
+        ? `Weekly on ${weekDayLabels[weekday] || 'Monday'}`
+        : `Monthly on day ${Number(schedule.day_of_month ?? 1)}`;
     return {
       name: schedule.name || 'Current schedule',
+      frequency,
       day: Number(schedule.day_of_month ?? 1),
+      weekday,
+      cadenceLabel,
       time,
       timeZone: schedule.time_zone || 'America/New_York',
       sendTo: schedule.send_to === 'selected' ? 'selected' : 'all',
@@ -228,8 +254,6 @@ Synagogue Administration`,
       subject: schedule.subject || emailSubject,
     };
   }, [schedule, emailSubject]);
-
-  const recipientsWithBalance = allRecipients.filter((r) => (r.balance || 0) > 0);
 
   const containsHtml = (value) => /<\/?[a-z][\s\S]*>/i.test(String(value || ''));
 
@@ -332,7 +356,7 @@ Synagogue Administration`,
     },
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
-      setScheduleMessage({ type: 'success', text: 'Monthly schedule saved.' });
+      setScheduleMessage({ type: 'success', text: 'Schedule saved.' });
       if (saved?.id) {
         setScheduleId(saved.id);
         setIsCreatingSchedule(false);
@@ -350,7 +374,7 @@ Synagogue Administration`,
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['emailSchedule'] });
-      setScheduleMessage({ type: 'success', text: 'Monthly schedule deleted.' });
+      setScheduleMessage({ type: 'success', text: 'Schedule deleted.' });
       resetScheduleForm();
     },
     onError: (error) => {
@@ -378,9 +402,11 @@ Synagogue Administration`,
     saveScheduleMutation.mutate({
       forceCreate: forceCreate || isCreatingSchedule || !scheduleId,
       payload: {
-        name: scheduleName || 'Monthly Schedule',
+        name: scheduleName || (scheduleFrequency === 'weekly' ? 'Weekly Schedule' : 'Monthly Schedule'),
         enabled: true,
-        day_of_month: scheduleDay,
+        frequency: scheduleFrequency,
+        day_of_month: scheduleFrequency === 'monthly' ? scheduleDay : 1,
+        day_of_week: scheduleFrequency === 'weekly' ? scheduleWeekday : null,
         hour,
         minute,
         time_zone: scheduleTimezone,
@@ -473,7 +499,6 @@ Synagogue Administration`,
           member: rec.name,
           status: 'sent',
           email: rec.email,
-          type: sendType,
           kind: rec.kind,
         });
       } catch (error) {
@@ -494,379 +519,507 @@ Synagogue Administration`,
 
   const savingSchedule = saveScheduleMutation.isPending;
 
+  const weekdayOptions = [
+    { value: 0, label: 'Sunday' },
+    { value: 1, label: 'Monday' },
+    { value: 2, label: 'Tuesday' },
+    { value: 3, label: 'Wednesday' },
+    { value: 4, label: 'Thursday' },
+    { value: 5, label: 'Friday' },
+    { value: 6, label: 'Saturday' },
+  ];
+
+  const timezoneOptions = [
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'UTC',
+  ];
+
+  const filteredSendRecipients = React.useMemo(() => {
+    const query = sendRecipientSearch.trim().toLowerCase();
+    if (!query) return allRecipients;
+    return allRecipients.filter((rec) => {
+      const haystack = `${rec.name} ${rec.email || ''} ${rec.kind}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [allRecipients, sendRecipientSearch]);
+
+  const filteredScheduleRecipients = React.useMemo(() => {
+    const query = scheduleRecipientSearch.trim().toLowerCase();
+    if (!query) return allRecipients;
+    return allRecipients.filter((rec) => {
+      const haystack = `${rec.name} ${rec.email || ''} ${rec.kind}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [allRecipients, scheduleRecipientSearch]);
+
+  const oneTimeRecipients =
+    sendRecipientMode === 'selected'
+      ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
+      : allRecipients;
+  const oneTimeEmailCount = oneTimeRecipients.filter((r) => r.email).length;
+
+  const scheduledRecipients =
+    scheduleRecipientMode === 'selected'
+      ? allRecipients.filter((r) => selectedRecipientIds.includes(r.key))
+      : allRecipients;
+  const scheduledEmailCount = scheduledRecipients.filter((r) => r.email).length;
+
+  const toggleSelection = (selectedIds, setSelectedIds, key, checked) => {
+    if (checked) {
+      if (!selectedIds.includes(key)) {
+        setSelectedIds([...selectedIds, key]);
+      }
+      return;
+    }
+    setSelectedIds(selectedIds.filter((id) => id !== key));
+  };
+
+  const renderRecipientSelector = ({
+    mode,
+    setMode,
+    selectedIds,
+    setSelectedIds,
+    search,
+    setSearch,
+    filteredRecipients,
+  }) => (
+    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setMode('all')}
+          className={`rounded-xl border-2 p-3 text-left transition ${
+            mode === 'all'
+              ? 'border-blue-600 bg-blue-50 text-blue-800'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Users className="h-4 w-4" />
+            All Recipients
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Send to everyone with an email.</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('selected')}
+          className={`rounded-xl border-2 p-3 text-left transition ${
+            mode === 'selected'
+              ? 'border-blue-600 bg-blue-50 text-blue-800'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <AlertCircle className="h-4 w-4" />
+            Selected Recipients
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Choose specific members and guests.</p>
+        </button>
+      </div>
+
+      {mode === 'selected' && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search recipients"
+                className="pl-9"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const addKeys = filteredRecipients.map((r) => r.key);
+                  setSelectedIds(Array.from(new Set([...selectedIds, ...addKeys])));
+                }}
+              >
+                Select Filtered
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedIds([])}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+
+          <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
+            {filteredRecipients.map((rec) => (
+              <label
+                key={rec.key}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(rec.key)}
+                  onChange={(e) =>
+                    toggleSelection(selectedIds, setSelectedIds, rec.key, e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-slate-900">{rec.name}</div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 uppercase tracking-wide">
+                      {rec.kind}
+                    </span>
+                    <span className="truncate">{rec.email || 'No email'}</span>
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-amber-700">${rec.balance.toFixed(2)}</span>
+              </label>
+            ))}
+            {filteredRecipients.length === 0 && (
+              <div className="px-2 py-6 text-center text-sm text-slate-500">No matches found.</div>
+            )}
+          </div>
+          <div className="text-xs text-slate-500">Selected: {selectedIds.length} recipients</div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_0%_0%,rgba(30,64,175,0.12),transparent_32%),radial-gradient(circle_at_100%_0%,rgba(2,132,199,0.16),transparent_28%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_50%,#f8fafc_100%)]">
       <style>{`
         .email-quill-center .ql-editor {
           text-align: center;
         }
         .email-quill-tall .ql-editor {
-          min-height: 180px;
+          min-height: 220px;
+        }
+        .email-quill-tall .ql-toolbar {
+          border-top-left-radius: 12px;
+          border-top-right-radius: 12px;
+        }
+        .email-quill-tall .ql-container {
+          border-bottom-left-radius: 12px;
+          border-bottom-right-radius: 12px;
         }
       `}</style>
-      <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
+      <div className="mx-auto max-w-[1440px] px-4 py-6 lg:px-8">
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+          <Card className="border-slate-200/90 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.09)] backdrop-blur">
+            <CardHeader className="border-b border-slate-200/80 bg-slate-50/70">
+              <CardTitle className="flex items-center gap-2 text-slate-900">
+                <FileText className="h-5 w-5 text-blue-700" />
+                Message Composer
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5 p-5">
+              <div className="space-y-2">
+                <Label htmlFor="subject" className="text-slate-700">
+                  Subject Line
+                </Label>
+                <Input
+                  id="subject"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Monthly Statement Update"
+                />
+              </div>
 
-        {/* Email Template */}
-            <Card className="mb-6 border-slate-200 bg-white shadow-sm">
-              <CardHeader className="border-b border-slate-200 bg-slate-50">
-                <CardTitle className="text-slate-900">Email Management</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-6">
-                <div className="space-y-2">
-                  <Label className="text-slate-700">Send Mode</Label>
-                  <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setSendType('now')}
-                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
-                        sendType === 'now'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Send Now
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSendType('monthly')}
-                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
-                        sendType === 'monthly'
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Monthly
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="subject" className="text-slate-700">Subject</Label>
-                  <input
-                    id="subject"
-                    value={emailSubject}
-                    onChange={(e) => setEmailSubject(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400"
+              <div className="space-y-2">
+                <Label htmlFor="body" className="text-slate-700">
+                  Email Body
+                </Label>
+                <div
+                  className={`email-quill-tall rounded-xl border border-slate-300 bg-white ${
+                    isBodyCentered ? 'email-quill-center' : ''
+                  }`}
+                >
+                  <ReactQuill
+                    theme="snow"
+                    value={emailBody}
+                    onChange={setEmailBody}
+                    modules={{
+                      toolbar: [
+                        [{ header: [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ color: [] }, { background: [] }],
+                        [{ list: 'ordered' }, { list: 'bullet' }],
+                        [{ align: [] }],
+                        ['link', 'clean'],
+                      ],
+                    }}
+                    formats={[
+                      'header',
+                      'bold',
+                      'italic',
+                      'underline',
+                      'strike',
+                      'color',
+                      'background',
+                      'list',
+                      'bullet',
+                      'align',
+                      'link',
+                    ]}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="body" className="text-slate-700">Email Body</Label>
-                  <div
-                    className={`email-quill-tall rounded-lg border border-slate-300 ${
-                      isBodyCentered ? 'email-quill-center' : ''
+                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{'{member_name}'}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{'{hebrew_name}'}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{'{balance}'}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{'{id}'}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{'{save_card_url}'}</span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label
+                  htmlFor="attachInvoice"
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                    attachInvoice
+                      ? 'border-blue-300 bg-blue-50/80'
+                      : 'border-slate-200 bg-slate-50/70 hover:border-slate-300'
+                  } ${!hasSavedTemplate ? 'opacity-75' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    id="attachInvoice"
+                    checked={attachInvoice}
+                    onChange={(e) => setAttachInvoice(e.target.checked)}
+                    disabled={!hasSavedTemplate}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-900">Attach PDF Statement</div>
+                    <p className="text-xs text-slate-600">
+                      Include invoice PDF with each email
+                      {!hasSavedTemplate && ' (enable by saving template in Settings)'}
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  htmlFor="centerBody"
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                    isBodyCentered
+                      ? 'border-blue-300 bg-blue-50/80'
+                      : 'border-slate-200 bg-slate-50/70 hover:border-slate-300'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    id="centerBody"
+                    checked={isBodyCentered}
+                    onChange={(e) => setIsBodyCentered(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-900">Center Message Body</div>
+                    <p className="text-xs text-slate-600">Apply centered alignment in editor and email HTML</p>
+                  </div>
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200/90 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.09)] backdrop-blur">
+            <CardHeader className="border-b border-slate-200/80 bg-slate-50/70">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle className="flex items-center gap-2 text-slate-900">
+                  <Send className="h-5 w-5 text-blue-700" />
+                  Delivery Setup
+                </CardTitle>
+                <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setSendType('one-time')}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      sendType === 'one-time'
+                        ? 'bg-blue-700 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    <ReactQuill
-                      theme="snow"
-                      value={emailBody}
-                      onChange={setEmailBody}
-                      modules={{
-                        toolbar: [
-                          [{ header: [1, 2, 3, false] }],
-                          ['bold', 'italic', 'underline', 'strike'],
-                          [{ color: [] }, { background: [] }],
-                          [{ list: 'ordered' }, { list: 'bullet' }],
-                          [{ align: [] }],
-                          ['link', 'clean'],
-                        ],
-                      }}
-                      formats={[
-                        'header',
-                        'bold',
-                        'italic',
-                        'underline',
-                        'strike',
-                        'color',
-                        'background',
-                        'list',
-                        'bullet',
-                        'align',
-                        'link',
-                      ]}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    Available variables: {'{member_name}'}, {'{hebrew_name}'}, {'{balance}'},{' '}
-                    {'{id}'}, {'{save_card_url}'}
-                  </p>
+                    One-Time Send
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSendType('scheduled')}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      sendType === 'scheduled'
+                        ? 'bg-blue-700 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Scheduled
+                  </button>
                 </div>
+              </div>
+            </CardHeader>
 
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <input
-                      type="checkbox"
-                      id="attachInvoice"
-                      checked={attachInvoice}
-                      onChange={(e) => setAttachInvoice(e.target.checked)}
-                      disabled={!hasSavedTemplate}
-                      className="h-5 w-5 rounded border-slate-300 text-blue-600"
-                    />
-                    <label htmlFor="attachInvoice" className="flex items-center gap-2 cursor-pointer">
-                      <FileText className="h-5 w-5 text-blue-700" />
-                      <div>
-                        <div className="font-semibold text-slate-900">Attach PDF Invoice</div>
-                        <div className="text-sm text-slate-600">
-                          Include member statement as PDF attachment
-                          {!hasSavedTemplate && ' (save a template to enable)'}
-                        </div>
+            <CardContent className="space-y-5 p-5">
+              {sendType === 'one-time' ? (
+                <>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                        <Mail className="h-4 w-4 text-blue-700" />
+                        One-time delivery
                       </div>
-                    </label>
-                  </div>
-
-                  <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <input
-                      type="checkbox"
-                      id="centerBody"
-                      checked={isBodyCentered}
-                      onChange={(e) => setIsBodyCentered(e.target.checked)}
-                      className="h-5 w-5 rounded border-slate-300 text-blue-600"
-                    />
-                    <label htmlFor="centerBody" className="flex items-center gap-2 cursor-pointer">
-                      <span className="font-semibold text-slate-900">Center email body</span>
-                      <span className="text-sm text-slate-600">
-                        Centers the email text in the UI and the sent email.
+                      <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                        {oneTimeEmailCount} deliverable
                       </span>
-                    </label>
-                  </div>
-                </div>
-
-                {sendType === 'now' && (
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-                    <Label className="text-slate-700">Recipients (one-time send)</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSendRecipientMode('all')}
-                        className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                          sendRecipientMode === 'all'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
-                        }`}
-                      >
-                        <Mail className="w-4 h-4" />
-                        <div className="text-left">
-                          <div className="font-semibold">All Recipients</div>
-                          <div className="text-xs">
-                            Send to every member & guest (skips missing email)
-                          </div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSendRecipientMode('selected')}
-                        className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                          sendRecipientMode === 'selected'
-                            ? 'border-blue-600 bg-blue-50 text-blue-700'
-                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
-                        }`}
-                      >
-                        <AlertCircle className="w-4 h-4" />
-                        <div className="text-left">
-                          <div className="font-semibold">Selected Recipients</div>
-                          <div className="text-xs">Pick specific members or guests</div>
-                        </div>
-                      </button>
                     </div>
-                    {sendRecipientMode === 'selected' && (
-                      <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                        {allRecipients.map((rec) => (
-                          <label
-                            key={`${rec.kind}-${rec.id}`}
-                            className="flex items-center gap-3 rounded px-2 py-2 hover:bg-slate-50"
+                    <p className="mt-2 text-xs text-slate-600">
+                      Current scope: {oneTimeRecipients.length} selected · {oneTimeEmailCount} with email
+                    </p>
+                  </div>
+
+                  {renderRecipientSelector({
+                    mode: sendRecipientMode,
+                    setMode: setSendRecipientMode,
+                    selectedIds: sendSelectedRecipientIds,
+                    setSelectedIds: setSendSelectedRecipientIds,
+                    search: sendRecipientSearch,
+                    setSearch: setSendRecipientSearch,
+                    filteredRecipients: filteredSendRecipients,
+                  })}
+
+                  <Button
+                    onClick={handleSendNow}
+                    disabled={sending || oneTimeEmailCount === 0}
+                    className="h-11 w-full bg-blue-700 hover:bg-blue-600"
+                  >
+                    <Send className="mr-2 h-5 w-5" />
+                    {sending ? 'Sending...' : `Send to ${oneTimeEmailCount} Recipients`}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-slate-700">Schedule</Label>
+                      <Select
+                        value={scheduleId || 'new'}
+                        onValueChange={(value) => {
+                          if (value === 'new') {
+                            resetScheduleForm();
+                          } else {
+                            setScheduleId(value);
+                            setScheduleMessage(null);
+                            setIsCreatingSchedule(false);
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select schedule" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="new">New schedule</SelectItem>
+                          {schedules.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name || `Schedule ${item.id.slice(0, 6)}`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="scheduleName" className="text-slate-700">
+                        Schedule Name
+                      </Label>
+                      <Input
+                        id="scheduleName"
+                        value={scheduleName}
+                        onChange={(e) => setScheduleName(e.target.value)}
+                        placeholder={scheduleFrequency === 'weekly' ? 'Weekly Reminder' : 'Monthly Statement'}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-slate-700">Cadence</Label>
+                        <div className="inline-flex w-full rounded-xl border border-slate-200 bg-slate-100 p-1">
+                          <button
+                            type="button"
+                            className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                              scheduleFrequency === 'monthly'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-600'
+                            }`}
+                            onClick={() => setScheduleFrequency('monthly')}
                           >
-                            <input
-                              type="checkbox"
-                              checked={sendSelectedRecipientIds.includes(rec.key)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSendSelectedRecipientIds([
-                                    ...sendSelectedRecipientIds,
-                                    rec.key,
-                                  ]);
-                                } else {
-                                  setSendSelectedRecipientIds(
-                                    sendSelectedRecipientIds.filter((id) => id !== rec.key)
-                                  );
-                                }
-                              }}
-                              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                            />
-                            <div className="flex-1">
-                              <div className="text-sm font-medium text-slate-900">{rec.name}</div>
-                              <div className="text-xs text-slate-500 flex items-center gap-2">
-                                <span className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] uppercase text-slate-700">
-                                  {rec.kind}
-                                </span>
-                                <span>{rec.email || 'No email'}</span>
-                              </div>
-                            </div>
-                            <div className="text-sm font-semibold text-amber-600">
-                              ${rec.balance.toFixed(2)}
-                            </div>
-                          </label>
-                        ))}
+                            Monthly
+                          </button>
+                          <button
+                            type="button"
+                            className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                              scheduleFrequency === 'weekly'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-600'
+                            }`}
+                            onClick={() => setScheduleFrequency('weekly')}
+                          >
+                            Weekly
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
 
-                {sendType === 'monthly' && (
-                  <div className="space-y-4">
-                    <Card className="border-slate-200 bg-white shadow-sm">
-                      <CardHeader className="border-b border-slate-200 bg-slate-50">
-                        <CardTitle className="text-base text-slate-900">Saved Schedules</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4">
-                        {schedules.length === 0 ? (
-                          <div className="text-sm text-slate-500">
-                            No schedules yet. Create one below.
-                          </div>
+                      <div className="space-y-2">
+                        <Label className="text-slate-700">
+                          {scheduleFrequency === 'monthly' ? 'Day of Month' : 'Day of Week'}
+                        </Label>
+                        {scheduleFrequency === 'monthly' ? (
+                          <Select
+                            value={String(scheduleDay)}
+                            onValueChange={(value) => setScheduleDay(Number(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                                <SelectItem key={day} value={String(day)}>
+                                  {day}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
-                          <div className="grid gap-3">
-                            {schedules.map((item) => {
-                              const isSelected = scheduleId === item.id;
-                              const recipientCount =
-                                item.send_to === 'selected'
-                                  ? Array.isArray(item.selected_member_ids)
-                                    ? item.selected_member_ids.length
-                                    : 0
-                                  : allRecipients.length;
-                              const emailCount =
-                                item.send_to === 'selected'
-                                  ? Array.isArray(item.selected_member_ids)
-                                    ? item.selected_member_ids
-                                        .map((id) => resolveRecipientKey(id))
-                                        .filter((key) => {
-                                          if (!key) return false;
-                                          const rec = recipientByKey.get(key);
-                                          return Boolean(rec?.email);
-                                        }).length
-                                    : 0
-                                  : allRecipients.filter((r) => r.email).length;
-                              const hour = Number(item.hour ?? 9);
-                              const minute = Number(item.minute ?? 0);
-                              const time = `${String(hour).padStart(2, '0')}:${String(
-                                minute
-                              ).padStart(2, '0')}`;
-
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setScheduleId(item.id);
-                                    setScheduleMessage(null);
-                                    setIsCreatingSchedule(false);
-                                  }}
-                                  className={`w-full rounded-lg border px-4 py-3 text-left transition ${
-                                    isSelected
-                                      ? 'border-blue-600 bg-blue-50'
-                                      : 'border-slate-300 bg-white hover:border-slate-400'
-                                  }`}
-                                >
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="font-semibold text-slate-900">
-                                      {item.name || `Schedule ${item.id.slice(0, 6)}`}
-                                    </div>
-                                    <span
-                                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                        item.enabled
-                                          ? 'bg-green-100 text-green-700'
-                                          : 'bg-slate-100 text-slate-500'
-                                      }`}
-                                    >
-                                      {item.enabled ? 'Enabled' : 'Disabled'}
-                                    </span>
-                                  </div>
-                                  <div className="text-xs text-slate-500 mt-1">
-                                    Day {item.day_of_month ?? 1} at {time} (
-                                    {item.time_zone || 'America/New_York'})
-                                  </div>
-                                  <div className="text-xs text-slate-500 mt-1">
-                                    Recipients:{' '}
-                                    {item.send_to === 'selected' ? 'Selected' : 'All'} · {recipientCount}{' '}
-                                    total · {emailCount} with email
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
+                          <Select
+                            value={String(scheduleWeekday)}
+                            onValueChange={(value) => setScheduleWeekday(Number(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {weekdayOptions.map((day) => (
+                                <SelectItem key={day.value} value={String(day.value)}>
+                                  {day.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         )}
-                      </CardContent>
-                    </Card>
-
-                    <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-slate-700">Schedule</Label>
-                        <Select
-                          value={scheduleId || 'new'}
-                          onValueChange={(value) => {
-                            if (value === 'new') {
-                              resetScheduleForm();
-                            } else {
-                              setScheduleId(value);
-                              setScheduleMessage(null);
-                              setIsCreatingSchedule(false);
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue placeholder="Select schedule" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="new">New schedule</SelectItem>
-                            {schedules.map((item) => (
-                              <SelectItem key={item.id} value={item.id}>
-                                {item.name || `Schedule ${item.id.slice(0, 6)}`}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="scheduleName" className="text-slate-700">Schedule Name</Label>
-                        <Input
-                          id="scheduleName"
-                          value={scheduleName}
-                          onChange={(e) => setScheduleName(e.target.value)}
-                          placeholder="Monthly Schedule"
-                        />
-                      </div>
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full"
-                          onClick={resetScheduleForm}
-                        >
-                          New Schedule
-                        </Button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-2">
-                        <Label className="text-slate-700">Day of Month</Label>
-                        <Select
-                          value={String(scheduleDay)}
-                          onValueChange={(value) => setScheduleDay(Number(value))}
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                              <SelectItem key={day} value={String(day)}>
-                                {day}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-slate-500">Short months send on the last day.</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="scheduleTime" className="text-slate-700">Time</Label>
+                        <Label htmlFor="scheduleTime" className="text-slate-700">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Clock3 className="h-3.5 w-3.5" />
+                            Send Time
+                          </span>
+                        </Label>
                         <input
                           id="scheduleTime"
                           type="time"
@@ -878,127 +1031,104 @@ Synagogue Administration`,
                       <div className="space-y-2">
                         <Label className="text-slate-700">Timezone</Label>
                         <Select value={scheduleTimezone} onValueChange={setScheduleTimezone}>
-                          <SelectTrigger className="h-10">
+                          <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="America/New_York">America/New_York</SelectItem>
-                            <SelectItem value="America/Chicago">America/Chicago</SelectItem>
-                            <SelectItem value="America/Denver">America/Denver</SelectItem>
-                            <SelectItem value="America/Los_Angeles">America/Los_Angeles</SelectItem>
-                            <SelectItem value="UTC">UTC</SelectItem>
+                            {timezoneOptions.map((zone) => (
+                              <SelectItem key={zone} value={zone}>
+                                {zone}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-slate-700">Recipients</Label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setScheduleRecipientMode('all')}
-                          className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                            scheduleRecipientMode === 'all'
-                              ? 'border-blue-600 bg-blue-50 text-blue-700'
-                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
-                          }`}
-                        >
-                          <Mail className="w-4 h-4" />
-                          <div className="text-left">
-                            <div className="font-semibold">All Recipients</div>
-                            <div className="text-xs">
-                              Send to every member or guest (skips missing email)
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setScheduleRecipientMode('selected')}
-                          className={`flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
-                            scheduleRecipientMode === 'selected'
-                              ? 'border-blue-600 bg-blue-50 text-blue-700'
-                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
-                          }`}
-                        >
-                          <AlertCircle className="w-4 h-4" />
-                          <div className="text-left">
-                            <div className="font-semibold">Selected Recipients</div>
-                            <div className="text-xs">Pick specific members or guests</div>
-                          </div>
-                        </button>
-                      </div>
-                      {scheduleRecipientMode === 'selected' && (
-                        <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200 p-2">
-                          {allRecipients.map((person) => {
-                            return (
-                              <label
-                                key={person.key}
-                                className="flex items-center gap-3 rounded px-2 py-2 hover:bg-slate-50"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedRecipientIds.includes(person.key)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedRecipientIds([
-                                        ...selectedRecipientIds,
-                                        person.key,
-                                      ]);
-                                    } else {
-                                      setSelectedRecipientIds(
-                                        selectedRecipientIds.filter((id) => id !== person.key)
-                                      );
-                                    }
-                                  }}
-                                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                                />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-slate-900">
-                                    {person.name}
-                                  </div>
-                                  <div className="text-xs text-slate-500">
-                                    {person.email || 'No email'}
-                                  </div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
+                    <div className="text-xs text-slate-500">
+                      {scheduleFrequency === 'monthly'
+                        ? 'Monthly schedules run on the selected day. Short months run on the last available day.'
+                        : 'Weekly schedules run every selected weekday at the chosen time.'}
                     </div>
                   </div>
-                  </div>
-                )}
 
-                <div className="flex flex-col gap-3">
-                  <Button
-                    onClick={sendType === 'monthly' ? () => handleSaveSchedule(false) : handleSendNow}
-                    disabled={
-                      sendType === 'monthly'
-                        ? savingSchedule
-                        : sending || recipientsWithBalance.length === 0
-                    }
-                    className="h-11 w-full bg-blue-700 hover:bg-blue-600"
-                  >
-                    <Send className="w-5 h-5 mr-2" />
-                    {sendType === 'monthly'
-                      ? savingSchedule
+                  {renderRecipientSelector({
+                    mode: scheduleRecipientMode,
+                    setMode: setScheduleRecipientMode,
+                    selectedIds: selectedRecipientIds,
+                    setSelectedIds: setSelectedRecipientIds,
+                    search: scheduleRecipientSearch,
+                    setSearch: setScheduleRecipientSearch,
+                    filteredRecipients: filteredScheduleRecipients,
+                  })}
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+                    <div className="flex items-center gap-2 font-semibold text-slate-800">
+                      <Repeat className="h-4 w-4 text-blue-700" />
+                      Schedule Preview
+                    </div>
+                    {scheduleDisplay ? (
+                      <div className="mt-2 space-y-1">
+                        <div>
+                          <span className="font-semibold">{scheduleDisplay.name}</span> ·{' '}
+                          {scheduleDisplay.cadenceLabel}
+                        </div>
+                        <div>
+                          Runs at {scheduleDisplay.time} ({scheduleDisplay.timeZone})
+                        </div>
+                        <div>
+                          Recipients: {scheduleDisplay.sendTo === 'all' ? 'All' : 'Selected'} ·
+                          {' '}
+                          {scheduledRecipients.length} selected · {scheduledEmailCount} with email
+                        </div>
+                        <div>
+                          Attach invoice: {scheduleDisplay.attachInvoice ? 'Yes' : 'No'} · Body alignment:{' '}
+                          {scheduleDisplay.centerBody ? 'Centered' : 'Left'}
+                        </div>
+                        {scheduleDisplay.sendTo === 'selected' && scheduleRecipients.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                            {scheduleRecipients.slice(0, 5).map((rec) => (
+                              <div key={rec.key} className="flex items-center justify-between gap-2">
+                                <span className="truncate font-medium text-slate-700">{rec.name}</span>
+                                <span className="truncate text-slate-500">{rec.email || 'No email'}</span>
+                              </div>
+                            ))}
+                            {scheduleRecipients.length > 5 && (
+                              <div className="mt-1 text-slate-500">
+                                +{scheduleRecipients.length - 5} more recipients
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-2">No schedule selected yet.</div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button
+                      onClick={() => handleSaveSchedule(false)}
+                      disabled={savingSchedule}
+                      className="h-11 bg-blue-700 hover:bg-blue-600"
+                    >
+                      {savingSchedule
                         ? 'Saving...'
                         : isCreatingSchedule || !scheduleId
-                          ? 'Create Monthly Schedule'
-                          : 'Update Monthly Schedule'
-                      : (() => {
-                          if (sending) return 'Sending...';
-                          const baseList =
-                            sendRecipientMode === 'selected'
-                              ? allRecipients.filter((r) => sendSelectedRecipientIds.includes(r.key))
-                              : allRecipients;
-                          const count = baseList.filter((r) => r.email).length;
-                          return `Send to ${count} Recipients`;
-                        })()}
-                  </Button>
-                  {sendType === 'monthly' && scheduleId && !isCreatingSchedule && (
+                          ? 'Create Schedule'
+                          : 'Update Schedule'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11"
+                      onClick={resetScheduleForm}
+                    >
+                      New Schedule
+                    </Button>
+                  </div>
+
+                  {scheduleId && !isCreatingSchedule && (
                     <Button
                       variant="outline"
                       className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
@@ -1008,148 +1138,149 @@ Synagogue Administration`,
                       Save as New Schedule
                     </Button>
                   )}
-                </div>
 
-                {sendType === 'monthly' && (
-                  <>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      {schedule && scheduleDisplay ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-semibold text-slate-700">
-                              {scheduleDisplay.name}
-                            </span>
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                              Enabled
-                            </span>
-                          </div>
-                          <div>
-                            Emails send on day {scheduleDisplay.day} at {scheduleDisplay.time} (
-                            {scheduleDisplay.timeZone})
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            Recipients: {scheduleDisplay.sendTo === 'all' ? 'All' : 'Selected'} ·
-                            Attach invoice: {scheduleDisplay.attachInvoice ? 'Yes' : 'No'}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            Subject: {scheduleDisplay.subject || 'Monthly Statement'}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            Body alignment: {scheduleDisplay.centerBody ? 'Centered' : 'Left'}
-                          </div>
-                          {scheduleDisplay.sendTo === 'all' && (
-                            <div className="text-xs text-slate-500">
-                              All recipients: {allRecipients.length} · With email:{' '}
-                              {allRecipients.filter((r) => r.email).length}
-                            </div>
-                          )}
-                          {scheduleDisplay.sendTo === 'selected' && (
-                            <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
-                              <div className="mb-2 font-semibold text-slate-700">
-                                Assigned recipients ({scheduleRecipients.length})
-                              </div>
-                              {scheduleRecipients.length === 0 ? (
-                                <div className="text-slate-500">No recipients saved.</div>
-                              ) : (
-                                <div className="max-h-32 space-y-1 overflow-y-auto">
-                                  {scheduleRecipients.map((rec) => (
-                                    <div
-                                      key={rec.key}
-                                      className="flex items-center justify-between gap-2"
-                                    >
-                                      <span className="truncate font-medium">{rec.name}</span>
-                                      <span className="truncate text-slate-500">
-                                        {rec.email || 'No email'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div>No monthly schedule yet. Save to create one.</div>
-                      )}
-                    </div>
-                    {scheduleMessage && (
-                      <p
-                        className={`text-sm text-center ${
-                          scheduleMessage.type === 'error' ? 'text-red-600' : 'text-green-700'
-                        }`}
-                      >
-                        {scheduleMessage.text}
-                      </p>
-                    )}
-                    {schedule && (
-                      <Button
-                        variant="outline"
-                        className="w-full border-red-500/40 text-red-300 hover:bg-red-500/10"
-                        disabled={deleteScheduleMutation.isPending}
-                        onClick={() => {
-                          if (confirm('Delete the monthly email schedule?')) {
-                            deleteScheduleMutation.mutate();
-                          }
-                        }}
-                      >
-                        {deleteScheduleMutation.isPending ? 'Deleting...' : 'Delete Schedule'}
-                      </Button>
-                    )}
-                  </>
+                  {schedule && (
+                    <Button
+                      variant="outline"
+                      className="w-full border-red-300 text-red-700 hover:bg-red-50"
+                      disabled={deleteScheduleMutation.isPending}
+                      onClick={() => {
+                        if (confirm('Delete this email schedule?')) {
+                          deleteScheduleMutation.mutate();
+                        }
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {deleteScheduleMutation.isPending ? 'Deleting...' : 'Delete Schedule'}
+                    </Button>
+                  )}
+
+                  {scheduleMessage && (
+                    <p
+                      className={`text-center text-sm ${
+                        scheduleMessage.type === 'error' ? 'text-red-600' : 'text-green-700'
+                      }`}
+                    >
+                      {scheduleMessage.text}
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="mt-6 border-slate-200 bg-white/95 shadow-[0_14px_35px_rgba(15,23,42,0.08)]">
+          <CardHeader className="border-b border-slate-200 bg-slate-50/70">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-slate-900">
+                <CalendarDays className="h-4 w-4 text-blue-700" />
+                All Schedules
+              </CardTitle>
+              <div className="flex items-center gap-3">
+                {sendType !== 'scheduled' && (
+                  <span className="text-xs text-slate-500">Click a schedule to edit</span>
                 )}
-              </CardContent>
-            </Card>
+                <span className="text-xs text-slate-500">{schedules.length} total</span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4">
+            {schedules.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No schedules yet. Open Scheduled mode above to create one.
+              </div>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {schedules.map((item) => {
+                  const frequency = item.frequency === 'weekly' ? 'weekly' : 'monthly';
+                  const hour = Number(item.hour ?? 9);
+                  const minute = Number(item.minute ?? 0);
+                  const scheduleTimeLabel = `${String(hour).padStart(2, '0')}:${String(
+                    minute
+                  ).padStart(2, '0')}`;
+                  const weekdayValue = Number(item.day_of_week ?? 1);
+                  const weekdayLabel =
+                    weekdayOptions.find((entry) => entry.value === weekdayValue)?.label || 'Monday';
+                  const cadence =
+                    frequency === 'weekly'
+                      ? `Weekly · ${weekdayLabel}`
+                      : `Monthly · Day ${Number(item.day_of_month ?? 1)}`;
 
-            {/* Send Log */}
-            {sendLog.length > 0 && (
-              <Card className="border-slate-200 bg-white shadow-sm">
-                <CardHeader className="border-b border-slate-200 bg-slate-50">
-                  <CardTitle className="text-slate-900">Send Log</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="border-b border-slate-200 bg-slate-50">
-                        <tr>
-                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
-                            Member
-                          </th>
-                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
-                            Status
-                          </th>
-                          <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">
-                            Details
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {sendLog.map((log, idx) => (
-                          <tr key={idx}>
-                            <td className="px-6 py-4 font-medium text-slate-900">{log.member}</td>
-                            <td className="py-4 px-6">
-                              <span
-                                className={`px-2 py-1 rounded text-xs font-medium ${
-                                  log.status === 'sent'
-                                    ? 'bg-green-100 text-green-800'
-                                    : log.status === 'failed'
-                                      ? 'bg-red-100 text-red-800'
-                                      : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {log.status}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-slate-600">
-                              {log.email || log.reason}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSendType('scheduled');
+                        setScheduleId(item.id);
+                        setScheduleMessage(null);
+                        setIsCreatingSchedule(false);
+                      }}
+                      className={`w-full rounded-xl border p-3 text-left transition ${
+                        scheduleId === item.id && !isCreatingSchedule
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-900">
+                          {item.name || `Schedule ${item.id.slice(0, 6)}`}
+                        </span>
+                        <span className="text-xs text-slate-500">{cadence}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {scheduleTimeLabel} ({item.time_zone || 'America/New_York'})
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
+          </CardContent>
+        </Card>
+
+        {sendLog.length > 0 && (
+          <Card className="mt-6 border-slate-200 bg-white/95 shadow-[0_14px_35px_rgba(15,23,42,0.08)]">
+            <CardHeader className="border-b border-slate-200 bg-slate-50/70">
+              <CardTitle className="text-slate-900">Send Log</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-slate-200 bg-slate-50/80">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Recipient</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Status</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sendLog.map((log, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-4 font-medium text-slate-900">{log.member || '-'}</td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`rounded px-2 py-1 text-xs font-semibold ${
+                              log.status === 'sent'
+                                ? 'bg-green-100 text-green-800'
+                                : log.status === 'failed'
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {log.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{log.email || log.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

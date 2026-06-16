@@ -295,19 +295,43 @@ export default function MemberDetail() {
     });
   };
 
+  // Start a Stripe Checkout session and redirect, surfacing any failure to the
+  // user instead of silently doing nothing (which made the button look broken).
+  const startCheckout = async (createSession) => {
+    try {
+      const out = await createSession();
+      if (out?.url) {
+        window.location.href = out.url;
+      } else {
+        toast({
+          title: 'Could not start payment',
+          description: 'The payment page did not load. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Payment failed to start',
+        description: error?.message || 'Unable to start the card payment. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleDonationSubmit = async (e) => {
     e.preventDefault();
     const amount = parseFloat(donationAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    const out = await base44.payments.createCheckout({
-      memberId,
-      amount,
-      paymentType: 'donation',
-      description: donationDescription || `Donation - ${member.full_name}`,
-      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-    });
-    if (out?.url) window.location.href = out.url;
+    await startCheckout(() =>
+      base44.payments.createCheckout({
+        memberId,
+        amount,
+        paymentType: 'donation',
+        description: donationDescription || `Donation - ${member.full_name}`,
+        successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+        cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      })
+    );
   };
 
   const handleChargeSubmit = (e) => {
@@ -343,30 +367,32 @@ export default function MemberDetail() {
     e.preventDefault();
     const amount = parseFloat(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    const out = await base44.payments.createCheckout({
-      memberId,
-      amount,
-      paymentType: 'payment',
-      description: paymentDescription || `Payment - ${member.full_name}`,
-      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-    });
-    if (out?.url) window.location.href = out.url;
+    await startCheckout(() =>
+      base44.payments.createCheckout({
+        memberId,
+        amount,
+        paymentType: 'payment',
+        description: paymentDescription || `Payment - ${member.full_name}`,
+        successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+        cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      })
+    );
   };
 
   const handlePayoffPaymentSubmit = async (e) => {
     e.preventDefault();
     const amount = parseFloat(payoffPaymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
-    const out = await base44.payments.createCheckout({
-      memberId,
-      amount,
-      paymentType: 'balance_payoff',
-      description: payoffPaymentDescription || `Balance Payoff - ${member.full_name}`,
-      successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-      cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
-    });
-    if (out?.url) window.location.href = out.url;
+    await startCheckout(() =>
+      base44.payments.createCheckout({
+        memberId,
+        amount,
+        paymentType: 'balance_payoff',
+        description: payoffPaymentDescription || `Balance Payoff - ${member.full_name}`,
+        successPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+        cancelPath: `/MemberDetail?id=${encodeURIComponent(memberId)}`,
+      })
+    );
   };
 
   const handleSaveCard = async (e) => {
